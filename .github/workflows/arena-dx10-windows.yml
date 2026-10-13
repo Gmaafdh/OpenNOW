@@ -165,30 +165,31 @@ jobs:
       # most 50 error annotations per run, hence the hard cap.
       - name: Publish failure excerpts as annotations
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
+          set +e
           mkdir -p ci-logs
           combined=ci-logs/annotations.txt
           : > "$combined"
-          for log in ci-logs/*.log; do
+          # Most informative first: the annotation budget is 50 per run, and alphabetical order
+          # would spend it on the core check instead of the streamer build.
+          for name in streamer-build.log windows-platform-tests.log capability-tests.log \
+                      clippy.log cmake-build.log cmake-configure.log ctest.log core-check.log; do
+            log="ci-logs/$name"
             [ -f "$log" ] || continue
-            name=$(basename "$log")
             clean="ci-logs/$name.clean"
-            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d '\r' > "$clean"
-            # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
-            # file, line and explanation.
-            errors=$(grep -aE -A 12 \
-              "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" \
-              "$clean" | head -n 24)
-            if [ -n "$errors" ]; then
-              printf '%s\n' "$errors" | sed "s|^|$name: |" >> "$combined"
-            else
-              tail -n 3 "$clean" | sed "s|^|$name: |" >> "$combined"
-            fi
+            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d "\r" > "$clean"
+            {
+              # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
+              # file, line and explanation.
+              grep -aE -A 10 "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
+              tail -n 2 "$clean"
+            } | sed "s|^|$name: |" >> "$combined"
           done
           head -n 48 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
-            printf '::error title=ci-log::%s\n' "$line"
+            printf "::error title=ci-log::%s\n" "$line"
           done
           echo "annotation lines: $(wc -l < "$combined")"
 
@@ -312,30 +313,31 @@ jobs:
       # most 50 error annotations per run, hence the hard cap.
       - name: Publish failure excerpts as annotations
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
+          set +e
           mkdir -p ci-logs
           combined=ci-logs/annotations.txt
           : > "$combined"
-          for log in ci-logs/*.log; do
+          # Most informative first: the annotation budget is 50 per run, and alphabetical order
+          # would spend it on the core check instead of the streamer build.
+          for name in streamer-build.log windows-platform-tests.log capability-tests.log \
+                      clippy.log cmake-build.log cmake-configure.log ctest.log core-check.log; do
+            log="ci-logs/$name"
             [ -f "$log" ] || continue
-            name=$(basename "$log")
             clean="ci-logs/$name.clean"
-            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d '\r' > "$clean"
-            # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
-            # file, line and explanation.
-            errors=$(grep -aE -A 12 \
-              "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" \
-              "$clean" | head -n 24)
-            if [ -n "$errors" ]; then
-              printf '%s\n' "$errors" | sed "s|^|$name: |" >> "$combined"
-            else
-              tail -n 3 "$clean" | sed "s|^|$name: |" >> "$combined"
-            fi
+            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d "\r" > "$clean"
+            {
+              # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
+              # file, line and explanation.
+              grep -aE -A 10 "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
+              tail -n 2 "$clean"
+            } | sed "s|^|$name: |" >> "$combined"
           done
           head -n 48 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
-            printf '::error title=ci-log::%s\n' "$line"
+            printf "::error title=ci-log::%s\n" "$line"
           done
           echo "annotation lines: $(wc -l < "$combined")"
 
