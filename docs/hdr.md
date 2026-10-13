@@ -10,7 +10,7 @@ HDR is an opt-in streaming mode in the Qt/native client. It is separate from the
 | macOS | Hardware VideoToolbox HEVC Main10 with a verified PQ decode and IOSurface-to-Metal conversion. Encoded PQ BT.2020 is retained in RGBA16F. | Metal extended-range output; current display headroom and Qt's display-referred luminance contract determine HDR presentation. |
 | Linux | An attached Vulkan Video device supporting the negotiated 10-bit profile, or FFmpeg VAAPI with a verified HEVC Main10/AV1 10-bit profile and supported P010 DMA-BUF import. | A single-screen Wayland desktop with a complete configured PQ output description and HDR target headroom through `color-management-v1`, plus a Vulkan surface exposing scRGB or HDR10. |
 
-H.264, software decoding, CUDA's CPU-download presentation path, and standalone native presenter windows do not support HDR. The application does not enable HDR on an SDR-only desktop or assume that X11 supports it. Linux DMA-BUF layouts requiring disjoint multi-object image import are rejected rather than copied to the CPU.
+H.264, software decoding, CUDA's CPU-download presentation path, and standalone native presenter windows do not support HDR. Windows devices that need the [DirectX 10 compatibility path](directx10.md) present 8-bit SDR only and never enable HDR. The application does not enable HDR on an SDR-only desktop or assume that X11 supports it. Linux DMA-BUF layouts requiring disjoint multi-object image import are rejected rather than copied to the CPU.
 
 Linux output detection deliberately remains SDR on X11, multiple-screen configurations,
 missing color-management support, ICC-only descriptions, and incomplete or ambiguous output

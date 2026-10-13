@@ -22,6 +22,14 @@ AV1 codec package on a GPU without AV1 hardware support no longer makes it hardw
 The core resolves Auto against the embedded capability report before CloudMatch allocation.
 This is capability selection, not an automatic reconnect or codec change inside a live stream.
 
+Windows GPUs limited to Direct3D feature level 10_x expose neither `ID3D11VideoProcessor` nor
+NV12 shader-resource views, so both presenters switch to a bounded compatibility bridge with no
+setting to turn it on: hardware H.264 decode on a device created with feature levels 11_1 down
+to 10_0, NV12-to-RGBA8 conversion on the decoder worker thread, and presentation through an
+ordinary RGBA8 texture (Shader Model 4.0 into a bitblt swap chain standalone). That path reports
+H.264 8-bit 4:2:0 SDR only and never advertises a zero-copy mode. See
+[DirectX 10 compatibility](../../docs/directx10.md).
+
 GPU import/shader failures are reported to the shell and Qt log. To diagnose an individual
 black-screen report, collect `diagnostics/native-streamer.log` plus the Qt log and distinguish
 an entirely black application window from a stream-only black video surface.

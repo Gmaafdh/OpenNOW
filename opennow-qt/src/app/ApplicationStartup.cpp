@@ -69,6 +69,21 @@ private:
 static int runApplicationSession(int argc, char *argv[], QString &restartExecutable)
 {
     qputenv("QT_TLS_BACKEND", "schannel");
+    // Enumerate graphics adapters before QGuiApplication exists. Qt Quick's Direct3D 11 RHI is
+    // configured a few lines below, and it cannot run on a DirectX 10 adapter: its device needs
+    // Shader Model 5.0 and ID3D11DeviceContext1. Without this, Qt fails the accelerated device and
+    // silently retries on the WARP software rasterizer, which then becomes the device the embedded
+    // streamer adopts. Asking for the software renderer explicitly keeps that choice deliberate,
+    // logged, and identical to what Qt would have picked anyway.
+    const auto detectedGraphicsAdapters = GraphicsDeviceSelection::detectAdapters();
+#if defined(Q_OS_WIN)
+    if (!GraphicsDeviceSelection::anySupportsAcceleratedShell(detectedGraphicsAdapters)) {
+        qputenv("QSG_RHI_PREFER_SOFTWARE_RENDERER", "1");
+        qWarning("Every graphics adapter is DirectX 10 class (feature level below 11.0). The shell "
+                 "renders with the Windows software rasterizer and video streams through the "
+                 "DirectX 10 compatibility path: H.264, 8-bit, 4:2:0, SDR.");
+    }
+#endif
     QElapsedTimer startupTimer;
     startupTimer.start();
     QGuiApplication::setApplicationName(u"OpenNOW"_s);
@@ -138,7 +153,7 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     application.installTranslator(&localization);
     CoreClient coreClient;
     const auto coreProgram = AcceptanceSession::coreProgram(arguments);
-    GraphicsDeviceSelection graphicsDevices(GraphicsDeviceSelection::detectAdapters(),
+    GraphicsDeviceSelection graphicsDevices(detectedGraphicsAdapters,
 #ifdef Q_OS_WIN
                                              CoreClient::graphicsPreference(coreProgram)
 #else

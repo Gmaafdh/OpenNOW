@@ -167,6 +167,26 @@ for GPU readback checks of ten-bit gradients, endpoint and neutral colors, final
 and high-precision render targets. Live acceptance still requires checking gradients and
 black/white levels on the intended GPU and display in windowed and fullscreen modes.
 
+## DirectX 10 compatibility
+
+Qt's D3D11 RHI requires Shader Model 5.0, `ID3D11DeviceContext1` and constant-buffer offsetting,
+so on a feature-level 10_x GPU `QRhi::create` fails and Qt retries on the WARP software
+rasterizer. `ApplicationStartup` enumerates adapters with their actual feature levels before
+`QGuiApplication` exists; when no adapter can host an accelerated RHI the app sets
+`QSG_RHI_PREFER_SOFTWARE_RENDERER=1` itself and logs the decision instead of depending on that
+silent retry, and the window is never pinned to an adapter that cannot present it. The Settings
+GPU picker labels those adapters "DirectX 10 compatibility" and offers only H.264 for them.
+
+The streamer then converts decoded NV12 on its decoder worker and hands Qt an ordinary 8-bit
+RGBA8 texture, so overlays, upscaling and statistics behave as they do for any 8-bit SDR stream
+while HDR and ten-bit color stay unavailable. See
+[DirectX 10 compatibility](../docs/directx10.md) for the pipeline, the capability ceiling and the
+log lines to collect.
+
+```sh
+ctest --test-dir build/opennow-qt --output-on-failure -R graphicsdevices
+```
+
 ## macOS upscaling
 
 Settings → Stream → Upscaling offers **Off** (default) and **MetalFX** on macOS.

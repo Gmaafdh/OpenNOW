@@ -1,0 +1,212 @@
+name: DirectX 10 Windows verification
+
+# Fork-only harness. The repository's own CI (qt-ci.yml -> qt-build.yml) runs on the project's
+# private Blacksmith runner pool, which a fork does not have, and its packaging jobs need signing
+# secrets. These two jobs use GitHub-hosted Windows runners instead and do only what is needed to
+# prove the DirectX 10 compatibility path compiles, passes its tests, and produces a runnable
+# OpenNOW.exe. Do not merge this file upstream.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/19992b39-opennow
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dx10-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SDL_VERSION: release-3.2.20
+
+jobs:
+  rust-windows:
+    name: Rust Windows streamer (compile, tests, clippy)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: arena-dx10-rust
+          cache-on-failure: true
+          workspaces: |
+            native/opennow-core -> target
+            native/opennow-streamer -> target
+
+      # The Windows platform tests create real D3D11 devices and Media Foundation objects, so
+      # record what this runner exposes. Missing video interfaces are an expected skip, not a
+      # failure: that is the branch the DirectX 10 compatibility path replaces.
+      - name: Report runner graphics and media capability
+        shell: pwsh
+        run: |
+          $mfplat = Join-Path $env:SystemRoot "System32\mfplat.dll"
+          Write-Host "mfplat.dll present: $(Test-Path $mfplat)"
+          Get-CimInstance Win32_VideoController |
+            Select-Object Name, DriverVersion, AdapterCompatibility | Format-List
+          Get-WindowsFeature -Name Server-Media-Foundation -ErrorAction SilentlyContinue |
+            Format-List Name, InstallState
+
+      - name: Check the core workspace
+        shell: bash
+        run: cargo check --locked --manifest-path native/opennow-core/Cargo.toml
+
+      - name: Build the streamer workspace
+        shell: bash
+        run: cargo build --locked --manifest-path native/opennow-streamer/Cargo.toml --workspace
+
+      - name: Windows platform tests
+        shell: bash
+        run: >-
+          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml
+          -p opennow-streamer-platform-windows --lib -- --nocapture
+
+      - name: Capability report tests
+        shell: bash
+        run: >-
+          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml
+          -p opennow-streamer-platform --lib -- --nocapture
+
+      - name: Clippy (workspace, all targets, warnings denied)
+        shell: bash
+        run: |
+          cargo clippy --locked --manifest-path native/opennow-core/Cargo.toml \
+            --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path native/opennow-streamer/Cargo.toml \
+            --workspace --all-targets -- -D warnings
+
+      # Reporting only: the repository has no rustfmt gate, but the formatted result is useful.
+      - name: Capture rustfmt diff
+        if: always()
+        shell: bash
+        run: |
+          cargo fmt --manifest-path native/opennow-core/Cargo.toml --all || true
+          cargo fmt --manifest-path native/opennow-streamer/Cargo.toml --all || true
+          git --no-pager diff --stat || true
+          git --no-pager diff > rustfmt.patch || true
+          wc -l rustfmt.patch || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rustfmt-diff
+          path: rustfmt.patch
+          if-no-files-found: ignore
+
+  qt-windows-exe:
+    name: Qt Windows executable (OpenNOW.exe)
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project's Windows build maps the checkout to a short drive letter to keep compiler and
+      # CMake paths short; reuse that contract instead of inventing a second one.
+      - name: Map stable Windows workspace
+        shell: pwsh
+        run: .github/scripts/map-windows-workspace.ps1
+
+      - name: Enable Windows Media Foundation
+        shell: pwsh
+        continue-on-error: true
+        run: .github/scripts/ensure-windows-media-foundation.ps1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Bound Windows Rust compilation
+        shell: pwsh
+        run: |
+          "CARGO_BUILD_JOBS=2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:VSCMD_ARG_TGT_ARCH -eq "x64") {
+            $linker = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64\link.exe"
+            if (-not (Test-Path $linker)) { throw "The MSVC x64 linker is unavailable." }
+            "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qtshadertools
+          cache: true
+          cache-key-prefix: arena-dx10-qt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: arena-dx10-qt
+          cache-on-failure: true
+          workspaces: |
+            native/opennow-core -> ../../build/opennow-qt-release/rust-target
+            native/opennow-core -> ../../build/opennow-qt-release/update-helper-rust-target
+            native/opennow-streamer -> ../../build/opennow-qt-release/streamer-rust-target
+
+      - name: Build and cache SDL3
+        uses: ./.github/actions/sdl3
+        with:
+          version: ${{ env.SDL_VERSION }}
+          target-arch: x64
+          parallel: 2
+
+      - name: Configure Qt release
+        shell: bash
+        run: |
+          cd /o
+          cmake -S opennow-qt -B build/opennow-qt-release \
+            -G "Ninja Multi-Config" \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install"
+
+      # Only the application and the adapter-selection test are built: this harness is about the
+      # DirectX 10 path, not the full release matrix.
+      - name: Build OpenNOW.exe and the adapter selection test
+        shell: bash
+        run: |
+          cd /o
+          cmake --build build/opennow-qt-release --config Release --parallel 2 \
+            --target opennow-qt opennow-graphicsdevices-tests
+
+      - name: Adapter selection tests
+        shell: bash
+        run: |
+          cd /o
+          ctest --test-dir build/opennow-qt-release -C Release \
+            -R graphicsdevices --output-on-failure --no-tests=error
+
+      - name: Report deployment payload
+        shell: pwsh
+        run: |
+          $root = "O:\build\opennow-qt-release\Release"
+          $exe = Join-Path $root "OpenNOW.exe"
+          if (-not (Test-Path $exe)) { throw "OpenNOW.exe was not produced in $root" }
+          $size = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+          Write-Host ("Deployment root: {0} ({1:N0} MB)" -f $root, $size)
+          Get-Item $exe | Select-Object Name, Length, LastWriteTime | Format-List
+          (Get-Item $exe).VersionInfo | Format-List ProductName, ProductVersion, FileVersion
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenNOW-Windows-x64-dx10
+          path: O:/build/opennow-qt-release/Release
+          if-no-files-found: error
+          retention-days: 14

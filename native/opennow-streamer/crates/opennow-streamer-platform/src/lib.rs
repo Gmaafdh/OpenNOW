@@ -377,8 +377,9 @@ fn windows_hardware_capability(
 
     let media_output_available = probe.d3d11_presentation
         && (matches!(output_mode, WindowsOutputMode::Embedded) || probe.wasapi_render);
-    let available = media_output_available
-        && (probe.h264_hardware_decode || probe.h265_hardware_decode || probe.av1_hardware_decode);
+    let compat = probe.compat_presentation();
+    let compat_ceiling =
+        compat.then_some("DirectX 10 compatibility mode supports H.264 8-bit 4:2:0 SDR only");
     let color_qualities = |codec| {
         [
             ("8bit_420", VideoPixelFormat::Nv12),
@@ -403,6 +404,19 @@ fn windows_hardware_capability(
         })
         .collect::<Vec<_>>()
     };
+    // A codec is offered only when at least one negotiated color quality can really be decoded and
+    // presented. On the DirectX 10 compatibility bridge that leaves H.264 8-bit 4:2:0 SDR, even
+    // when an installed software HEVC transform reports that it can decode.
+    let h264_colors = color_qualities(VideoCodec::H264);
+    let h265_colors = color_qualities(VideoCodec::H265);
+    let av1_colors = color_qualities(VideoCodec::Av1);
+    let h264_available = !h264_colors.is_empty();
+    let h265_available = !h265_colors.is_empty();
+    let av1_available = !av1_colors.is_empty();
+    let available = h264_available || h265_available || av1_available;
+    // The compatibility bridge reads decoded NV12 back and converts it on the CPU, so it must never
+    // advertise the zero-copy texture mode even when it can present.
+    let zero_copy_available = available && !compat;
     let reason = if available {
         None
     } else {
@@ -422,35 +436,38 @@ fn windows_hardware_capability(
             CodecCapability {
                 hdr_supported: Some(false),
                 hdr_color_qualities: Some(hdr_color_qualities(VideoCodec::H264)),
-                color_qualities: Some(color_qualities(VideoCodec::H264)),
+                color_qualities: Some(h264_colors),
                 codec: "h264",
-                available: media_output_available && probe.h264_hardware_decode,
-                reason: (!(media_output_available && probe.h264_hardware_decode)).then_some(
-                    "H.264 Media Foundation hardware decode or media output is unavailable",
-                ),
+                available: h264_available,
+                reason: (!h264_available)
+                    .then_some("H.264 Media Foundation hardware decode or media output is unavailable"),
             },
             CodecCapability {
-                hdr_supported: Some(media_output_available && probe.h265_hdr),
+                hdr_supported: Some(media_output_available && probe.h265_hdr && !compat),
                 hdr_color_qualities: Some(hdr_color_qualities(VideoCodec::H265)),
-                color_qualities: Some(color_qualities(VideoCodec::H265)),
+                color_qualities: Some(h265_colors),
                 codec: "h265",
-                available: media_output_available && probe.h265_hardware_decode,
-                reason: (!(media_output_available && probe.h265_hardware_decode)).then_some(
-                    "H.265 Media Foundation hardware decode or media output is unavailable",
+                available: h265_available,
+                reason: (!h265_available).then_some(
+                    compat_ceiling.unwrap_or(
+                        "H.265 Media Foundation hardware decode or media output is unavailable",
+                    ),
                 ),
             },
             CodecCapability {
-                hdr_supported: Some(media_output_available && probe.av1_hdr),
+                hdr_supported: Some(media_output_available && probe.av1_hdr && !compat),
                 hdr_color_qualities: Some(hdr_color_qualities(VideoCodec::Av1)),
-                color_qualities: Some(color_qualities(VideoCodec::Av1)),
+                color_qualities: Some(av1_colors),
                 codec: "av1",
-                available: media_output_available && probe.av1_hardware_decode,
-                reason: (!(media_output_available && probe.av1_hardware_decode)).then_some(
-                    "AV1 Media Foundation hardware decode or media output is unavailable",
+                available: av1_available,
+                reason: (!av1_available).then_some(
+                    compat_ceiling.unwrap_or(
+                        "AV1 Media Foundation hardware decode or media output is unavailable",
+                    ),
                 ),
             },
         ],
-        zero_copy_modes: available
+        zero_copy_modes: zero_copy_available
             .then_some(vec![zero_copy_mode])
             .unwrap_or_default(),
         available,
@@ -691,6 +708,8 @@ mod tests {
             h265_software_decode: false,
             av1_software_decode: false,
             d3d11_presentation: true,
+            feature_level: None,
+            video_processor: true,
             wasapi_render: false,
             reason: Some("WASAPI failed to start".to_owned()),
         };
@@ -758,6 +777,106 @@ mod tests {
         assert!(av1.available);
         assert!(!av1.codecs[0].available);
         assert!(av1.codecs[2].available);
+    }
+
+    #[test]
+    fn windows_directx10_devices_present_h264_without_zero_copy_or_hdr() {
+        use opennow_streamer_platform_windows::CapabilityProbe;
+
+        // A feature level 10_1 device with no video interface. An installed software HEVC MFT can
+        // still report decode support, which the feature-level ceiling must not let through.
+        let probe = CapabilityProbe {
+            available: true,
+            h264_hardware_decode: true,
+            h265_hardware_decode: true,
+            av1_hardware_decode: false,
+            h265_hdr: true,
+            av1_hdr: false,
+            h265_10bit: true,
+            av1_10bit: false,
+            h265_444: false,
+            h265_10bit_444: false,
+            h265_hdr_444: false,
+            h264_software_decode: true,
+            h265_software_decode: true,
+            av1_software_decode: false,
+            d3d11_presentation: true,
+            feature_level: Some(0xa100),
+            video_processor: false,
+            wasapi_render: true,
+            reason: None,
+        };
+        assert!(probe.compat_presentation());
+        assert!(probe.supports_format(
+            opennow_streamer_platform_windows::VideoCodec::H264,
+            opennow_streamer_platform_windows::VideoPixelFormat::Nv12,
+            false
+        ));
+        assert!(!probe.supports_format(
+            opennow_streamer_platform_windows::VideoCodec::H265,
+            opennow_streamer_platform_windows::VideoPixelFormat::Nv12,
+            false
+        ));
+        assert!(!probe.supports_hdr(opennow_streamer_platform_windows::VideoCodec::H265));
+
+        for mode in [WindowsOutputMode::Embedded, WindowsOutputMode::Standalone] {
+            let capability = windows_hardware_capability(&probe, "d3d11", "d3d11-nv12", mode);
+            assert!(capability.available);
+            assert_eq!(capability.reason, None);
+            assert!(
+                capability.zero_copy_modes.is_empty(),
+                "the CPU compatibility bridge is not zero copy"
+            );
+            let h264 = &capability.codecs[0];
+            assert!(h264.available);
+            assert_eq!(h264.hdr_supported, Some(false));
+            assert_eq!(h264.color_qualities, Some(vec!["8bit_420"]));
+            assert_eq!(h264.hdr_color_qualities, Some(vec![]));
+            for codec in &capability.codecs[1..] {
+                assert!(!codec.available);
+                assert_eq!(codec.hdr_supported, Some(false));
+                assert_eq!(codec.color_qualities, Some(vec![]));
+                assert_eq!(codec.hdr_color_qualities, Some(vec![]));
+                assert_eq!(
+                    codec.reason,
+                    Some("DirectX 10 compatibility mode supports H.264 8-bit 4:2:0 SDR only")
+                );
+            }
+        }
+
+        // A WARP-backed shell device reports feature level 11_1 but still has no video interface,
+        // so the same ceiling applies.
+        let warp = CapabilityProbe {
+            feature_level: Some(0xb100),
+            ..probe.clone()
+        };
+        assert!(warp.compat_presentation());
+        let capability = windows_hardware_capability(
+            &warp,
+            "d3d11",
+            "d3d11-nv12",
+            WindowsOutputMode::Embedded,
+        );
+        assert!(capability.available);
+        assert!(capability.zero_copy_modes.is_empty());
+        assert!(!capability.codecs[1].available);
+
+        // The normal path keeps advertising zero copy and HDR.
+        let direct3d11 = CapabilityProbe {
+            feature_level: Some(0xb100),
+            video_processor: true,
+            ..probe.clone()
+        };
+        assert!(!direct3d11.compat_presentation());
+        let capability = windows_hardware_capability(
+            &direct3d11,
+            "d3d11",
+            "d3d11-nv12",
+            WindowsOutputMode::Embedded,
+        );
+        assert_eq!(capability.zero_copy_modes, vec!["d3d11-nv12"]);
+        assert!(capability.codecs[1].available);
+        assert_eq!(capability.codecs[1].hdr_supported, Some(true));
     }
 
     #[test]

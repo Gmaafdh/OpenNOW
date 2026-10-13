@@ -44,13 +44,15 @@ use ::windows::Win32::System::Threading::{
 };
 use ::windows::core::{IUnknown, Interface};
 
+use crate::feature_level::{self, DeviceFeatureLevel};
 use crate::queue::BoundedQueue;
 use crate::{
     ADAPTIVE_VIDEO_QUEUE_CAPACITY, BackendError, BackendEvent, EncodedVideoFrame, PushOutcome,
-    Subsystem, VideoFormat, VideoPixelFormat, VideoTransferFunction, WindowsDecoderMode,
+    Subsystem, VideoCodec, VideoFormat, VideoPixelFormat, VideoTransferFunction, WindowsDecoderMode,
 };
 
 use super::color::input_color_space;
+use super::compat::{CompatConverter, CompatDecodeDevice, CompatPixels, CompatUploader};
 use super::decoder::{DecodedVideoFrame, Decoder, DecoderDevice};
 
 // Async Media Foundation transforms do not provide a waitable output handle. Polling at one
@@ -270,14 +272,21 @@ struct ProcessorResources {
 struct AdoptedResources {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
-    video_device: ID3D11VideoDevice,
-    video_context: ID3D11VideoContext,
-    video_context_1: ID3D11VideoContext1,
+    /// Absent on a DirectX 10 class device and on the WARP rasterizer, which is what selects the
+    /// compatibility bridge instead of the video processor.
+    video_device: Option<ID3D11VideoDevice>,
+    video_context: Option<ID3D11VideoContext>,
+    video_context_1: Option<ID3D11VideoContext1>,
     manager: IMFDXGIDeviceManager,
     format: VideoFormat,
     generation: u64,
     processor: Option<ProcessorResources>,
     y410: Option<super::y410::Y410Converter>,
+    /// Hardware decode device created by this module when Qt adopted a device that cannot decode.
+    compat_decode: Option<CompatDecodeDevice>,
+    /// Uploads worker-converted RGBA8 frames into Qt's device; present only in compatibility mode.
+    compat_uploader: Option<CompatUploader>,
+    feature_level: Option<i32>,
 }
 
 impl AdoptedResources {
@@ -298,27 +307,79 @@ impl AdoptedResources {
             );
         }
         enable_multithread_protection(&context)?;
-        let video_device = device
-            .cast()
-            .map_err(|error| format!("Qt D3D11 device has no video interface: {error}"))?;
-        let video_context: ID3D11VideoContext = context
-            .cast()
-            .map_err(|error| format!("Qt immediate context has no video interface: {error}"))?;
-        let video_context_1 = video_context.cast().map_err(|error| {
-            format!("Qt D3D11 context cannot configure explicit color spaces: {error}")
-        })?;
-        let mut reset_token = 0;
-        let mut manager = None;
-        unsafe {
-            MFCreateDXGIDeviceManager(&mut reset_token, &mut manager)
-                .map_err(|error| format!("MFCreateDXGIDeviceManager: {error}"))?;
-        }
-        let manager = manager.ok_or("MFCreateDXGIDeviceManager returned no manager")?;
-        unsafe {
-            manager
-                .ResetDevice(&device, reset_token)
-                .map_err(|error| format!("IMFDXGIDeviceManager::ResetDevice: {error}"))?;
-        }
+        let feature_level = adopted_feature_level(&device);
+        // Qt hands over whatever device its RHI created. On DirectX 10 hardware that device has no
+        // video processor, and when the hardware cannot run Qt's D3D11 RHI at all Qt silently
+        // retries on the WARP software rasterizer, which refuses the video interfaces entirely.
+        // Both used to abort the embedded pipeline here; record the gap instead and let the
+        // bounded compatibility bridge cover it.
+        let video_device: Option<ID3D11VideoDevice> = match device.cast() {
+            Ok(video_device) => Some(video_device),
+            Err(error) => {
+                video_log!(
+                    "Qt D3D11 device has no video interface (featureLevel={}): {error}",
+                    feature_level.map(|level| level.label()).unwrap_or("unknown"),
+                );
+                None
+            }
+        };
+        let video_context: Option<ID3D11VideoContext> = match context.cast() {
+            Ok(video_context) => Some(video_context),
+            Err(error) => {
+                video_log!("Qt immediate context has no video interface: {error}");
+                None
+            }
+        };
+        let video_context_1 = video_context
+            .as_ref()
+            .and_then(|video_context| video_context.cast().ok());
+        let compat = feature_level::requires_compat_conversion(
+            feature_level.map(|level| level.raw()),
+            video_device.is_some() && video_context.is_some(),
+        );
+        // Media Foundation needs a device manager bound to a device that can run DXVA decode. When
+        // Qt adopted a device that cannot, decoding moves to a hardware device created here, which
+        // accepts feature level 10_0 and 10_1. The worker converts those NV12 surfaces on the CPU
+        // and the result is uploaded into Qt's device, so nothing is shared across devices.
+        let compat_decode = if compat {
+            let decode_device = CompatDecodeDevice::new().map_err(|error| {
+                format!("no DirectX 10 compatible decode device for the embedded pipeline: {error}")
+            })?;
+            video_log!(
+                "Embedded D3D11 compatibility path active decodeFeatureLevel={} decodeAdapterLuid={} adoptedFeatureLevel={}",
+                decode_device
+                    .feature_level()
+                    .map(|level| level.label())
+                    .unwrap_or("unknown"),
+                decode_device
+                    .adapter_luid()
+                    .map(adapter_luid_text)
+                    .unwrap_or_else(|_| "unavailable".to_owned()),
+                feature_level.map(|level| level.label()).unwrap_or("unknown"),
+            );
+            Some(decode_device)
+        } else {
+            None
+        };
+        let manager = match compat_decode.as_ref() {
+            Some(decode_device) => decode_device.manager().clone(),
+            None => {
+                let mut reset_token = 0;
+                let mut manager = None;
+                unsafe {
+                    MFCreateDXGIDeviceManager(&mut reset_token, &mut manager)
+                        .map_err(|error| format!("MFCreateDXGIDeviceManager: {error}"))?;
+                }
+                let manager = manager.ok_or("MFCreateDXGIDeviceManager returned no manager")?;
+                unsafe {
+                    manager
+                        .ResetDevice(&device, reset_token)
+                        .map_err(|error| format!("IMFDXGIDeviceManager::ResetDevice: {error}"))?;
+                }
+                manager
+            }
+        };
+        let compat_uploader = compat.then(|| CompatUploader::new(&device));
         Ok(Self {
             device,
             context,
@@ -330,6 +391,32 @@ impl AdoptedResources {
             generation: 0,
             processor: None,
             y410: None,
+            compat_decode,
+            compat_uploader,
+            feature_level: feature_level.map(|level| level.raw()),
+        })
+    }
+
+    /// Whether decoded frames are converted on the CPU instead of by the video processor.
+    fn compat_conversion(&self) -> bool {
+        self.compat_decode.is_some()
+    }
+
+    fn video_device(&self) -> Result<&ID3D11VideoDevice, String> {
+        self.video_device.as_ref().ok_or_else(|| {
+            format!(
+                "embedded D3D11 conversion needs the video processor, which this {} device does not expose",
+                feature_level::tier_of(self.feature_level).label()
+            )
+        })
+    }
+
+    fn video_context(&self) -> Result<&ID3D11VideoContext, String> {
+        self.video_context.as_ref().ok_or_else(|| {
+            format!(
+                "embedded D3D11 conversion needs the video context, which this {} device does not expose",
+                feature_level::tier_of(self.feature_level).label()
+            )
         })
     }
 
@@ -350,8 +437,10 @@ impl AdoptedResources {
     unsafe fn validate_adopted_context(&self, adopted: AdoptedD3d11Context) -> Result<(), String> {
         let device = unsafe { clone_interface::<ID3D11Device>(adopted.device)? };
         let context = unsafe { clone_interface::<ID3D11DeviceContext>(adopted.immediate_context)? };
+        // The immediate context and its ID3D11VideoContext projection are the same COM object, so
+        // comparing against the context keeps working on devices without the video interfaces.
         if com_identity(&device)? != com_identity(&self.device)?
-            || com_identity(&context)? != com_identity(&self.video_context)?
+            || com_identity(&context)? != com_identity(&self.context)?
         {
             return Err("D3D11 frame belongs to an older Qt graphics context".to_owned());
         }
@@ -362,6 +451,7 @@ impl AdoptedResources {
         &mut self,
         frame_slot: u32,
         frame: &DecodedVideoFrame,
+        compat: Option<&CompatPixels>,
     ) -> Result<D3d11RecordedFrame, String> {
         let slot = usize::try_from(frame_slot)
             .ok()
@@ -391,6 +481,42 @@ impl AdoptedResources {
             input_description.MipLevels,
             input_description.ArraySize,
         )?;
+        if self.compat_conversion() {
+            // Compatibility mode: the decoder worker already converted this NV12 surface into
+            // RGBA8 on the CPU, so recording only uploads into an ordinary frame-slot texture.
+            // Nothing here needs the video interfaces, Shader Model 5.0 or a GPU wait, which keeps
+            // Qt's render thread free of blocking codec work.
+            let pixels = compat.ok_or_else(|| {
+                "embedded compatibility presentation needs CPU-converted frame pixels".to_owned()
+            })?;
+            if pixels.width != frame.aperture.width || pixels.height != frame.aperture.height {
+                return Err(format!(
+                    "embedded compatibility pixels {}x{} do not match the decoded aperture {}x{}",
+                    pixels.width, pixels.height, frame.aperture.width, frame.aperture.height
+                ));
+            }
+            self.reconfigure(frame.format);
+            let uploader = self
+                .compat_uploader
+                .as_mut()
+                .ok_or("embedded compatibility uploader is unavailable")?;
+            let (texture, _) = uploader.upload(&self.context, slot, pixels)?;
+            self.generation = self.generation.wrapping_add(1).max(1);
+            return Ok(D3d11RecordedFrame {
+                texture,
+                // The compatibility bridge always produces 8-bit sRGB-scale RGB in a BT.709
+                // container, matching the negotiated NV12/BT.709 stream.
+                texture_format: D3d11TextureFormat::Rgba8,
+                color_space: D3d11ColorSpace::Sdr709,
+                width: pixels.width,
+                height: pixels.height,
+                frame_slot,
+                generation: self.generation,
+                presentation_time_ns: u64::try_from(frame.timestamp_100ns.max(0))
+                    .unwrap_or(0)
+                    .saturating_mul(100),
+            });
+        }
         self.reconfigure(frame.format);
         if frame.format.pixel_format == VideoPixelFormat::Y410 {
             if self.y410.is_none() {
@@ -423,6 +549,10 @@ impl AdoptedResources {
                     .saturating_mul(100),
             });
         }
+        // Both interfaces are cloned before the mutable processor borrow so the video-processor
+        // path keeps working with the optional projections of a DirectX 11 device.
+        let video_device = self.video_device()?.clone();
+        let video_context = self.video_context()?.clone();
         self.ensure_processor(
             input_description.Width,
             input_description.Height,
@@ -450,7 +580,7 @@ impl AdoptedResources {
             };
             let mut view = None;
             unsafe {
-                self.video_device
+                video_device
                     .CreateVideoProcessorInputView(
                         &frame.texture,
                         &processor.enumerator,
@@ -478,7 +608,7 @@ impl AdoptedResources {
         if processor.slots[slot].is_none() {
             processor.slots[slot] = Some(FrameSlot::new(
                 &self.device,
-                &self.video_device,
+                &video_device,
                 &processor.enumerator,
                 processor.output_width,
                 processor.output_height,
@@ -490,24 +620,24 @@ impl AdoptedResources {
             .expect("initialized frame slot");
         let output_view = active_slot.output_view.clone();
         unsafe {
-            self.video_context.VideoProcessorSetStreamFrameFormat(
+            video_context.VideoProcessorSetStreamFrameFormat(
                 &processor.processor,
                 0,
                 D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
             );
-            self.video_context.VideoProcessorSetStreamSourceRect(
+            video_context.VideoProcessorSetStreamSourceRect(
                 &processor.processor,
                 0,
                 true,
                 Some(&source),
             );
-            self.video_context.VideoProcessorSetStreamDestRect(
+            video_context.VideoProcessorSetStreamDestRect(
                 &processor.processor,
                 0,
                 true,
                 Some(&destination),
             );
-            self.video_context.VideoProcessorSetOutputTargetRect(
+            video_context.VideoProcessorSetOutputTargetRect(
                 &processor.processor,
                 true,
                 Some(&RECT {
@@ -522,7 +652,7 @@ impl AdoptedResources {
                 pInputSurface: ManuallyDrop::new(Some(input_view)),
                 ..Default::default()
             };
-            let result = self.video_context.VideoProcessorBlt(
+            let result = video_context.VideoProcessorBlt(
                 &processor.processor,
                 &output_view,
                 0,
@@ -557,6 +687,10 @@ impl AdoptedResources {
         self.format
             .validate_color()
             .map_err(|error| error.to_string())?;
+        let video_device = self.video_device()?.clone();
+        let video_context_1 = self.video_context_1.as_ref().ok_or_else(|| {
+            "Qt D3D11 context cannot configure explicit color spaces".to_owned()
+        })?;
         let input_color_space = input_color_space(self.format)?;
         let output_format = output_dxgi_format(self.format);
         if self.processor.as_ref().is_some_and(|processor| {
@@ -586,29 +720,24 @@ impl AdoptedResources {
             Usage: D3D11_VIDEO_USAGE_OPTIMAL_SPEED,
         };
         let enumerator = unsafe {
-            self.video_device
+            video_device
                 .CreateVideoProcessorEnumerator(&description)
                 .map_err(|error| format!("CreateVideoProcessorEnumerator: {error}"))?
         };
         validate_conversion(&enumerator, input_format, output_format, self.format)?;
         let processor = unsafe {
-            self.video_device
+            video_device
                 .CreateVideoProcessor(&enumerator, 0)
                 .map_err(|error| format!("CreateVideoProcessor: {error}"))?
         };
         unsafe {
-            self.video_context_1.VideoProcessorSetStreamColorSpace1(
-                &processor,
-                0,
-                input_color_space,
-            );
-            self.video_context_1.VideoProcessorSetOutputColorSpace1(
+            video_context_1.VideoProcessorSetStreamColorSpace1(&processor, 0, input_color_space);
+            video_context_1.VideoProcessorSetOutputColorSpace1(
                 &processor,
                 output_color_space(self.format.transfer_function),
             );
             if self.format.transfer_function != VideoTransferFunction::Sdr {
-                self.video_context_1
-                    .VideoProcessorSetStreamAutoProcessingMode(&processor, 0, false);
+                video_context_1.VideoProcessorSetStreamAutoProcessingMode(&processor, 0, false);
             }
         }
         // QRhi owns slot reuse. Allocate only the slots it actually visits;
@@ -695,8 +824,30 @@ pub(super) unsafe fn probe_decoded_conversion(
     frame: &DecodedVideoFrame,
 ) -> Result<(), String> {
     let mut resources = unsafe { AdoptedResources::new(adopted, frame.format)? };
-    resources.record(0, frame)?;
+    // Probing runs on the worker that validates decode support, never on Qt's render thread, so a
+    // compatibility conversion here is safe to do inline.
+    let compat = resources
+        .compat_conversion()
+        .then(|| CompatConverter::default().convert(frame))
+        .transpose()?;
+    resources.record(0, frame, compat.as_ref())?;
     Ok(())
+}
+
+/// Reads the feature level Qt's adopted device was created with.
+///
+/// `None` means the driver reported a level this build does not know, which is treated as a
+/// DirectX 11 class device: every gap that matters is still detected through the missing video
+/// interfaces.
+fn adopted_feature_level(device: &ID3D11Device) -> Option<DeviceFeatureLevel> {
+    #[allow(unused_unsafe)]
+    let raw = unsafe { device.GetFeatureLevel() }.0;
+    DeviceFeatureLevel::from_raw(raw)
+}
+
+fn adapter_luid_text(luid: LUID) -> String {
+    let raw = u64::from(luid.LowPart) | ((luid.HighPart as u32 as u64) << 32);
+    format!("{raw:#x}")
 }
 
 fn enable_multithread_protection(context: &ID3D11DeviceContext) -> Result<(), String> {
@@ -723,6 +874,11 @@ impl DecoderDevice for AdoptedResources {
     }
 
     fn adapter_luid(&self) -> Result<LUID, String> {
+        if let Some(decode_device) = self.compat_decode.as_ref() {
+            // Media Foundation decodes on the compatibility device, so the decoder must be pinned
+            // to that adapter rather than to Qt's adopted one.
+            return decode_device.adapter_luid();
+        }
         unsafe {
             let dxgi_device: IDXGIDevice = self
                 .device
@@ -760,6 +916,9 @@ struct DecoderDeviceSnapshot {
     manager: IMFDXGIDeviceManager,
     adapter_luid: LUID,
     format: VideoFormat,
+    /// Whether decoded NV12 must be converted on the CPU because the presentation device has no
+    /// video processor.
+    compat_conversion: bool,
 }
 
 // IMFDXGIDeviceManager is the documented synchronization boundary for sharing one D3D11 device
@@ -773,6 +932,7 @@ impl DecoderDeviceSnapshot {
             manager: resources.manager.clone(),
             adapter_luid: resources.adapter_luid()?,
             format: resources.format,
+            compat_conversion: resources.compat_conversion(),
         })
     }
 }
@@ -793,6 +953,9 @@ impl DecoderDevice for DecoderDeviceSnapshot {
 
 struct ReadyDecodedFrame {
     frame: DecodedVideoFrame,
+    /// CPU-converted RGBA8 pixels, present only on the DirectX 10 compatibility path where the
+    /// decoder worker did the conversion instead of the render thread.
+    compat: Option<CompatPixels>,
     decoder_generation: u64,
 }
 
@@ -818,6 +981,7 @@ unsafe impl Send for D3d11Pipeline {}
 
 pub struct D3d11Frame {
     frame: DecodedVideoFrame,
+    compat: Option<CompatPixels>,
     state: Arc<Mutex<D3d11Pipeline>>,
     sequence: u64,
 }
@@ -873,7 +1037,7 @@ impl D3d11Frame {
         })?;
         state
             .resources
-            .record(frame_slot, &self.frame)
+            .record(frame_slot, &self.frame, self.compat.as_ref())
             .map_err(|message| BackendError::DeviceLost {
                 subsystem: Subsystem::VideoPresentation,
                 message,
@@ -908,6 +1072,20 @@ impl D3d11FrameProducer {
         let runtime = Arc::new(EmbeddedMediaRuntime::initialize().map_err(BackendError::Startup)?);
         let resources =
             unsafe { AdoptedResources::new(adopted, format) }.map_err(BackendError::Startup)?;
+        if resources.compat_conversion()
+            && (format.codec != VideoCodec::H264
+                || format.pixel_format != VideoPixelFormat::Nv12
+                || format.transfer_function != VideoTransferFunction::Sdr)
+        {
+            // Fail before a decoder is created: the CPU bridge converts NV12 only, and silently
+            // decoding a format it cannot present would waste a worker and a device.
+            return Err(BackendError::InvalidConfig(format!(
+                "DirectX 10 compatibility streaming supports H.264 NV12 8-bit SDR only, negotiated {} {:?} {:?}",
+                format.codec.label(),
+                format.pixel_format,
+                format.transfer_function
+            )));
+        }
         let decoder_device =
             DecoderDeviceSnapshot::new(&resources).map_err(BackendError::Startup)?;
         let encoded = Arc::new(BoundedQueue::new(ADAPTIVE_VIDEO_QUEUE_CAPACITY));
@@ -982,8 +1160,9 @@ impl D3d11FrameProducer {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let frame = state.acquire_latest()?;
-        Ok(frame.map(|frame| D3d11Frame {
+        Ok(frame.map(|(frame, compat)| D3d11Frame {
             frame,
+            compat,
             state: Arc::clone(&self.state),
             sequence: self.sequence.fetch_add(1, Ordering::AcqRel) + 1,
         }))
@@ -999,7 +1178,9 @@ impl D3d11FrameProducer {
 }
 
 impl D3d11Pipeline {
-    fn acquire_latest(&mut self) -> Result<Option<DecodedVideoFrame>, BackendError> {
+    fn acquire_latest(
+        &mut self,
+    ) -> Result<Option<(DecodedVideoFrame, Option<CompatPixels>)>, BackendError> {
         self.ensure_render_thread()?;
         if !poll_decoder_startup(&mut self.startup)? {
             return Ok(None);
@@ -1022,7 +1203,7 @@ impl D3d11Pipeline {
             self.resources.reset_decoder_views();
             self.presented_decoder_generation = ready.decoder_generation;
         }
-        Ok(Some(ready.frame))
+        Ok(Some((ready.frame, ready.compat)))
     }
 
     fn ensure_render_thread(&self) -> Result<(), BackendError> {
@@ -1115,6 +1296,9 @@ fn run_decoder_worker(
             DECODER_POLL_INTERVAL.as_millis()
         ),
     );
+    // The compatibility converter is worker-owned: reading a decoded surface back blocks until
+    // the GPU finished it, which must never happen on Qt's render thread.
+    let mut converter = device.compat_conversion.then(CompatConverter::default);
     let mut submitted_any = false;
     // One worker-owned access unit may be waiting for a replacement MFT's
     // NeedInput event. Keep its already-queued descendants in order.
@@ -1132,10 +1316,29 @@ fn run_decoder_worker(
                 produced_frames = produced_frames.saturating_add(produced as u64);
                 if produced > 0 {
                     let generation = decoder_generation.load(Ordering::Acquire);
+                    // Convert before taking the queue lock so the render thread never waits on a
+                    // read-back. A frame whose conversion failed is dropped: the bounded queue and
+                    // the decoder's own keyframe recovery handle the gap.
+                    let mut converted = Vec::with_capacity(output.len());
+                    while let Some(frame) = output.pop_front() {
+                        let compat = match converter.as_mut() {
+                            Some(converter) => match converter.convert(&frame) {
+                                Ok(pixels) => Some(pixels),
+                                Err(message) => {
+                                    video_log!(
+                                        "Embedded D3D11 compatibility conversion dropped a frame: {message}"
+                                    );
+                                    continue;
+                                }
+                            },
+                            None => None,
+                        };
+                        converted.push((frame, compat));
+                    }
                     let mut ready = decoded
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    while let Some(frame) = output.pop_front() {
+                    for (frame, compat) in converted {
                         if ready.len() == ADAPTIVE_VIDEO_QUEUE_CAPACITY {
                             ready.pop_front();
                             let _ = events
@@ -1143,6 +1346,7 @@ fn run_decoder_worker(
                         }
                         ready.push_back(ReadyDecodedFrame {
                             frame,
+                            compat,
                             decoder_generation: generation,
                         });
                     }
@@ -1614,11 +1818,11 @@ mod tests {
             let frame =
                 DecodedVideoFrame::from_sample(sample, format, aperture, format.pixel_format)
                     .unwrap();
-            let first = resources.record(0, &frame).unwrap();
+            let first = resources.record(0, &frame, None).unwrap();
             let processor = resources.processor.as_ref().unwrap().processor.clone();
             for _ in 0..3 {
                 resources.reconfigure(format);
-                let recorded = resources.record(0, &frame).unwrap();
+                let recorded = resources.record(0, &frame, None).unwrap();
                 assert_eq!(resources.format, format);
                 assert_eq!((recorded.width, recorded.height), (1920, 1080));
                 assert_eq!(recorded.texture, first.texture);
@@ -1635,7 +1839,10 @@ mod tests {
                 let mut enabled = Default::default();
                 let mut source = RECT::default();
                 unsafe {
-                    resources.video_context.VideoProcessorGetStreamSourceRect(
+                    resources
+                        .video_context()
+                        .unwrap()
+                        .VideoProcessorGetStreamSourceRect(
                         &processor,
                         0,
                         &mut enabled,
@@ -1655,7 +1862,7 @@ mod tests {
             }
             resources.reset_decoder_views();
             assert!(resources.processor.as_ref().unwrap().input_views.is_empty());
-            assert_eq!(resources.record(0, &frame).unwrap().texture, first.texture);
+            assert_eq!(resources.record(0, &frame, None).unwrap().texture, first.texture);
         }
     }
     #[test]
@@ -1903,7 +2110,7 @@ mod tests {
                 );
             }
             let recorded = resources
-                .record(0, &frame)
+                .record(0, &frame, None)
                 .expect("convert actual P010/PQ decoder surface");
             assert_eq!(recorded.texture_format, D3d11TextureFormat::Rgb10A2);
             assert_eq!(recorded.color_space, D3d11ColorSpace::Pq2020);
@@ -2160,7 +2367,7 @@ mod tests {
             };
             let decoded_pixels = read_rows(&frame.texture, frame.subresource);
             let recorded = resources
-                .record(0, &frame)
+                .record(0, &frame, None)
                 .expect("convert actual Y410 decoder surface");
             assert_eq!(recorded.texture_format, D3d11TextureFormat::Rgb10A2);
             assert_eq!(
@@ -2400,9 +2607,9 @@ mod tests {
         let mut ready = VecDeque::from([frame]);
         assert_eq!(sample_ref_count(&sample), baseline_refs + 1);
         let frame = ready.pop_back().unwrap();
-        let first = resources.record(0, &frame).unwrap();
-        assert_eq!(first.texture, resources.record(0, &frame).unwrap().texture);
-        assert_ne!(first.texture, resources.record(3, &frame).unwrap().texture);
+        let first = resources.record(0, &frame, None).unwrap();
+        assert_eq!(first.texture, resources.record(0, &frame, None).unwrap().texture);
+        assert_ne!(first.texture, resources.record(3, &frame, None).unwrap().texture);
         assert_eq!(
             sample_ref_count(&sample),
             baseline_refs + 1,
@@ -2419,7 +2626,7 @@ mod tests {
                 .count(),
             2
         );
-        assert!(resources.record(8, &frame).is_err());
+        assert!(resources.record(8, &frame, None).is_err());
         drop(frame);
         assert_eq!(
             sample_ref_count(&sample),
@@ -2557,13 +2764,15 @@ mod tests {
                     assert_eq!(
                         resources
                             .video_context_1
+                            .as_ref()
+                            .unwrap()
                             .VideoProcessorGetOutputColorSpace1(&processor.processor,),
                         DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709
                     );
                 }
                 let slot = FrameSlot::new(
                     &device,
-                    &resources.video_device,
+                    resources.video_device().unwrap(),
                     &processor.enumerator,
                     128,
                     64,

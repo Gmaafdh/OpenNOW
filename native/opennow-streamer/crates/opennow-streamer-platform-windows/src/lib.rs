@@ -3,7 +3,10 @@
 #[cfg(any(windows, test))]
 mod aperture;
 mod decoder_order;
+mod feature_level;
 mod format;
+#[cfg(any(windows, test))]
+mod nv12_convert;
 mod queue;
 #[cfg(any(windows, test))]
 mod y410_color;
@@ -14,6 +17,10 @@ mod adapter_decode;
 mod windows;
 
 pub use adapter_decode::{AdapterDecodeIndex, graphics_adapter_capabilities};
+pub use feature_level::{
+    DeviceFeatureLevel, FeatureTier, REQUESTED_FEATURE_LEVELS, ShaderModel, SwapChainProfile,
+    requires_compat_conversion, swap_chain_profile, tier_of,
+};
 
 #[cfg(windows)]
 pub use windows::{
@@ -154,11 +161,23 @@ pub struct CapabilityProbe {
     pub h265_software_decode: bool,
     pub av1_software_decode: bool,
     pub d3d11_presentation: bool,
+    /// Raw `D3D_FEATURE_LEVEL` reported by the presentation device, when one was created.
+    /// Feature level 10_0 and 10_1 are DirectX 10 class devices.
+    pub feature_level: Option<i32>,
+    /// Whether the presentation device exposed the D3D11 video interfaces. A device without them
+    /// (a DirectX 10 GPU, or the WARP software rasterizer Qt Quick falls back to) presents through
+    /// the bounded compatibility path instead, which is H.264 8-bit 4:2:0 SDR only.
+    pub video_processor: bool,
     pub wasapi_render: bool,
     pub reason: Option<String>,
 }
 
 impl CapabilityProbe {
+    /// Whether presentation goes through the DirectX 10 compatibility bridge.
+    pub const fn compat_presentation(&self) -> bool {
+        self.d3d11_presentation && !self.video_processor
+    }
+
     pub const fn supports_format(
         &self,
         codec: VideoCodec,
@@ -166,6 +185,21 @@ impl CapabilityProbe {
         hdr: bool,
     ) -> bool {
         if !self.d3d11_presentation {
+            return false;
+        }
+        // DirectX 10 class hardware has no Shader Model 5.0 and no video processor, so ten-bit,
+        // 4:4:4 and HDR output stay unsupported instead of being down-converted silently.
+        if !feature_level::allows_format(self.feature_level, codec, pixel_format, hdr) {
+            return false;
+        }
+        // A device without the video interfaces can only reach RGB through the CPU conversion
+        // bridge, which is NV12 8-bit SDR by contract.
+        if !self.video_processor
+            && !matches!(
+                (codec, pixel_format, hdr),
+                (VideoCodec::H264, VideoPixelFormat::Nv12, false)
+            )
+        {
             return false;
         }
         match (codec, pixel_format, hdr) {
@@ -185,6 +219,7 @@ impl CapabilityProbe {
 
     pub const fn supports_hdr(&self, codec: VideoCodec) -> bool {
         self.d3d11_presentation
+            && self.video_processor
             && match codec {
                 VideoCodec::H264 => false,
                 VideoCodec::H265 => self.h265_hardware_decode && self.h265_hdr,
@@ -347,6 +382,8 @@ impl WindowsBackend {
                 h265_software_decode: false,
                 av1_software_decode: false,
                 d3d11_presentation: false,
+                feature_level: None,
+                video_processor: false,
                 wasapi_render: false,
                 reason: Some("the current target is not Windows".to_owned()),
             }
@@ -733,6 +770,8 @@ mod tests {
             h265_software_decode: true,
             av1_software_decode: true,
             d3d11_presentation: true,
+            feature_level: None,
+            video_processor: true,
             wasapi_render: false,
             reason: Some("WASAPI failed to start".to_owned()),
         };
@@ -761,6 +800,8 @@ mod tests {
             h265_software_decode: true,
             av1_software_decode: true,
             d3d11_presentation: true,
+            feature_level: None,
+            video_processor: true,
             wasapi_render: true,
             reason: None,
         };
@@ -796,6 +837,8 @@ mod tests {
             h265_software_decode: false,
             av1_software_decode: false,
             d3d11_presentation: true,
+            feature_level: None,
+            video_processor: true,
             wasapi_render: true,
             reason: None,
         };

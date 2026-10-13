@@ -98,6 +98,51 @@ private slots:
         QVERIFY(!options[1].toMap().value(u"value"_s).toString().isEmpty());
     }
 
+    void directx10AdaptersOfferH264CompatibilityOnly()
+    {
+        // Feature level 10_1 hardware still decodes H.264 through DXVA, but it has no Shader
+        // Model 5.0 and no D3D11 video processor, so neither Qt Quick's Direct3D 11 RHI nor the
+        // streamer's HEVC/AV1 conversion can run on it.
+        const GraphicsDeviceSelection::Adapter directx10{
+            u"gt730"_s, u"NVIDIA GeForce GT 730"_s, 3, 2ULL << 30, false, true, true, false, 0xa100};
+        QVERIFY(GraphicsDeviceSelection::isDirect3D10Adapter(directx10));
+        QVERIFY(!GraphicsDeviceSelection::supportsAcceleratedShell(directx10));
+        QVERIFY(!GraphicsDeviceSelection::anySupportsAcceleratedShell({directx10}));
+
+        GraphicsDeviceSelection selection({directx10}, {});
+        QCOMPARE(selection.adapterLuid(), 3ULL);
+        const auto choices = selection.choices();
+        QCOMPARE(choices[0].toMap().value(u"codecs"_s).toStringList(), QStringList({u"h264"_s}));
+        QCOMPARE(choices[1].toMap().value(u"codecs"_s).toStringList(), QStringList({u"h264"_s}));
+        const auto detail = choices[1].toMap().value(u"detail"_s).toString();
+        QVERIFY(detail.contains(u"DirectX 10 compatibility"_s));
+        QVERIFY(detail.contains(u"H.264"_s));
+        QVERIFY(!detail.contains(u"H.265"_s));
+
+        // A DirectX 11 adapter keeps the shell accelerated, and an adapter whose feature level
+        // could not be read is never assumed to be DirectX 10.
+        const GraphicsDeviceSelection::Adapter directx11{
+            u"rtx"_s, u"NVIDIA GeForce RTX"_s, 5, 8ULL << 30, false, true, true, true, 0xc100};
+        const GraphicsDeviceSelection::Adapter unknown{
+            u"unknown"_s, u"Unknown GPU"_s, 6, 0, false, true, false, false};
+        QVERIFY(GraphicsDeviceSelection::supportsAcceleratedShell(unknown));
+        QVERIFY(GraphicsDeviceSelection::anySupportsAcceleratedShell({directx10, directx11}));
+        QVERIFY(GraphicsDeviceSelection::anySupportsAcceleratedShell({directx10, unknown}));
+        QVERIFY(GraphicsDeviceSelection::anySupportsAcceleratedShell({}));
+
+        // Automatic keeps its promise that the same GPU decodes and displays: with both a DirectX
+        // 10 decoder and a DirectX 11 GPU present, the DirectX 11 one wins even when it is listed
+        // second.
+        GraphicsDeviceSelection mixed({directx10, directx11}, {});
+        QCOMPARE(mixed.adapterLuid(), 5ULL);
+        QCOMPARE(mixed.choices()[0].toMap().value(u"codecs"_s).toStringList(),
+                 QStringList({u"h264"_s, u"h265"_s, u"av1"_s}));
+        // Explicitly selecting the DirectX 10 GPU still works; the shell just does not pin itself
+        // to it.
+        GraphicsDeviceSelection requested({directx10, directx11}, u"gt730"_s);
+        QCOMPARE(requested.adapterLuid(), 3ULL);
+    }
+
     void hardwareEnumerationNeverReturnsSoftwareOrDuplicateLuids()
     {
         const auto adapters = GraphicsDeviceSelection::detectAdapters();

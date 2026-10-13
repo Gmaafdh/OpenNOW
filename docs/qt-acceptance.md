@@ -167,6 +167,37 @@ graph. There is no child streamer process, child HWND or paired native video win
 still prove each platform's native texture import and synchronization on real hardware; the design
 alone is not performance or zero-copy evidence.
 
+## DirectX 10 compatibility on Windows
+
+Feature level 10_x GPUs cannot run Qt's D3D11 RHI or the D3D11 video processor, so the shell
+selects the software renderer itself and the streamer converts NV12 on the decoder worker. The
+design and its capability ceiling are in [DirectX 10 compatibility](directx10.md).
+
+```sh
+ctest --test-dir build/opennow-qt --output-on-failure -R 'graphicsdevices|streamcolor'
+cargo test --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streamer-platform-windows --lib
+cargo test --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streamer-platform --lib
+```
+
+Those commands also run on a DirectX 11 host; they check adapter classification, the feature
+tier ceilings, the NV12-to-RGBA8 color math and the compatibility capability report, not the
+device itself. On a real DirectX 10 machine (or a DirectX 11 machine whose driver refuses the
+video interfaces), start a session with the DirectX 11 backend on Auto and confirm:
+
+- Settings offers DirectX 11, shows H.264 with 8-bit 4:2:0 only, keeps HDR off, and leaves
+  DirectX 12 disabled with a reason rather than a blank row.
+- The stream presents video in windowed and fullscreen mode, with menus and statistics drawn
+  over it in the same window, and audio and input continue.
+- `native-streamer.log` in the diagnostics export records the adopted feature level, the
+  compatibility decode device and its adapter LUID, and no repeated
+  `compatibility conversion dropped a frame` lines.
+- A resolution, frame rate, display-scale and reconnect change survives, since the bitblt swap
+  chain is recreated rather than resized in place.
+
+Synthetic tests do not establish decode throughput, present pacing or image quality on 10_x
+hardware. Record the adapter name, driver version, negotiated codec and color quality, and the
+F3 statistics for the session in the acceptance evidence.
+
 ## Custom library collections
 
 Run `ctest --test-dir build/opennow-qt -R qml-collections --output-on-failure`

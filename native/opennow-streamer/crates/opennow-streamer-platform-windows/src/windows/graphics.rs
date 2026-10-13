@@ -10,7 +10,7 @@ use ::windows::Win32::Foundation::{
     LUID, RECT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use ::windows::Win32::Graphics::Direct3D::{
-    D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_10_0,
+    D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_10_0,
     D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
 };
 use ::windows::Win32::Graphics::Direct3D10::ID3D10Multithread;
@@ -44,7 +44,8 @@ use ::windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_FEATURE_PRESENT_ALLOW_TEARING, DXGI_MWA_NO_ALT_ENTER, DXGI_PRESENT,
     DXGI_PRESENT_ALLOW_TEARING, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
     DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
-    DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter, IDXGIDevice,
+    DXGI_SWAP_EFFECT_DISCARD, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT,
+    IDXGIAdapter, IDXGIDevice,
     IDXGIFactory2, IDXGIFactory4, IDXGIFactory5, IDXGISwapChain1, IDXGISwapChain2, IDXGISwapChain3,
 };
 use ::windows::Win32::Media::MediaFoundation::{IMFDXGIDeviceManager, MFCreateDXGIDeviceManager};
@@ -62,11 +63,14 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
 };
 use ::windows::core::{BOOL, IUnknown, Interface, w};
 
+use crate::aperture::VideoAperture;
+use crate::feature_level::{self, DeviceFeatureLevel, FeatureTier, SwapChainProfile};
 use crate::{
     Bounds, ExistingWindow, OwnedWindow, SurfaceTarget, VideoChromaFormat, VideoCodec, VideoFormat,
     VideoPixelFormat, WindowHandle, WindowsAdapterLuid, WindowsGraphicsApi,
 };
 
+use super::compat::CompatPresenter;
 use super::decoder::DecoderDevice;
 
 const WINDOW_CLASS: ::windows::core::PCWSTR = w!("OpenNOWStreamerD3D11Surface");
@@ -74,11 +78,56 @@ const WINDOW_CLASS: ::windows::core::PCWSTR = w!("OpenNOWStreamerD3D11Surface");
 struct DeviceResources {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
-    video_device: ID3D11VideoDevice,
-    video_context: ID3D11VideoContext,
+    /// Absent on DirectX 10 class hardware and on devices that refuse the D3D11 video
+    /// interfaces, such as the WARP software rasterizer. Absence selects the compatibility path
+    /// instead of failing the device.
+    video_device: Option<ID3D11VideoDevice>,
+    video_context: Option<ID3D11VideoContext>,
     video_context_1: Option<ID3D11VideoContext1>,
     manager: IMFDXGIDeviceManager,
+    feature_level: Option<DeviceFeatureLevel>,
     _d3d12: Option<D3d12Owners>,
+}
+
+impl DeviceResources {
+    fn raw_feature_level(&self) -> Option<i32> {
+        self.feature_level.map(|level| level.raw())
+    }
+
+    fn tier(&self) -> FeatureTier {
+        feature_level::tier_of(self.raw_feature_level())
+    }
+
+    /// Whether the D3D11 video processor can be used at all on this device.
+    fn video_processor_available(&self) -> bool {
+        self.video_device.is_some() && self.video_context.is_some()
+    }
+
+    /// Whether presentation must go through the DirectX 10 compatibility bridge.
+    fn compat(&self) -> bool {
+        feature_level::requires_compat_conversion(
+            self.raw_feature_level(),
+            self.video_processor_available(),
+        )
+    }
+
+    fn video_device(&self) -> Result<&ID3D11VideoDevice, String> {
+        self.video_device.as_ref().ok_or_else(|| {
+            format!(
+                "D3D11 video device is unavailable on this {} adapter",
+                self.tier().label()
+            )
+        })
+    }
+
+    fn video_context(&self) -> Result<&ID3D11VideoContext, String> {
+        self.video_context.as_ref().ok_or_else(|| {
+            format!(
+                "D3D11 video context is unavailable on this {} adapter",
+                self.tier().label()
+            )
+        })
+    }
 }
 
 struct D3d12Owners {
@@ -102,17 +151,36 @@ impl DeviceResources {
     fn finish_d3d11_device(
         device: ID3D11Device,
         context: ID3D11DeviceContext,
+        feature_level: Option<DeviceFeatureLevel>,
         d3d12: Option<D3d12Owners>,
     ) -> Result<Self, String> {
         unsafe {
             let multithread: ID3D10Multithread =
                 context.cast().map_err(|error| error.to_string())?;
             let _ = multithread.SetMultithreadProtected(true);
-            let video_device: ID3D11VideoDevice =
-                device.cast().map_err(|error| error.to_string())?;
-            let video_context: ID3D11VideoContext =
-                context.cast().map_err(|error| error.to_string())?;
-            let video_context_1 = video_context.cast().ok();
+            // A DirectX 10 adapter exposes D3D11 video decode but not the video processor, and a
+            // WARP device may refuse the video interfaces entirely. Neither is fatal: the
+            // compatibility presenter covers both, so record the absence instead of failing here.
+            let video_device: Option<ID3D11VideoDevice> = match device.cast() {
+                Ok(video_device) => Some(video_device),
+                Err(error) => {
+                    video_log!(
+                        "D3D11 video device unavailable (featureLevel={}): {error}",
+                        feature_level.map(|level| level.label()).unwrap_or("unknown"),
+                    );
+                    None
+                }
+            };
+            let video_context: Option<ID3D11VideoContext> = match context.cast() {
+                Ok(video_context) => Some(video_context),
+                Err(error) => {
+                    video_log!("D3D11 video context unavailable: {error}");
+                    None
+                }
+            };
+            let video_context_1 = video_context
+                .as_ref()
+                .and_then(|video_context| video_context.cast().ok());
             let mut reset_token = 0;
             let mut manager = None;
             MFCreateDXGIDeviceManager(&mut reset_token, &mut manager)
@@ -128,6 +196,7 @@ impl DeviceResources {
                 video_context,
                 video_context_1,
                 manager,
+                feature_level,
                 _d3d12: d3d12,
             })
         }
@@ -137,6 +206,7 @@ impl DeviceResources {
         unsafe {
             let mut device = None;
             let mut context = None;
+            let mut raw_feature_level = D3D_FEATURE_LEVEL(0);
             let levels = [
                 D3D_FEATURE_LEVEL_11_1,
                 D3D_FEATURE_LEVEL_11_0,
@@ -155,13 +225,20 @@ impl DeviceResources {
                 Some(&levels),
                 D3D11_SDK_VERSION,
                 Some(&mut device),
-                None,
+                Some(&mut raw_feature_level),
                 Some(&mut context),
             )
             .map_err(|error| error.to_string())?;
+            let feature_level = DeviceFeatureLevel::from_raw(raw_feature_level.0);
+            video_log!(
+                "Windows presenter device featureLevel={} tier={}",
+                feature_level.map(|level| level.label()).unwrap_or("unknown"),
+                feature_level::tier_of(feature_level.map(|level| level.raw())).label(),
+            );
             Self::finish_d3d11_device(
                 device.ok_or("D3D11CreateDevice returned no device")?,
                 context.ok_or("D3D11CreateDevice returned no immediate context")?,
+                feature_level,
                 None,
             )
         }
@@ -189,6 +266,7 @@ impl DeviceResources {
             let queue_unknown = queue.cast().map_err(|error| error.to_string())?;
             let mut device = None;
             let mut context = None;
+            let mut raw_feature_level = D3D_FEATURE_LEVEL(0);
             D3D11On12CreateDevice(
                 &d3d12_device,
                 (D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT).0,
@@ -197,7 +275,7 @@ impl DeviceResources {
                 0,
                 Some(&mut device),
                 Some(&mut context),
-                None,
+                Some(&mut raw_feature_level),
             )
             .map_err(|error| format!("D3D11On12CreateDevice: {error}"))?;
             let device = device.ok_or("D3D11On12CreateDevice returned no D3D11 device")?;
@@ -208,6 +286,7 @@ impl DeviceResources {
             Self::finish_d3d11_device(
                 device,
                 context,
+                DeviceFeatureLevel::from_raw(raw_feature_level.0),
                 Some(D3d12Owners {
                     _device: d3d12_device,
                     _queue: queue,
@@ -359,6 +438,7 @@ struct ProcessorResources {
 
 struct SwapChainResources {
     swap_chain: IDXGISwapChain1,
+    /// Invalid on a bitblt-model chain, where no frame-latency waitable object may be requested.
     frame_latency_waitable: HANDLE,
     flags: DXGI_SWAP_CHAIN_FLAG,
     allow_tearing: bool,
@@ -386,6 +466,34 @@ pub(super) struct Graphics {
     swap_size: (u32, u32),
     swap_format: DXGI_FORMAT,
     ten_bit_output_supported: bool,
+    swap_chain_profile: SwapChainProfile,
+    /// Set on DirectX 10 class hardware and on devices without the D3D11 video interfaces, where
+    /// decoded NV12 is converted on the CPU and drawn with a Shader Model 4.0 pass instead of the
+    /// video processor.
+    compat: Option<CompatPresenter>,
+}
+
+impl Graphics {
+    /// Raw `D3D_FEATURE_LEVEL` of the presentation device, when device creation reported one.
+    pub(super) fn feature_level(&self) -> Option<i32> {
+        self.resources.raw_feature_level()
+    }
+
+    /// Whether the D3D11 video processor path is usable on this device.
+    pub(super) fn video_processor_available(&self) -> bool {
+        self.compat.is_none() && self.resources.video_processor_available()
+    }
+
+    fn swap_chain_profile_for(
+        feature_level: Option<i32>,
+        ten_bit_output_supported: bool,
+    ) -> SwapChainProfile {
+        let profile = feature_level::swap_chain_profile(feature_level);
+        SwapChainProfile {
+            ten_bit_output: profile.ten_bit_output && ten_bit_output_supported,
+            ..profile
+        }
+    }
 }
 
 impl Graphics {
@@ -447,6 +555,27 @@ impl Graphics {
     ) -> Result<(), String> {
         if hdr && codec == VideoCodec::H264 {
             return Err("H.264 HDR is unsupported".to_owned());
+        }
+        // Never decode a fixture format the presentation device cannot convert: a DirectX 10 class
+        // adapter has no video processor, no Shader Model 5.0 and no NV12/P010 shader-resource
+        // views, so only H.264 NV12 SDR can reach the swap chain through the CPU bridge.
+        if !feature_level::allows_format(self.resources.raw_feature_level(), codec, pixel_format, hdr)
+        {
+            return Err(format!(
+                "{} adapters cannot present {codec:?} {pixel_format:?} hdr={hdr}",
+                self.resources.tier().label()
+            ));
+        }
+        if self.compat.is_some() {
+            // The CPU conversion is exact and unit tested, so the one format the compatibility
+            // presenter does support needs no driver validation. Everything else stays rejected
+            // instead of being silently down-converted.
+            return match (codec, pixel_format, hdr) {
+                (VideoCodec::H264, VideoPixelFormat::Nv12, false) => Ok(()),
+                _ => Err(format!(
+                    "the DirectX 10 compatibility presenter supports H.264 NV12 SDR only, asked for {codec:?} {pixel_format:?} hdr={hdr}"
+                )),
+            };
         }
         let format = VideoFormat {
             codec,
@@ -561,11 +690,35 @@ impl Graphics {
     ) -> Result<Self, String> {
         validate_standalone_color(video_format)?;
         let resources = DeviceResources::new(api, adapter_luid)?;
+        let compat_mode = resources.compat();
+        // The compatibility bridge converts NV12 into 8-bit RGBA on the CPU, so ten-bit scan-out
+        // cannot be honored there even when the feature tier would allow it.
+        let ten_bit_output_supported = !compat_mode;
         let window = RenderWindow::new(target)?;
         let swap_size = window.client_size()?;
-        let swap_format = swap_chain_format(video_format, true);
-        let swap_chain =
-            create_swap_chain(&resources.device, window.hwnd(), swap_size, swap_format)?;
+        let swap_format = swap_chain_format(video_format, ten_bit_output_supported);
+        let swap_chain_profile =
+            Self::swap_chain_profile_for(resources.raw_feature_level(), ten_bit_output_supported);
+        let swap_chain = create_swap_chain(
+            &resources.device,
+            window.hwnd(),
+            swap_size,
+            swap_format,
+            swap_chain_profile,
+        )?;
+        let compat = if compat_mode {
+            let feature_label = resources
+                .feature_level
+                .map(|level| level.label())
+                .unwrap_or("unknown");
+            video_log!(
+                "Windows presenter using the DirectX 10 compatibility path \
+                 (featureLevel={feature_label} videoProcessor=false): H.264 8-bit 4:2:0 SDR only"
+            );
+            Some(CompatPresenter::new(&resources.device, &resources.context)?)
+        } else {
+            None
+        };
         eprintln!(
             "Windows presenter configured swapchain={}x{} format={} bitDepth={}",
             swap_size.0,
@@ -585,7 +738,9 @@ impl Graphics {
             video_format,
             swap_size,
             swap_format,
-            ten_bit_output_supported: true,
+            ten_bit_output_supported,
+            swap_chain_profile,
+            compat,
         };
         graphics.ensure_processor(video_format.width, video_format.height)?;
         Ok(graphics)
@@ -638,11 +793,16 @@ impl Graphics {
         let window = RenderWindow::new(target)?;
         let swap_size = window.client_size()?;
         let swap_format = swap_chain_format(video_format, self.ten_bit_output_supported);
+        let swap_chain_profile = Self::swap_chain_profile_for(
+            self.resources.raw_feature_level(),
+            self.ten_bit_output_supported,
+        );
         let swap_chain = create_swap_chain(
             &self.resources.device,
             window.hwnd(),
             swap_size,
             swap_format,
+            swap_chain_profile,
         )?;
         self.processor = None;
         let old_swap_chain = std::mem::replace(&mut self.swap_chain, swap_chain.swap_chain);
@@ -650,6 +810,7 @@ impl Graphics {
         self.frame_latency_waitable = swap_chain.frame_latency_waitable;
         self.swap_chain_flags = swap_chain.flags;
         self.allow_tearing = swap_chain.allow_tearing;
+        self.swap_chain_profile = swap_chain_profile;
         self.has_presented = false;
         self.window = window;
         self.swap_size = swap_size;
@@ -668,6 +829,11 @@ impl Graphics {
 
     pub(super) fn is_present_ready(&self) -> Result<bool, String> {
         if !self.has_presented {
+            return Ok(true);
+        }
+        if self.frame_latency_waitable.0.is_null() {
+            // A bitblt-model chain has no waitable object and its Present blocks until the copy
+            // into the front buffer is queued, which is the pacing the waitable handle provides.
             return Ok(true);
         }
         let result = unsafe { WaitForSingleObject(self.frame_latency_waitable, 0) };
@@ -702,6 +868,43 @@ impl Graphics {
         self.synchronize_decoder_surface_format(texture_description.Format)?;
         self.resize_if_needed()?;
         self.ensure_processor(texture_description.Width, texture_description.Height)?;
+        if let Some(compat) = self.compat.as_mut() {
+            let backbuffer: ID3D11Texture2D = unsafe {
+                self.swap_chain
+                    .GetBuffer(0)
+                    .map_err(|error| format!("compatibility back buffer: {error}"))
+            }?;
+            let aperture = VideoAperture::new(
+                texture_description.Width,
+                texture_description.Height,
+                None,
+            )?;
+            let target = self.swap_size;
+            let present_flags = if self.allow_tearing {
+                DXGI_PRESENT_ALLOW_TEARING
+            } else {
+                DXGI_PRESENT(0)
+            };
+            let sync_interval = self.swap_chain_profile.present_sync_interval;
+            compat.present_texture(
+                texture,
+                subresource,
+                self.video_format,
+                aperture,
+                &backbuffer,
+                target,
+            )?;
+            unsafe {
+                self.swap_chain
+                    .Present(sync_interval, present_flags)
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+            }
+            self.has_presented = true;
+            return Ok(());
+        }
+        let video_device = self.resources.video_device()?.clone();
+        let video_context = self.resources.video_context()?.clone();
         let processor = self
             .processor
             .as_mut()
@@ -723,8 +926,7 @@ impl Graphics {
                 view.clone()
             } else {
                 let mut input_view = None;
-                self.resources
-                    .video_device
+                video_device
                     .CreateVideoProcessorInputView(
                         texture,
                         &processor.enumerator,
@@ -750,21 +952,17 @@ impl Graphics {
                 processor.output_width,
                 processor.output_height,
             );
-            self.resources
-                .video_context
+            video_context
                 .VideoProcessorSetStreamFrameFormat(
                     &processor.processor,
                     0,
                     D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
                 );
-            self.resources
-                .video_context
+            video_context
                 .VideoProcessorSetStreamSourceRect(&processor.processor, 0, true, Some(&source));
-            self.resources
-                .video_context
+            video_context
                 .VideoProcessorSetStreamDestRect(&processor.processor, 0, true, Some(&destination));
-            self.resources
-                .video_context
+            video_context
                 .VideoProcessorSetOutputTargetRect(
                     &processor.processor,
                     true,
@@ -780,7 +978,7 @@ impl Graphics {
                 pInputSurface: ManuallyDrop::new(Some(input_view)),
                 ..Default::default()
             };
-            let blit = self.resources.video_context.VideoProcessorBlt(
+            let blit = video_context.VideoProcessorBlt(
                 &processor.processor,
                 &processor.output_view,
                 0,
@@ -797,7 +995,7 @@ impl Graphics {
                 DXGI_PRESENT(0)
             };
             self.swap_chain
-                .Present(0, present_flags)
+                .Present(self.swap_chain_profile.present_sync_interval, present_flags)
                 .ok()
                 .map_err(|error| error.to_string())?;
             self.has_presented = true;
@@ -828,12 +1026,20 @@ impl Graphics {
         self.processor = None;
         unsafe {
             self.swap_chain
-                .ResizeBuffers(2, size.0, size.1, format, self.swap_chain_flags)
+                .ResizeBuffers(
+                    self.swap_chain_profile.buffer_count,
+                    size.0,
+                    size.1,
+                    format,
+                    self.swap_chain_flags,
+                )
                 .map_err(|error| error.to_string())?;
         }
         self.swap_size = size;
         self.swap_format = format;
-        set_swap_chain_color_space(&self.swap_chain)?;
+        if self.swap_chain_profile.flip_model {
+            set_swap_chain_color_space(&self.swap_chain)?;
+        }
         eprintln!(
             "Windows presenter resized swapchain={}x{} format={} bitDepth={}",
             size.0,
@@ -865,6 +1071,12 @@ impl Graphics {
     }
 
     fn ensure_processor(&mut self, input_width: u32, input_height: u32) -> Result<(), String> {
+        if self.compat.is_some() {
+            // The compatibility presenter converts NV12 on the CPU and draws with Shader Model 4.0,
+            // so there is no video processor to build on this device.
+            return Ok(());
+        }
+        let video_device = self.resources.video_device()?.clone();
         if self.processor.as_ref().is_some_and(|processor| {
             processor.input_width == input_width
                 && processor.input_height == input_height
@@ -890,9 +1102,7 @@ impl Graphics {
             Usage: D3D11_VIDEO_USAGE_OPTIMAL_SPEED,
         };
         unsafe {
-            let enumerator = self
-                .resources
-                .video_device
+            let enumerator = video_device
                 .CreateVideoProcessorEnumerator(&description)
                 .map_err(|error| error.to_string())?;
             if let Err(reason) = validate_video_processor_conversion(
@@ -908,6 +1118,10 @@ impl Graphics {
                     // 10-bit decoder surface and let the video processor dither it
                     // into the universally-supported SDR scan-out format instead.
                     self.ten_bit_output_supported = false;
+                    self.swap_chain_profile = Self::swap_chain_profile_for(
+                        self.resources.raw_feature_level(),
+                        false,
+                    );
                     eprintln!(
                         "Windows presenter falling back from 10-bit scan-out to 8-bit SDR: {reason}"
                     );
@@ -916,9 +1130,7 @@ impl Graphics {
                 }
                 return Err(reason);
             }
-            let processor = self
-                .resources
-                .video_device
+            let processor = video_device
                 .CreateVideoProcessor(&enumerator, 0)
                 .map_err(|error| error.to_string())?;
             if let Some(video_context) = self.resources.video_context_1.as_ref() {
@@ -940,8 +1152,7 @@ impl Graphics {
                 },
             };
             let mut output_view = None;
-            self.resources
-                .video_device
+            video_device
                 .CreateVideoProcessorOutputView(
                     &back_buffer,
                     &enumerator,
@@ -993,6 +1204,7 @@ fn create_swap_chain(
     hwnd: HWND,
     size: (u32, u32),
     format: DXGI_FORMAT,
+    profile: SwapChainProfile,
 ) -> Result<SwapChainResources, String> {
     unsafe {
         let dxgi_device: IDXGIDevice = device.cast().map_err(|error| error.to_string())?;
@@ -1000,11 +1212,20 @@ fn create_swap_chain(
             .GetAdapter()
             .map_err(|error| error.to_string())?;
         let factory: IDXGIFactory2 = adapter.GetParent().map_err(|error| error.to_string())?;
-        let allow_tearing = supports_tearing(&factory);
-        let flags = if allow_tearing {
-            DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+        let allow_tearing = profile.allow_tearing && supports_tearing(&factory);
+        let mut flags = DXGI_SWAP_CHAIN_FLAG(0);
+        if profile.waitable_object {
+            flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        }
+        if allow_tearing {
+            flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+        }
+        let swap_effect = if profile.flip_model {
+            DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
         } else {
-            DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
+            // Flip model needs DXGI 1.2 and feature level 11_0; a DirectX 10 adapter uses the
+            // bitblt model, which also forbids tearing and frame-latency waitable objects.
+            DXGI_SWAP_EFFECT_DISCARD
         };
         let description = DXGI_SWAP_CHAIN_DESC1 {
             Width: size.0,
@@ -1016,9 +1237,9 @@ fn create_swap_chain(
                 Quality: 0,
             },
             BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            BufferCount: 2,
+            BufferCount: profile.buffer_count,
             Scaling: DXGI_SCALING_STRETCH,
-            SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+            SwapEffect: swap_effect,
             AlphaMode: DXGI_ALPHA_MODE_IGNORE,
             // IDXGISwapChain2::SetMaximumFrameLatency is only valid for a
             // waitable swap chain. Preserve the flag in ResizeBuffers too.
@@ -1029,14 +1250,30 @@ fn create_swap_chain(
             .map_err(|error| error.to_string())?;
         let _ = factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
         let swap_chain_2: IDXGISwapChain2 = swap_chain.cast().map_err(|error| error.to_string())?;
-        swap_chain_2
-            .SetMaximumFrameLatency(1)
-            .map_err(|error| error.to_string())?;
-        let frame_latency_waitable = swap_chain_2.GetFrameLatencyWaitableObject();
-        if frame_latency_waitable.0.is_null() {
-            return Err("DXGI returned no frame-latency waitable object".to_owned());
+        if let Err(error) = swap_chain_2.SetMaximumFrameLatency(1) {
+            video_log!("SetMaximumFrameLatency(1) failed: {error}");
         }
-        set_swap_chain_color_space(&swap_chain)?;
+        let frame_latency_waitable = if profile.waitable_object {
+            let waitable = swap_chain_2.GetFrameLatencyWaitableObject();
+            if waitable.0.is_null() {
+                return Err("DXGI returned no frame-latency waitable object".to_owned());
+            }
+            waitable
+        } else {
+            HANDLE::default()
+        };
+        if profile.flip_model {
+            // IDXGISwapChain3::SetColorSpace1 is only available on a flip-model chain.
+            set_swap_chain_color_space(&swap_chain)?;
+        }
+        video_log!(
+            "Windows presenter swap chain flipModel={} bufferCount={} tearing={} waitable={} sync={}",
+            profile.flip_model,
+            profile.buffer_count,
+            allow_tearing,
+            profile.waitable_object,
+            profile.present_sync_interval,
+        );
         Ok(SwapChainResources {
             swap_chain,
             frame_latency_waitable,
@@ -1274,7 +1511,7 @@ fn hwnd_from_handle(handle: WindowHandle) -> HWND {
     HWND(handle.get() as *mut c_void)
 }
 
-fn fit_rect(input_width: u32, input_height: u32, output_width: u32, output_height: u32) -> RECT {
+pub(super) fn fit_rect(input_width: u32, input_height: u32, output_width: u32, output_height: u32) -> RECT {
     let input_aspect = input_width as f64 / input_height as f64;
     let output_aspect = output_width as f64 / output_height as f64;
     if output_aspect > input_aspect {

@@ -27,9 +27,24 @@ public:
         bool h264 = false;
         bool h265 = false;
         bool av1 = false;
+        // D3D_FEATURE_LEVEL reported by D3D11CreateDevice for this adapter, or 0 when the device
+        // could not be created and the level is unknown. Feature levels 10_0 (0xa000) and 10_1
+        // (0xa100) are DirectX 10 class hardware: they decode H.264 through DXVA but have no
+        // Shader Model 5.0 and no D3D11 video processor.
+        quint32 featureLevel = 0;
     };
 
     static QList<Adapter> detectAdapters();
+    /// Whether the adapter reports a known DirectX 10 feature level (10_0 or 10_1).
+    static bool isDirect3D10Adapter(const Adapter &adapter);
+    /// Whether Qt Quick can render this adapter with its Direct3D 11 RHI, which needs Shader
+    /// Model 5.0. An adapter whose feature level could not be determined is assumed capable so a
+    /// transient enumeration failure never forces the software rasterizer.
+    static bool supportsAcceleratedShell(const Adapter &adapter);
+    /// Whether any enumerated adapter can run the accelerated shell. Empty results and unknown
+    /// feature levels both count as capable: only a machine whose every GPU is DirectX 10 class
+    /// should be switched to the Windows software rasterizer on purpose.
+    static bool anySupportsAcceleratedShell(const QList<Adapter> &adapters);
     GraphicsDeviceSelection(QList<Adapter> adapters, QString requestedDeviceId,
                             QObject *parent = nullptr);
 

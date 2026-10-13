@@ -61,9 +61,11 @@ bool decoderProfileSupports(ID3D11VideoDevice *video, const GUID &profile, DXGI_
     return false;
 }
 
-void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1)
+void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1,
+                        quint32 *featureLevel)
 {
     *h264 = *h265 = *av1 = false;
+    *featureLevel = 0;
     if (!adapter) return;
     using Microsoft::WRL::ComPtr;
     const D3D_FEATURE_LEVEL levels[] = {
@@ -71,16 +73,18 @@ void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1
         D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0};
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL createdLevel{};
     const auto created = D3D11CreateDevice(
         adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,
         D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
         levels, UINT(std::size(levels)), D3D11_SDK_VERSION,
-        device.GetAddressOf(), nullptr, context.GetAddressOf());
+        device.GetAddressOf(), &createdLevel, context.GetAddressOf());
     if (FAILED(created) || !device) {
         qInfo("Graphics adapter decode index skipped device creation: 0x%08lx",
               static_cast<unsigned long>(created));
         return;
     }
+    *featureLevel = quint32(createdLevel);
     ComPtr<ID3D11VideoDevice> video;
     if (FAILED(device.As(&video)) || !video) {
         qInfo("Graphics adapter decode index has no D3D11 video device");
@@ -105,6 +109,31 @@ void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1
 }
 }
 #endif
+
+namespace {
+// D3D_FEATURE_LEVEL_11_0. Qt Quick's Direct3D 11 RHI compiles a Shader Model 5.0 test shader and
+// requires ID3D11DeviceContext1, so a feature level 10_x device can never run it.
+constexpr quint32 kFeatureLevelDirect3D11 = 0xb000;
+}
+
+bool GraphicsDeviceSelection::isDirect3D10Adapter(const Adapter &adapter)
+{
+    return adapter.featureLevel != 0 && adapter.featureLevel < kFeatureLevelDirect3D11;
+}
+
+bool GraphicsDeviceSelection::supportsAcceleratedShell(const Adapter &adapter)
+{
+    return !isDirect3D10Adapter(adapter);
+}
+
+bool GraphicsDeviceSelection::anySupportsAcceleratedShell(const QList<Adapter> &adapters)
+{
+    if (adapters.isEmpty()) return true;
+    for (const auto &adapter : adapters) {
+        if (supportsAcceleratedShell(adapter)) return true;
+    }
+    return false;
+}
 
 QList<GraphicsDeviceSelection::Adapter> GraphicsDeviceSelection::detectAdapters()
 {
@@ -150,12 +179,13 @@ QList<GraphicsDeviceSelection::Adapter> GraphicsDeviceSelection::detectAdapters(
         bool h264 = false;
         bool h265 = false;
         bool av1 = false;
-        indexAdapterDecode(adapter.Get(), &h264, &h265, &av1);
+        quint32 featureLevel = 0;
+        indexAdapterDecode(adapter.Get(), &h264, &h265, &av1, &featureLevel);
         const auto name = QString::fromWCharArray(description.Description);
-        qInfo("Graphics adapter %s decode index: h264=%d h265=%d av1=%d",
-              qUtf8Printable(name), int(h264), int(h265), int(av1));
+        qInfo("Graphics adapter %s decode index: h264=%d h265=%d av1=%d featureLevel=0x%04x",
+              qUtf8Printable(name), int(h264), int(h265), int(av1), featureLevel);
         adapters.append({id, name, luid, quint64(description.DedicatedVideoMemory), false,
-                         h264, h265, av1});
+                         h264, h265, av1, featureLevel});
     }
 #endif
     return adapters;
@@ -209,12 +239,18 @@ QVariantList GraphicsDeviceSelection::choices() const
 
 const GraphicsDeviceSelection::Adapter *GraphicsDeviceSelection::automaticAdapter() const
 {
+    const Adapter *decoder = nullptr;
     const Adapter *fallback = nullptr;
     for (const auto &adapter : m_adapters) {
         if (!fallback) fallback = &adapter;
-        if (canDecode(adapter)) return &adapter;
+        if (!canDecode(adapter)) continue;
+        if (!decoder) decoder = &adapter;
+        // Automatic promises that the same GPU decodes and displays. A DirectX 10 adapter decodes
+        // H.264 through DXVA but cannot run Qt's Direct3D 11 RHI, so prefer a GPU that can do both
+        // before settling for one that only decodes.
+        if (supportsAcceleratedShell(adapter)) return &adapter;
     }
-    return fallback;
+    return decoder ? decoder : fallback;
 }
 
 bool GraphicsDeviceSelection::canDecode(const Adapter &adapter) const
@@ -224,19 +260,22 @@ bool GraphicsDeviceSelection::canDecode(const Adapter &adapter) const
 
 QStringList GraphicsDeviceSelection::codecIds(const Adapter &adapter) const
 {
+    // A DirectX 10 adapter has no video processor, so the streamer converts H.264 NV12 only.
+    const bool direct3D10 = isDirect3D10Adapter(adapter);
     QStringList ids;
     if (adapter.h264) ids.append(u"h264"_s);
-    if (adapter.h265) ids.append(u"h265"_s);
-    if (adapter.av1) ids.append(u"av1"_s);
+    if (adapter.h265 && !direct3D10) ids.append(u"h265"_s);
+    if (adapter.av1 && !direct3D10) ids.append(u"av1"_s);
     return ids;
 }
 
 QString GraphicsDeviceSelection::codecSummary(const Adapter &adapter) const
 {
+    const bool direct3D10 = isDirect3D10Adapter(adapter);
     QStringList names;
     if (adapter.h264) names.append(tr("H.264"));
-    if (adapter.h265) names.append(tr("H.265"));
-    if (adapter.av1) names.append(tr("AV1"));
+    if (adapter.h265 && !direct3D10) names.append(tr("H.265"));
+    if (adapter.av1 && !direct3D10) names.append(tr("AV1"));
     return names.isEmpty() ? tr("No hardware decoder") : names.join(u", "_s);
 }
 
@@ -250,7 +289,10 @@ QString GraphicsDeviceSelection::memorySummary(const Adapter &adapter) const
 QString GraphicsDeviceSelection::adapterDetail(const Adapter &adapter) const
 {
     if (adapter.id.isEmpty()) return tr("Device identity unavailable");
-    return u"%1 · %2"_s.arg(codecSummary(adapter), memorySummary(adapter));
+    const auto detail = u"%1 · %2"_s.arg(codecSummary(adapter), memorySummary(adapter));
+    if (isDirect3D10Adapter(adapter))
+        return u"%1 · %2"_s.arg(detail, tr("DirectX 10 compatibility"));
+    return detail;
 }
 
 bool GraphicsDeviceSelection::savedDeviceUnavailable() const
@@ -263,6 +305,15 @@ bool GraphicsDeviceSelection::applyTo(QQuickWindow *window) const
     if (!m_active.luid) return true;
 #ifdef Q_OS_WIN
     if (!window || window->isVisible() || window->isSceneGraphInitialized()) return false;
+    if (isDirect3D10Adapter(m_active)) {
+        // Pinning Qt to a DirectX 10 adapter would only make its Direct3D 11 RHI fail. Leave the
+        // shell on Qt's software rasterizer; the streamer keeps decoding on this adapter through
+        // its own feature level 10_x device.
+        qInfo("Selected graphics adapter %s is DirectX 10 (feature level 0x%04x); the shell uses "
+              "the software rasterizer and video uses the compatibility path",
+              qUtf8Printable(m_active.name), m_active.featureLevel);
+        return true;
+    }
     window->setGraphicsDevice(QQuickGraphicsDevice::fromAdapter(
         quint32(m_active.luid), std::bit_cast<qint32>(quint32(m_active.luid >> 32))));
     qInfo("Selected graphics adapter: %s (LUID %016llx)", qUtf8Printable(m_active.name),

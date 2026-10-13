@@ -233,7 +233,8 @@
     "noHardwareDecoder": "No hardware decoder",
     "identityUnavailable": "Device identity unavailable",
     "dedicatedMemory": "%1 GB dedicated memory",
-    "sharedMemory": "Shared graphics memory"
+    "sharedMemory": "Shared graphics memory",
+    "directx10Compatibility": "DirectX 10 compatibility"
   },
   "safeUpdates": {
     "installVersion": "Install %1 and restart",

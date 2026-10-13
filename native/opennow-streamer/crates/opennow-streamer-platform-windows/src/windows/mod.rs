@@ -11,6 +11,7 @@ macro_rules! video_log {
 mod adapter_index;
 mod audio;
 mod color;
+mod compat;
 mod decoder;
 mod embedded;
 mod graphics;
@@ -43,6 +44,7 @@ use ::windows::Win32::System::Threading::{
 };
 use ::windows::core::w;
 
+use crate::feature_level;
 use crate::{
     ADAPTIVE_VIDEO_QUEUE_CAPACITY, BackendConfig, BackendError, BackendEvent, CapabilityProbe,
     Control, LifecycleState, Shared, Subsystem, VideoCodec, WindowsDecoderMode, WindowsGraphicsApi,
@@ -331,6 +333,8 @@ pub(super) fn probe(
                 h265_software_decode: false,
                 av1_software_decode: false,
                 d3d11_presentation: false,
+                feature_level: None,
+                video_processor: false,
                 wasapi_render: false,
                 reason: Some(error.to_string()),
             };
@@ -432,10 +436,23 @@ pub(super) fn probe(
     let h265_software_decode = h265_software_decoder.is_ok();
     let av1_software_decode = av1_software_decoder.is_ok();
     let d3d11_presentation = graphics.is_ok();
+    let device_feature_level = graphics.as_ref().ok().and_then(Graphics::feature_level);
+    let video_processor = graphics
+        .as_ref()
+        .is_ok_and(|graphics| graphics.video_processor_available());
     let wasapi_render = audio.is_ok();
     if let Err(error) = &audio {
         video_log!("Windows standalone WASAPI output probe failed: {error}");
     }
+    video_log!(
+        "Windows graphics probe api={api:?} featureLevel={} tier={} videoProcessor={} presentation={d3d11_presentation}",
+        device_feature_level
+            .and_then(feature_level::DeviceFeatureLevel::from_raw)
+            .map(|level| level.label())
+            .unwrap_or("unknown"),
+        feature_level::tier_of(device_feature_level).label(),
+        video_processor,
+    );
     let mut probe = CapabilityProbe {
         available: false,
         h264_hardware_decode,
@@ -452,6 +469,8 @@ pub(super) fn probe(
         h265_software_decode,
         av1_software_decode,
         d3d11_presentation,
+        feature_level: device_feature_level,
+        video_processor,
         wasapi_render,
         reason: None,
     };
