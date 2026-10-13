@@ -2755,18 +2755,13 @@ mod tests {
                 assert!(processor.input_views.is_empty());
                 assert!(processor.slots.iter().all(Option::is_none));
                 unsafe {
+                    let video_context_1 = resources.video_context_1.as_ref().unwrap();
                     assert_eq!(
-                        resources
-                            .video_context_1
-                            .VideoProcessorGetStreamColorSpace1(&processor.processor, 0,),
+                        video_context_1.VideoProcessorGetStreamColorSpace1(&processor.processor, 0),
                         input_color_space(format).unwrap()
                     );
                     assert_eq!(
-                        resources
-                            .video_context_1
-                            .as_ref()
-                            .unwrap()
-                            .VideoProcessorGetOutputColorSpace1(&processor.processor,),
+                        video_context_1.VideoProcessorGetOutputColorSpace1(&processor.processor),
                         DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709
                     );
                 }
