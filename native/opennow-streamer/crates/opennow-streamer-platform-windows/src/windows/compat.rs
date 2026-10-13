@@ -93,9 +93,7 @@ fn immediate_context_of(texture: &ID3D11Texture2D) -> Result<ID3D11DeviceContext
         let device = texture
             .GetDevice()
             .map_err(|error| format!("compatibility frame texture device: {error}"))?;
-        let mut context = None;
-        device.GetImmediateContext(&mut context);
-        context.ok_or_else(|| "D3D11 device returned no immediate context".to_owned())
+        Ok(device.GetImmediateContext())
     }
 }
 
@@ -259,9 +257,11 @@ impl CompatConverter {
             ));
         }
         aperture.validate_extent(description.Width, description.Height)?;
-        let device = texture
-            .GetDevice()
-            .map_err(|error| format!("compatibility frame texture device: {error}"))?;
+        let device = unsafe {
+            texture
+                .GetDevice()
+                .map_err(|error| format!("compatibility frame texture device: {error}"))?
+        };
         let staging = self.staging_surface(&device, &description)?;
         let staging_texture = staging.texture.clone();
         let context = immediate_context_of(texture)?;
@@ -493,8 +493,7 @@ fn write_rows(mapped: &D3D11_MAPPED_SUBRESOURCE, pixels: &CompatPixels) -> Resul
     Ok(())
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CompatOutput {
     view: ID3D11RenderTargetView,
     backbuffer: usize,
@@ -655,9 +654,11 @@ impl CompatPresenter {
                 return Ok(output.view.clone());
             }
         }
-        let device = backbuffer
-            .GetDevice()
-            .map_err(|error| format!("compatibility back buffer device: {error}"))?;
+        let device = unsafe {
+            backbuffer
+                .GetDevice()
+                .map_err(|error| format!("compatibility back buffer device: {error}"))?
+        };
         let mut view = None;
         unsafe {
             device

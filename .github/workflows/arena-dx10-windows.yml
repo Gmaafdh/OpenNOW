@@ -172,15 +172,21 @@ jobs:
           : > "$combined"
           for log in ci-logs/*.log; do
             [ -f "$log" ] || continue
-            {
-              sed -e "s/\x1b\[[0-9;]*m//g" "$log" |
-                grep -aE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file|test result: FAILED" |
-                head -n 6
-              echo "--- tail ---"
-              tail -n 4 "$log"
-            } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
+            name=$(basename "$log")
+            clean="ci-logs/$name.clean"
+            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d '\r' > "$clean"
+            # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
+            # file, line and explanation.
+            errors=$(grep -aE -A 12 \
+              "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" \
+              "$clean" | head -n 24)
+            if [ -n "$errors" ]; then
+              printf '%s\n' "$errors" | sed "s|^|$name: |" >> "$combined"
+            else
+              tail -n 3 "$clean" | sed "s|^|$name: |" >> "$combined"
+            fi
           done
-          head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
+          head -n 48 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
             printf '::error title=ci-log::%s\n' "$line"
           done
@@ -313,15 +319,21 @@ jobs:
           : > "$combined"
           for log in ci-logs/*.log; do
             [ -f "$log" ] || continue
-            {
-              sed -e "s/\x1b\[[0-9;]*m//g" "$log" |
-                grep -aE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file|test result: FAILED" |
-                head -n 6
-              echo "--- tail ---"
-              tail -n 4 "$log"
-            } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
+            name=$(basename "$log")
+            clean="ci-logs/$name.clean"
+            sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d '\r' > "$clean"
+            # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
+            # file, line and explanation.
+            errors=$(grep -aE -A 12 \
+              "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" \
+              "$clean" | head -n 24)
+            if [ -n "$errors" ]; then
+              printf '%s\n' "$errors" | sed "s|^|$name: |" >> "$combined"
+            else
+              tail -n 3 "$clean" | sed "s|^|$name: |" >> "$combined"
+            fi
           done
-          head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
+          head -n 48 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
             printf '::error title=ci-log::%s\n' "$line"
           done
