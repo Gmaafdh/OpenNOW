@@ -14,12 +14,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: dx10-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
-  CARGO_TERM_COLOR: always
+  # Plain logs: the annotation and grep steps below cannot match colored cargo output.
+  CARGO_TERM_COLOR: never
   SDL_VERSION: release-3.2.20
 
 jobs:
@@ -37,6 +34,18 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      # Git Bash ships /usr/bin/link.exe, and cargo on a bash step resolves `link.exe` from PATH
+      # before the MSVC toolchain, which fails every build script with "linking with `link.exe`
+      # failed". Pin the MSVC linker explicitly, as the project's own Windows lane does.
+      - name: Pin the MSVC x64 linker for cargo
+        shell: pwsh
+        run: |
+          $linker = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64\link.exe"
+          if (-not (Test-Path $linker)) { throw "The MSVC x64 linker is unavailable." }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "cargo linker: $linker"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -164,9 +173,11 @@ jobs:
           for log in ci-logs/*.log; do
             [ -f "$log" ] || continue
             {
-              grep -nE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file" "$log" | head -n 30
+              sed -e "s/\x1b\[[0-9;]*m//g" "$log" |
+                grep -aE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file|test result: FAILED" |
+                head -n 6
               echo "--- tail ---"
-              tail -n 12 "$log"
+              tail -n 4 "$log"
             } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
           done
           head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
@@ -186,6 +197,9 @@ jobs:
 
   qt-windows-exe:
     name: Qt Windows executable (OpenNOW.exe)
+    # A commit tagged [no-qt] iterates on the Rust job only; the Qt build takes over an hour on a
+    # two-core hosted runner and is skipped rather than duplicated.
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[no-qt]')
     runs-on: windows-latest
     timeout-minutes: 300
     steps:
@@ -300,9 +314,11 @@ jobs:
           for log in ci-logs/*.log; do
             [ -f "$log" ] || continue
             {
-              grep -nE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file" "$log" | head -n 30
+              sed -e "s/\x1b\[[0-9;]*m//g" "$log" |
+                grep -aE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file|test result: FAILED" |
+                head -n 6
               echo "--- tail ---"
-              tail -n 12 "$log"
+              tail -n 4 "$log"
             } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
           done
           head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
