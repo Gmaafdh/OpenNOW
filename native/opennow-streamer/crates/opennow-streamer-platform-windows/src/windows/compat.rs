@@ -93,7 +93,9 @@ fn immediate_context_of(texture: &ID3D11Texture2D) -> Result<ID3D11DeviceContext
         let device = texture
             .GetDevice()
             .map_err(|error| format!("compatibility frame texture device: {error}"))?;
-        Ok(device.GetImmediateContext())
+        device
+            .GetImmediateContext()
+            .map_err(|error| format!("compatibility immediate context: {error}"))
     }
 }
 
