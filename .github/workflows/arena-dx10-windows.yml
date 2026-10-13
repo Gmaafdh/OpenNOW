@@ -59,33 +59,57 @@ jobs:
           Get-WindowsFeature -Name Server-Media-Foundation -ErrorAction SilentlyContinue |
             Format-List Name, InstallState
 
+      - name: Report toolchain
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          {
+            rustc -Vv
+            cargo -V
+            cmake --version | head -1
+            ninja --version || true
+            nasm -v 2>&1 | head -1 || true
+            perl --version 2>&1 | head -3 || true
+            cl 2>&1 | head -2 || true
+          } > ci-logs/toolchain.txt 2>&1
+          cat ci-logs/toolchain.txt
+
+      # `npm run native:check` runs this without --locked, so match it: a stale lock in the core
+      # workspace is a repository condition, not a result of this change.
       - name: Check the core workspace
         shell: bash
-        run: cargo check --locked --manifest-path native/opennow-core/Cargo.toml
+        run: |
+          cargo check --manifest-path native/opennow-core/Cargo.toml \
+            2>&1 | tee ci-logs/core-check.log
 
       - name: Build the streamer workspace
         shell: bash
-        run: cargo build --locked --manifest-path native/opennow-streamer/Cargo.toml --workspace
+        run: |
+          cargo build --locked --manifest-path native/opennow-streamer/Cargo.toml --workspace \
+            2>&1 | tee ci-logs/streamer-build.log
 
       - name: Windows platform tests
         shell: bash
-        run: >-
-          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml
-          -p opennow-streamer-platform-windows --lib -- --nocapture
+        run: |
+          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml \
+            -p opennow-streamer-platform-windows --lib -- --nocapture \
+            2>&1 | tee ci-logs/windows-platform-tests.log
 
       - name: Capability report tests
         shell: bash
-        run: >-
-          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml
-          -p opennow-streamer-platform --lib -- --nocapture
+        run: |
+          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml \
+            -p opennow-streamer-platform --lib -- --nocapture \
+            2>&1 | tee ci-logs/capability-tests.log
 
       - name: Clippy (workspace, all targets, warnings denied)
         shell: bash
         run: |
-          cargo clippy --locked --manifest-path native/opennow-core/Cargo.toml \
-            --all-targets -- -D warnings
-          cargo clippy --locked --manifest-path native/opennow-streamer/Cargo.toml \
-            --workspace --all-targets -- -D warnings
+          {
+            cargo clippy --manifest-path native/opennow-core/Cargo.toml --all-targets -- -D warnings
+            cargo clippy --locked --manifest-path native/opennow-streamer/Cargo.toml \
+              --workspace --all-targets -- -D warnings
+          } 2>&1 | tee ci-logs/clippy.log
 
       # Reporting only: the repository has no rustfmt gate, but the formatted result is useful.
       - name: Capture rustfmt diff
@@ -95,14 +119,16 @@ jobs:
           cargo fmt --manifest-path native/opennow-core/Cargo.toml --all || true
           cargo fmt --manifest-path native/opennow-streamer/Cargo.toml --all || true
           git --no-pager diff --stat || true
-          git --no-pager diff > rustfmt.patch || true
-          wc -l rustfmt.patch || true
+          git --no-pager diff > ci-logs/rustfmt.patch || true
+          wc -l ci-logs/rustfmt.patch || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rustfmt-diff
-          path: rustfmt.patch
+          name: rust-ci-logs
+          path: |
+            ci-logs
+            rustfmt.patch
           if-no-files-found: ignore
 
   qt-windows-exe:
@@ -171,11 +197,12 @@ jobs:
         shell: bash
         run: |
           cd /o
+          mkdir -p ci-logs
           cmake -S opennow-qt -B build/opennow-qt-release \
             -G "Ninja Multi-Config" \
             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install" 2>&1 | tee ci-logs/cmake-configure.log
 
       # Only the application and the adapter-selection test are built: this harness is about the
       # DirectX 10 path, not the full release matrix.
@@ -184,14 +211,14 @@ jobs:
         run: |
           cd /o
           cmake --build build/opennow-qt-release --config Release --parallel 2 \
-            --target opennow-qt opennow-graphicsdevices-tests
+            --target opennow-qt opennow-graphicsdevices-tests 2>&1 | tee ci-logs/cmake-build.log | tail -n 400
 
       - name: Adapter selection tests
         shell: bash
         run: |
           cd /o
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R graphicsdevices --output-on-failure --no-tests=error
+            -R graphicsdevices --output-on-failure --no-tests=error 2>&1 | tee ci-logs/ctest.log
 
       - name: Report deployment payload
         shell: pwsh
@@ -203,6 +230,16 @@ jobs:
           Write-Host ("Deployment root: {0} ({1:N0} MB)" -f $root, $size)
           Get-Item $exe | Select-Object Name, Length, LastWriteTime | Format-List
           (Get-Item $exe).VersionInfo | Format-List ProductName, ProductVersion, FileVersion
+
+      # Uploaded before the package artifact so a failed build can be diagnosed while the rest of
+      # the run is still going.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qt-ci-logs
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
