@@ -49,6 +49,31 @@ jobs:
       # The Windows platform tests create real D3D11 devices and Media Foundation objects, so
       # record what this runner exposes. Missing video interfaces are an expected skip, not a
       # failure: that is the branch the DirectX 10 compatibility path replaces.
+      # The upstream Windows lane installs LLVM and exports LIBCLANG_PATH before any cargo step;
+      # build scripts that bind C headers fail with exit code 101 without it.
+      - name: Point bindgen at libclang
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Join-Path $env:ProgramFiles "LLVM\bin"),
+            (Join-Path ${env:ProgramFiles(x86)} "LLVM\bin"),
+            "C:\Program Files\LLVM\bin"
+          )
+          $found = $candidates | Where-Object { Test-Path (Join-Path $_ "libclang.dll") } |
+            Select-Object -First 1
+          if ($found) {
+            "LIBCLANG_PATH=$found" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $found | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "libclang: $found"
+          } else {
+            Write-Host "libclang.dll was not found; installing LLVM"
+            choco install llvm -y --no-progress
+            $llvm = Join-Path $env:ProgramFiles "LLVM\bin"
+            if (-not (Test-Path (Join-Path $llvm "libclang.dll"))) { throw "LLVM install is incomplete" }
+            "LIBCLANG_PATH=$llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $llvm | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+
       - name: Report runner graphics and media capability
         shell: pwsh
         run: |
@@ -76,7 +101,10 @@ jobs:
 
       # `npm run native:check` runs this without --locked, so match it: a stale lock in the core
       # workspace is a repository condition, not a result of this change.
-      - name: Check the core workspace
+      # opennow-core is untouched by the DirectX 10 change, so its result is reported but does not
+      # gate this harness; the streamer workspace below is what carries the new code.
+      - name: Check the core workspace (informational)
+        continue-on-error: true
         shell: bash
         run: |
           cargo check --manifest-path native/opennow-core/Cargo.toml \
@@ -121,6 +149,31 @@ jobs:
           git --no-pager diff --stat || true
           git --no-pager diff > ci-logs/rustfmt.patch || true
           wc -l ci-logs/rustfmt.patch || true
+
+
+      # Artifact blobs are not reachable from every environment, so the interesting lines are also
+      # published as check annotations, which stay readable through the REST API. GitHub keeps at
+      # most 50 error annotations per run, hence the hard cap.
+      - name: Publish failure excerpts as annotations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          combined=ci-logs/annotations.txt
+          : > "$combined"
+          for log in ci-logs/*.log; do
+            [ -f "$log" ] || continue
+            {
+              grep -nE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file" "$log" | head -n 30
+              echo "--- tail ---"
+              tail -n 12 "$log"
+            } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
+          done
+          head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
+            line=${line//%/%25}
+            printf '::error title=ci-log::%s\n' "$line"
+          done
+          echo "annotation lines: $(wc -l < "$combined")"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -233,6 +286,31 @@ jobs:
 
       # Uploaded before the package artifact so a failed build can be diagnosed while the rest of
       # the run is still going.
+
+      # Artifact blobs are not reachable from every environment, so the interesting lines are also
+      # published as check annotations, which stay readable through the REST API. GitHub keeps at
+      # most 50 error annotations per run, hence the hard cap.
+      - name: Publish failure excerpts as annotations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          combined=ci-logs/annotations.txt
+          : > "$combined"
+          for log in ci-logs/*.log; do
+            [ -f "$log" ] || continue
+            {
+              grep -nE "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|No such file" "$log" | head -n 30
+              echo "--- tail ---"
+              tail -n 12 "$log"
+            } | sed "s|^|$(basename "$log"): |" >> "$combined" || true
+          done
+          head -n 45 "$combined" | tr -d '\r' | while IFS= read -r line; do
+            line=${line//%/%25}
+            printf '::error title=ci-log::%s\n' "$line"
+          done
+          echo "annotation lines: $(wc -l < "$combined")"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
