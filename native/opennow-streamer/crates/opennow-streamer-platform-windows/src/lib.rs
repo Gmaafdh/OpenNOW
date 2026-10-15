@@ -872,6 +872,10 @@ mod tests {
     #[test]
     fn hdr_444_requires_its_own_probe_and_live_gpu_presentation() {
         let mut probe = WindowsBackend::probe();
+        // Pin the two host-dependent fields this test is not about, so the assertions below hold
+        // on a workstation GPU, on WARP and on a DirectX 10 machine alike.
+        probe.feature_level = None;
+        probe.video_processor = true;
         probe.d3d11_presentation = true;
         probe.h265_hardware_decode = true;
         probe.h265_hdr = true;
@@ -883,6 +887,13 @@ mod tests {
         assert!(!probe.supports_format(VideoCodec::Av1, VideoPixelFormat::Y410, true));
         probe.d3d11_presentation = false;
         assert!(!probe.supports_format(VideoCodec::H265, VideoPixelFormat::Y410, true));
+        // Without the video interfaces the compatibility bridge is the only way to RGB, and that
+        // bridge is H.264 NV12 8-bit SDR by contract: it must never advertise HDR 4:4:4.
+        probe.d3d11_presentation = true;
+        probe.video_processor = false;
+        assert!(!probe.supports_format(VideoCodec::H265, VideoPixelFormat::Y410, true));
+        probe.h264_hardware_decode = true;
+        assert!(probe.supports_format(VideoCodec::H264, VideoPixelFormat::Nv12, false));
     }
 
     #[test]
