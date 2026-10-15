@@ -166,18 +166,18 @@ impl DeviceFeatureLevel {
     }
 }
 
-/// Classifies an optional raw feature level. `None` means the device did not report one, which
-/// is treated as the normal pipeline: the runtime probe of the video interfaces still decides
-/// whether the compatibility converter is required.
+/// Classifies an optional raw feature level.
+///
+/// Only a feature level Direct3D 11 can actually report may lower the ceiling. `None`, and any
+/// unrecognized value, keep the normal pipeline: inventing a DirectX 10 ceiling from a bogus
+/// number would silently restrict a working device to H.264 8-bit SDR. The runtime probe of the
+/// video interfaces still decides whether the compatibility converter is required.
 pub const fn tier_of(feature_level: Option<i32>) -> FeatureTier {
     match feature_level {
-        Some(raw) => {
-            if raw < FEATURE_LEVEL_11_0 {
-                FeatureTier::Direct3d10
-            } else {
-                FeatureTier::Direct3d11
-            }
-        }
+        Some(raw) => match DeviceFeatureLevel::from_raw(raw) {
+            Some(level) => level.tier(),
+            None => FeatureTier::Direct3d11,
+        },
         None => FeatureTier::Direct3d11,
     }
 }
@@ -311,7 +311,16 @@ mod tests {
         assert_eq!(DeviceFeatureLevel::from_raw(0xa200).map(|level| level.label()), None);
         // An absent feature level keeps the normal pipeline; the video-interface probe decides.
         assert_eq!(tier_of(None), FeatureTier::Direct3d11);
-        assert_eq!(tier_of(Some(0)), FeatureTier::Direct3d11);
+        assert!(!requires_compat_conversion(None, true));
+        // A bogus value must not restrict a device that reports working video interfaces to the
+        // H.264 8-bit SDR compatibility ceiling.
+        for raw in [0, -1, 0x9200, 0xa200, 0xb200, i32::MAX] {
+            assert_eq!(tier_of(Some(raw)), FeatureTier::Direct3d11, "raw={raw}");
+            assert!(
+                !requires_compat_conversion(Some(raw), true),
+                "raw={raw} must not force the compatibility ceiling"
+            );
+        }
     }
 
     #[test]
