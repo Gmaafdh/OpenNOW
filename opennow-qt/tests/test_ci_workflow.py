@@ -275,12 +275,37 @@ class CIWorkflowTest(unittest.TestCase):
 
     def test_general_purpose_runners_are_blacksmith(self):
         for workflow in WORKFLOWS.glob("*.yml"):
+            # The branch-only unsigned executable harness has its own strict
+            # hosted-runner contract below; production runner policy is unchanged.
+            if workflow.name == "arena-windows-exe.yml":
+                continue
             runners = re.findall(r"^\s+(?:runs-on|os|runner): (.+)$", workflow.read_text(), re.MULTILINE)
             for runner in runners:
                 with self.subTest(workflow=workflow.name, runner=runner):
                     self.assertTrue(
                         runner.startswith(("blacksmith-", "${{")),
                     )
+
+    def test_hosted_windows_executable_is_branch_scoped_and_unsigned(self):
+        workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
+        self.assertEqual(
+            re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
+            ["windows-2025"],
+        )
+        self.assertIn("    branches:\n      - arena/15b83ddf-opennow\n", workflow)
+        self.assertIn("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'", workflow)
+        self.assertIn("  contents: read", workflow)
+        for prohibited in ("pull_request:", "pull_request_target:", "contents: write",
+                           "secrets.", "gh release", "environment:"):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, workflow)
+        self.assertIn("-p opennow-streamer-platform-windows -p opennow-streamer-protocol", workflow)
+        self.assertIn("--lib -- --test-threads=1 --nocapture", workflow)
+        self.assertIn("--target opennow-qt opennow-graphicsdevices-tests", workflow)
+        self.assertIn("Assert-OpenNowPackagePayload", workflow)
+        self.assertIn("packaging/windows/build-setup.ps1", workflow)
+        self.assertIn("name: OpenNOW-Windows-x64-dx10", workflow)
+        self.assertIn("retention-days: 14", workflow)
 
     def test_rust_caches_survive_job_renames_and_later_test_failures(self):
         for path in (ROOT / ".github/actions/qt-unit-tests/action.yml", WORKFLOWS / "qt-build.yml"):

@@ -19,6 +19,7 @@ concurrency:
 jobs:
   windows-x64:
     name: Build and test OpenNOW.exe
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'
     runs-on: windows-2025
     timeout-minutes: 180
     env:
