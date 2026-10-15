@@ -147,10 +147,10 @@ jobs:
           # verification is meant to catch.
           {
             cargo clippy --manifest-path native/opennow-core/Cargo.toml \
-              -p opennow-core --all-targets -- -D warnings
+              -p opennow-core --all-targets --message-format short -- -D warnings
             cargo clippy --locked --manifest-path native/opennow-streamer/Cargo.toml \
               -p opennow-streamer-platform -p opennow-streamer-platform-windows \
-              --all-targets -- -D warnings
+              --all-targets --message-format short -- -D warnings
           } 2>&1 | tee ci-logs/clippy.log
 
       # Reporting only: the repository has no rustfmt gate, but the formatted result is useful.
@@ -177,22 +177,26 @@ jobs:
           mkdir -p ci-logs
           combined=ci-logs/annotations.txt
           : > "$combined"
-          # Most informative first: the annotation budget is 50 per run, and alphabetical order
-          # would spend it on the core check instead of the streamer build.
-          for name in streamer-build.log windows-platform-tests.log capability-tests.log \
-                      clippy.log cmake-build.log cmake-configure.log ctest.log core-check.log; do
+          # GitHub shows at most ten error annotations per step, so order the logs by how much
+          # they explain and keep each excerpt short. Clippy is first because it only exists when
+          # every earlier step passed; the short message format makes each diagnostic one line.
+          # The other logs keep the lines after each error, which is where rustc, CMake and MSVC
+          # print the file, line and explanation.
+          for entry in clippy.log:0 streamer-build.log:10 windows-platform-tests.log:10 \
+                       capability-tests.log:6 cmake-build.log:10 cmake-configure.log:4 \
+                       ctest.log:6 core-check.log:2; do
+            name=${entry%%:*}
+            context=${entry##*:}
             log="ci-logs/$name"
             [ -f "$log" ] || continue
             clean="ci-logs/$name.clean"
             sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d "\r" > "$clean"
             {
-              # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
-              # file, line and explanation.
-              grep -aE -A 10 "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
+              grep -aE -A "$context" "error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
               tail -n 2 "$clean"
             } | sed "s|^|$name: |" >> "$combined"
           done
-          head -n 48 "$combined" | while IFS= read -r line; do
+          head -n 40 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
             printf "::error title=ci-log::%s\n" "$line"
           done
@@ -325,22 +329,26 @@ jobs:
           mkdir -p ci-logs
           combined=ci-logs/annotations.txt
           : > "$combined"
-          # Most informative first: the annotation budget is 50 per run, and alphabetical order
-          # would spend it on the core check instead of the streamer build.
-          for name in streamer-build.log windows-platform-tests.log capability-tests.log \
-                      clippy.log cmake-build.log cmake-configure.log ctest.log core-check.log; do
+          # GitHub shows at most ten error annotations per step, so order the logs by how much
+          # they explain and keep each excerpt short. Clippy is first because it only exists when
+          # every earlier step passed; the short message format makes each diagnostic one line.
+          # The other logs keep the lines after each error, which is where rustc, CMake and MSVC
+          # print the file, line and explanation.
+          for entry in clippy.log:0 streamer-build.log:10 windows-platform-tests.log:10 \
+                       capability-tests.log:6 cmake-build.log:10 cmake-configure.log:4 \
+                       ctest.log:6 core-check.log:2; do
+            name=${entry%%:*}
+            context=${entry##*:}
             log="ci-logs/$name"
             [ -f "$log" ] || continue
             clean="ci-logs/$name.clean"
             sed -e "s/\x1b\[[0-9;]*m//g" "$log" | tr -d "\r" > "$clean"
             {
-              # Keep the lines after each error too: that is where rustc, CMake and MSVC print the
-              # file, line and explanation.
-              grep -aE -A 10 "^error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
+              grep -aE -A "$context" "error(\[|:)|panicked at|CMake Error|FAILED:|error C[0-9]+|error LNK|test result: FAILED" "$clean" | head -n 8
               tail -n 2 "$clean"
             } | sed "s|^|$name: |" >> "$combined"
           done
-          head -n 48 "$combined" | while IFS= read -r line; do
+          head -n 40 "$combined" | while IFS= read -r line; do
             line=${line//%/%25}
             printf "::error title=ci-log::%s\n" "$line"
           done

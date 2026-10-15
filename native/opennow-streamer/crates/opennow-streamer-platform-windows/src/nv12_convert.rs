@@ -214,7 +214,7 @@ mod tests {
         let mut data = vec![0u8; pitch * (height as usize + height as usize / 2)];
         for row in 0..height as usize {
             for column in 0..width as usize {
-                data[row * pitch + column as usize] = luma;
+                data[row * pitch + column] = luma;
             }
         }
         let chroma_offset = pitch * height as usize;
