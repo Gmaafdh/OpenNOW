@@ -2765,9 +2765,11 @@ mod tests {
                         DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709
                     );
                 }
+                // Field access, not the video_device() accessor: `processor` keeps a mutable
+                // borrow of that field alive, and disjoint field borrows are what this test needs.
                 let slot = FrameSlot::new(
                     &device,
-                    resources.video_device().unwrap(),
+                    resources.video_device.as_ref().unwrap(),
                     &processor.enumerator,
                     128,
                     64,
