@@ -1,0 +1,229 @@
+name: Windows executable
+run-name: Windows x64 DX10 compatibility build (${{ github.ref_name }})
+
+# Branch-scoped, unsigned test packages. No private runner pool, release
+# publication, signing secrets, or changes to the production release pipeline.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/15b83ddf-opennow
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Build and test OpenNOW.exe
+    runs-on: windows-2025
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Map stable Windows workspace
+        shell: pwsh
+        run: .github/scripts/map-windows-workspace.ps1
+
+      - name: Enable Windows Media Foundation
+        shell: pwsh
+        run: .github/scripts/ensure-windows-media-foundation.ps1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pin the MSVC linker and locate LLVM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $linker = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64\link.exe"
+          if (-not (Test-Path $linker)) { throw "The MSVC x64 linker is unavailable." }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          .github/scripts/ensure-windows-llvm.ps1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qtshadertools
+          cache: true
+          cache-key-prefix: arena-windows-exe-qt
+
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: arena-windows-exe-x64
+          cache-bin: false
+          cache-on-failure: true
+          workspaces: |
+            native/opennow-streamer -> target
+            native/opennow-core -> ../../build/opennow-qt-release/rust-target
+            native/opennow-core -> ../../build/opennow-qt-release/update-helper-rust-target
+            native/opennow-streamer -> ../../build/opennow-qt-release/streamer-rust-target
+
+      - name: Build and cache SDL3
+        uses: ./.github/actions/sdl3
+        with:
+          version: release-3.2.20
+          target-arch: x64
+          parallel: "2"
+
+      - name: Record immutable build identity
+        shell: bash
+        run: |
+          cd /o
+          mkdir -p ci-logs
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          version=$(python opennow-qt/packaging/nightly_release.py version \
+            --run "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT")
+          echo "OPENNOW_BUILD_VERSION=$version" >> "$GITHUB_ENV"
+          rustc -Vv
+          cargo -V
+
+      - name: Test Windows decode and protocol (including real WARP tests)
+        shell: bash
+        run: |
+          cd /o
+          cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml \
+            -p opennow-streamer-platform-windows -p opennow-streamer-protocol \
+            --lib -- --test-threads=1 --nocapture \
+            2>&1 | tee ci-logs/windows-tests.log
+
+      - name: Configure Qt release
+        shell: bash
+        run: |
+          cd /o
+          cmake -S opennow-qt -B build/opennow-qt-release \
+            -G "Ninja Multi-Config" \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENNOW_BUILD_VERSION="$OPENNOW_BUILD_VERSION" \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install" \
+            2>&1 | tee ci-logs/cmake-configure.log
+
+      - name: Build OpenNOW.exe and adapter selection tests
+        shell: bash
+        run: |
+          cd /o
+          cmake --build build/opennow-qt-release --config Release --parallel 2 \
+            --target opennow-qt opennow-graphicsdevices-tests \
+            2>&1 | tee ci-logs/cmake-build.log
+
+      - name: Test Qt graphics adapter selection
+        shell: bash
+        run: |
+          cd /o
+          ctest --test-dir build/opennow-qt-release -C Release \
+            -R '^opennow-graphicsdevices-tests$' --output-on-failure --no-tests=error \
+            2>&1 | tee ci-logs/ctest.log
+
+      - name: Package portable ZIP
+        shell: bash
+        run: |
+          cd /o
+          cpack --config build/opennow-qt-release/CPackConfig.cmake \
+            -C Release -G ZIP -B build/qt-packages \
+            2>&1 | tee ci-logs/cpack.log
+
+      - name: Verify payload and build setup.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-Location O:\
+          . ./opennow-qt/packaging/windows-release.ps1
+          $zip = @(Get-ChildItem build/qt-packages -Filter *.zip)
+          if ($zip.Count -ne 1) { throw "Expected exactly one portable ZIP" }
+          $payload = Join-Path $env:RUNNER_TEMP "opennow-exe-payload"
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath $payload
+          Assert-OpenNowPackagePayload -Root $payload -DeploymentRoot build/opennow-qt-release/Release
+          $setup = Join-Path $zip[0].Directory.FullName ($zip[0].BaseName + "-setup.exe")
+          ./opennow-qt/packaging/windows/build-setup.ps1 -Payload $payload `
+            -Version $env:OPENNOW_BUILD_VERSION -Arch x64 -OutputFile $setup
+          if ($LASTEXITCODE -ne 0) { throw "setup.exe creation failed" }
+          @(
+            "OpenNOW Windows x64 unsigned compatibility test build"
+            "Version: $env:OPENNOW_BUILD_VERSION"
+            "Source commit: $env:GITHUB_SHA"
+            "Run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            "Portable: extract the ZIP completely, then launch bin\OpenNOW.exe."
+            "Installer: run the -setup.exe. Both packages are unsigned."
+            "DX10 fallback: H.264 8-bit SDR CPU decoding / D3D11 WARP presentation."
+            "Runner tests do not qualify physical DX10 hardware or streaming performance."
+          ) | Set-Content build/qt-packages/BUILD-INFO.txt -Encoding utf8
+          Get-ChildItem build/qt-packages -File |
+            Where-Object Extension -In @(".zip", ".exe") |
+            ForEach-Object {
+              "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+            } | Set-Content build/qt-packages/SHA256SUMS -Encoding ascii
+
+      - name: Upload Windows executable packages
+        id: packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenNOW-Windows-x64-dx10
+          path: |
+            build/qt-packages/*.zip
+            build/qt-packages/*-setup.exe
+            build/qt-packages/BUILD-INFO.txt
+            build/qt-packages/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Write download summary
+        shell: pwsh
+        env:
+          ARTIFACT_URL: ${{ steps.packages.outputs.artifact-url }}
+        run: |
+          @(
+            "## Windows x64 unsigned test build"
+            "[Download setup.exe and portable ZIP]($env:ARTIFACT_URL)"
+            "Source: $env:GITHUB_SHA"
+            "Extract the portable ZIP completely and launch bin\OpenNOW.exe."
+            "Windows WARP/protocol and Qt adapter selection tests passed."
+            "Physical DX10 gameplay and performance still require device testing."
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      # Preserve error context through the GitHub checks API too: artifact/log
+      # blob downloads are not accessible from every client environment.
+      - name: Publish failure excerpts
+        if: failure()
+        shell: python
+        run: |
+          import pathlib
+          import re
+          for log in pathlib.Path("O:/ci-logs").glob("*.log"):
+              lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+              hits = [i for i, line in enumerate(lines) if re.search(
+                  r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|test result: FAILED", line)]
+              excerpt = []
+              for i in hits[:3]:
+                  excerpt.extend(lines[max(0, i - 1):i + 8])
+              excerpt.extend(lines[-4:])
+              message = "\n".join(excerpt)[-6500:]
+              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::error title={log.name}::{message}")
+
+      - name: Upload build and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-exe-build-logs
+          path: ci-logs/
+          if-no-files-found: ignore
+          retention-days: 14
