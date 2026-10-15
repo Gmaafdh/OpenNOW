@@ -183,10 +183,32 @@ cargo test --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streame
 cargo test --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streamer-platform --lib
 ```
 
-The rest needs DirectX 10 hardware and is not covered by CI: the Windows x64 lane runs on a
-GitHub-hosted desktop whose D3D11 device exposes no video interfaces, so the existing GPU
-tests skip at that probe (`E_NOINTERFACE`), and no runner in this repository presents a real
-10_x device. Device creation at 10_0/10_1, staging read-back of a decoded NV12 array slice,
-Shader Model 4.0 compilation, the bitblt present, and end-to-end session behaviour on such a
-GPU therefore require a manual pass on the target hardware before this is called accepted. See
-the [Qt acceptance runbook](qt-acceptance.md).
+### What CI proves
+
+`.github/workflows/arena-dx10-windows.yml` is a fork-only harness: the repository's own Windows
+lane is `workflow_call`-only, runs on the project's private runner pool and needs signing
+secrets, none of which a fork has. On GitHub-hosted Windows runners (`windows-latest`) the
+harness verifies this change end to end:
+
+| Gate | Result |
+| --- | --- |
+| `cargo build --workspace --locked` in `native/opennow-streamer` | pass |
+| `cargo test -p opennow-streamer-platform-windows --lib` | 114 passed, 0 failed, 4 ignored |
+| `cargo test -p opennow-streamer-platform --lib` | 133 passed, 0 failed, 3 ignored |
+| `cargo clippy` on both touched crates, `--all-targets -- -D warnings` | no diagnostics |
+| CMake release build of `opennow-qt` and `opennow-graphicsdevices-tests` (MSVC, Ninja, Qt 6.8.3, SDL3) | pass |
+| `ctest -R graphicsdevices` (adapter selection, including the DirectX 10 compatibility entries) | pass |
+| `windeployqt` deployment published as the `OpenNOW-Windows-x64-dx10` artifact | `OpenNOW.exe` plus its runtime |
+
+Those runners have no DirectX 10 GPU. Their D3D11 device exposes no video interfaces, which is
+exactly the second condition that selects the compatibility path, so the capability tests above
+do run the compatibility contract rather than skipping it; the existing GPU tests that need a
+video processor still skip at that probe (`E_NOINTERFACE`).
+
+### What still needs real hardware
+
+The rest needs DirectX 10 hardware and is not covered by CI: no runner in this repository
+presents a real 10_x device. Device creation at 10_0/10_1, staging read-back of a decoded NV12
+array slice, Shader Model 4.0 compilation, the bitblt present, and end-to-end session behaviour
+on such a GPU therefore require a manual pass on the target hardware before this is called
+accepted. See the [Qt acceptance runbook](qt-acceptance.md).
