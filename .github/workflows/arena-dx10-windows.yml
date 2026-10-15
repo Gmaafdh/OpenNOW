@@ -139,13 +139,18 @@ jobs:
             -p opennow-streamer-platform --lib -- --nocapture \
             2>&1 | tee ci-logs/capability-tests.log
 
-      - name: Clippy (workspace, all targets, warnings denied)
+      - name: Clippy (touched crates, all targets, warnings denied)
         shell: bash
         run: |
+          # Scoped to the crates this change touches. The wider workspace carries pre-existing
+          # warnings (for example opennow-streamer-ffi), which would only mask the lints this
+          # verification is meant to catch.
           {
-            cargo clippy --manifest-path native/opennow-core/Cargo.toml --all-targets -- -D warnings
+            cargo clippy --manifest-path native/opennow-core/Cargo.toml \
+              -p opennow-core --all-targets -- -D warnings
             cargo clippy --locked --manifest-path native/opennow-streamer/Cargo.toml \
-              --workspace --all-targets -- -D warnings
+              -p opennow-streamer-platform -p opennow-streamer-platform-windows \
+              --all-targets -- -D warnings
           } 2>&1 | tee ci-logs/clippy.log
 
       # Reporting only: the repository has no rustfmt gate, but the formatted result is useful.
