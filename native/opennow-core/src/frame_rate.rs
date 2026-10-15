@@ -41,6 +41,9 @@ fn hardware_decode_available(settings: &Value, capabilities: &Value) -> bool {
         .filter(|backend| {
             let name = backend["backend"].as_str().unwrap_or("");
             !matches!(name, "software" | "ffmpeg")
+                && backend
+                    .get("softwareDecode")
+                    .is_none_or(|value| value.as_bool() == Some(false))
                 && (requested_backend == "auto"
                     || requested_backend == name
                     || (requested_backend == "nvdec" && name == "cuda"))
@@ -345,6 +348,41 @@ mod tests {
             ),
             360,
             "the same hardware profile stays eligible without the software preference"
+        );
+    }
+
+    #[test]
+    fn warp_compatibility_never_qualifies_as_a_hardware_decoder() {
+        let mut compatibility = capabilities("d3d11", "h264");
+        compatibility["videoBackends"][0]["platform"] = json!("windows");
+        compatibility["videoBackends"][0]["softwareDecode"] = json!(true);
+        for backend in ["auto", "d3d11"] {
+            let settings = json!({"resolution":"1920x1080", "fps":360,
+                "codec":"h264", "nativeVideoBackend":backend});
+            let params = json!({"runtimeCapabilities":compatibility,"maxEntitledFps":360});
+            assert_eq!(request_frame_rate(&settings, &params, 1920, 1080), 240);
+            assert_eq!(
+                descriptor(&frame_rate_choices(&settings, &compatibility), 360)["disabled"],
+                true
+            );
+        }
+        for malformed in [Value::Null, json!("false")] {
+            compatibility["videoBackends"][0]["softwareDecode"] = malformed;
+            assert!(
+                !hardware_decode_available(&json!({"codec":"h264"}), &compatibility),
+                "a malformed annotation is not hardware-decode evidence"
+            );
+        }
+        compatibility["videoBackends"][0]["softwareDecode"] = json!(false);
+        let settings = json!({"resolution":"1920x1080", "fps":360, "codec":"h264"});
+        assert_eq!(
+            request_frame_rate(
+                &settings,
+                &json!({"runtimeCapabilities":compatibility,"maxEntitledFps":360}),
+                1920,
+                1080
+            ),
+            360
         );
     }
 

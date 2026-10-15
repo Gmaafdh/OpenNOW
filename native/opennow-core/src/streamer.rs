@@ -3022,6 +3022,67 @@ mod tests {
     }
 
     #[test]
+    fn windows_compatibility_resolves_auto_without_claiming_unsupported_codecs_or_hdr() {
+        let capabilities = json!({"protocolVersion":7,"nativeHdrSupported":true,"videoBackends":[{
+            "backend":"d3d11","platform":"windows","available":true,"softwareDecode":true,
+            "zeroCopyModes":[],"codecs":[
+                {"codec":"h264","available":true,"colorQualities":["8bit_420"],"hdrSupported":false,"hdrColorQualities":[]},
+                {"codec":"h265","available":false,"colorQualities":[],"hdrSupported":false,"hdrColorQualities":[]},
+                {"codec":"av1","available":false,"colorQualities":[],"hdrSupported":false,"hdrColorQualities":[]}]}]});
+        let settings = json!({"codec":"auto","nativeVideoBackend":"auto","colorQuality":"8bit_420","enableHdr":false});
+        let resolved =
+            StreamerService::embedded_session_settings(&settings, &capabilities).unwrap();
+        assert_eq!(resolved["codec"], "h264");
+        assert_eq!(resolved["nativeVideoBackend"], "auto");
+        assert_eq!(
+            settings["codec"], "auto",
+            "keep the saved preference unchanged"
+        );
+        for codec in ["h265", "av1"] {
+            let mut manual = settings.clone();
+            manual["codec"] = json!(codec);
+            assert_eq!(
+                StreamerService::embedded_session_settings(&manual, &capabilities)
+                    .unwrap_err()
+                    .code,
+                "streamer_codec_unavailable"
+            );
+        }
+        for color in ["8bit_444", "10bit_420", "10bit_444"] {
+            let mut advanced = settings.clone();
+            advanced["colorQuality"] = json!(color);
+            assert!(StreamerService::embedded_session_settings(&advanced, &capabilities).is_err());
+        }
+        let mut hdr = settings.clone();
+        hdr["enableHdr"] = json!(true);
+        assert!(
+            StreamerService::embedded_session_settings(&hdr, &capabilities).is_err(),
+            "an HDR monitor cannot authorize software HDR decode"
+        );
+        let mut unavailable = capabilities.clone();
+        unavailable["videoBackends"][0]["available"] = json!(false);
+        assert_eq!(
+            StreamerService::embedded_session_settings(&settings, &unavailable)
+                .unwrap_err()
+                .code,
+            "streamer_backend_unavailable"
+        );
+        let service = StreamerService::new();
+        assert_eq!(
+            service
+                .prepare_embedded(
+                    &json!({"session":{
+            "sessionId":"resume-on-dx10","status":2,"negotiatedStreamProfile":{"codec":"H265"}},
+            "runtimeCapabilities":capabilities}),
+                    &settings
+                )
+                .unwrap_err()
+                .code,
+            "streamer_codec_unavailable"
+        );
+    }
+
+    #[test]
     fn embedded_color_profiles_gate_auto_and_manual_before_allocation() {
         let mut capabilities = json!({"protocolVersion":7,"videoBackends":[{
             "backend":"vulkan", "platform":"linux", "available":true, "codecs":[

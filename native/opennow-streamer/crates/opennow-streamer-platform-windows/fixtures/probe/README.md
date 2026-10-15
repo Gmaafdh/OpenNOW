@@ -55,6 +55,33 @@ for file in *.hevc *.obu; do
 done
 ```
 
+## CPU H.264 / WARP compatibility probe
+
+`h264-nv12-sdr.h264` is the first independent access unit (SPS, PPS, SEI, IDR)
+extracted from the repository's existing Linux software-decode fixture,
+`crates/opennow-streamer-platform-linux/tests/fixtures/software_decode_64x64.h264`.
+That fixture is an x264-encoded 64x64 8-bit 4:2:0 Annex-B test stream with no
+B-frames. The Windows probe submits **one access unit**, not all 30 frames in
+one MF sample. This is a software-decoder/upload probe, not a hardware or HDR probe.
+No new runtime codec dependency is introduced.
+
+Source SHA-256: `3c9ac0316075eaf9524183a51a09c6d4dcb856385a0534a3bb7bb49e94433237`.
+Extracted 1094-byte SHA-256: `20fe75fe240326d7b135b13b2b214e913cbd793aafa0f79b57b5f4d4d4604906`.
+To reproduce from the streamer workspace root:
+
+```python
+from pathlib import Path
+source = Path("crates/opennow-streamer-platform-linux/tests/fixtures/software_decode_64x64.h264").read_bytes()
+starts = [i for i in range(len(source) - 3) if source[i:i+3] == b"\x00\x00\x01"]
+starts.append(len(source))
+access_unit = bytearray()
+for start, end in zip(starts, starts[1:]):
+    access_unit.extend(source[start:end])
+    if source[start + 3] & 31 == 5:
+        break
+Path("crates/opennow-streamer-platform-windows/fixtures/probe/h264-nv12-sdr.h264").write_bytes(access_unit)
+```
+
 ## Non-black hardware precision regression
 
 `hevc-y410-precision.hevc` is a separate lossless Main44410/RExt access unit for the explicit

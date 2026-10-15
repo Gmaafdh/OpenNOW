@@ -397,6 +397,63 @@ between settings sections and desktop pages.
   End the session during recovery and verify no late response restarts it. Stop one
   game and start another; no frame from the previous game may flash during startup.
 
+## DirectX 10-class Windows compatibility
+
+This path requires runtime qualification on Windows; Linux unit tests and Windows
+cross-target typechecking do **not** establish Qt/WARP playback or performance.
+Keep the existing UI, stream item, overlays, shortcuts and physical GPU preference.
+Do not claim native D3D10 rendering, hardware codec support, or a measured speedup.
+
+Run on Windows with the supported Qt SDK and system Media Foundation installed:
+
+```powershell
+cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streamer-platform-windows --lib
+cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml -p opennow-streamer-protocol --lib
+cargo test --locked --manifest-path native/opennow-core/Cargo.toml
+cmake --build build/opennow-qt
+ctest --test-dir build/opennow-qt -R "graphicsdevice|backend-availability|streamvideo|nativestreamruntime" --output-on-failure
+```
+
+The ordinary Windows library tests include `warp_probe_decodes_real_h264_without_d3d11_video_interfaces`
+and `warp_upload_preserves_sdr_range_excludes_padding_and_reuses_slots`. They use
+WARP, not a required physical GPU: decode the actual one-frame fixture, require a
+CPU sample/no DXGI manager, test full/limited SDR black/white and poisoned codec
+padding by test-only readback, reuse slots, reject truncated buffers and old
+contexts, and ensure a failed lock path releases its buffer. They are not skipped
+hardware tests and are picked up by the existing Windows CI library-test commands.
+Additional ordinary WARP tests check BT.601/BT.709 color conversion, 2D memory
+buffer locking and corrupt-sample rejection. They do not replace a complete Qt
+compositor or actual streaming test.
+
+Required manual matrix:
+
+- **DX10-only GPU:** verify the unchanged shell starts on WARP, the existing Auto
+  backend negotiates H.264 SDR, and settings show CPU decoding without a new control.
+  Start at 1280x720/30, then measure 1080p/60 rather than assuming CPU capacity.
+- **DX10 + modern hybrid:** Automatic prefers decode plus compositor support;
+  explicitly selecting the old GPU preserves its physical ID and uses the same
+  WARP LUID for Qt/native. Reboot/missing-GPU fallback must not overwrite the saved ID.
+- **Modern hardware regression:** existing D3D11 GPU decode/zero-copy capabilities,
+  HDR gating and selected adapter remain unchanged; no CPU sample enters that path.
+- **Profiles/failure:** no HEVC, AV1, HDR, 10-bit or 4:4:4 is advertised by WARP.
+  Manual incompatible profiles and resumed HEVC seats fail before playback, without
+  silently changing requested color/codec. Missing MF components fail closed.
+- **Lifetime/UI:** repeat windowed/fullscreen, resize, overlays open/closed, F3,
+  Ctrl+G, stop/start and device/context recreation. Verify no stale texture, leaked
+  buffer lock, second presenter, stuck worker, or UI/input ownership change.
+- **Load/recovery:** pause transport and resume, send a burst and discontinuity,
+  stop during idle wait, and repeat sessions. Input must wake a drained decoder
+  immediately; asynchronous output must continue without new input. CPU ready
+  frames are latest-only, encoded queues remain bounded, drops are observable,
+  and reference-chain recovery still requests a keyframe when required.
+
+Record baseline and candidate CPU utilization, working set, first-frame time,
+frame latency/pacing and queue drops at matched resolution/FPS/bitrate for idle,
+active and overlay workloads. Include hardware/driver/Windows/Qt versions and the
+actual decode/presentation backend in results. Reused upload resources, latest-only
+CPU queues, probe caching and reduced idle polling are mechanisms, not proof of a
+performance improvement or a guaranteed frame rate.
+
 ## Signing and package verification
 
 - Windows: verify Authenticode on every executable and installer with `signtool verify /pa /all`;

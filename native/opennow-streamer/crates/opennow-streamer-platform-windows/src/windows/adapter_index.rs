@@ -1,15 +1,9 @@
 use std::collections::HashSet;
 
-use ::windows::Win32::Graphics::Direct3D::{
-    D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_10_1,
-    D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
-};
 use ::windows::Win32::Graphics::Direct3D11::{
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
     D3D11_DECODER_PROFILE_AV1_VLD_PROFILE0, D3D11_DECODER_PROFILE_H264_VLD_FGT,
     D3D11_DECODER_PROFILE_H264_VLD_NOFGT, D3D11_DECODER_PROFILE_HEVC_VLD_MAIN,
-    D3D11_DECODER_PROFILE_HEVC_VLD_MAIN10, D3D11_SDK_VERSION, D3D11_VIDEO_DECODER_DESC,
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11VideoDevice,
+    D3D11_DECODER_PROFILE_HEVC_VLD_MAIN10, D3D11_VIDEO_DECODER_DESC, ID3D11VideoDevice,
 };
 use ::windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_NV12, DXGI_FORMAT_P010};
 use ::windows::Win32::Graphics::Dxgi::{
@@ -112,7 +106,7 @@ fn query_decode_profiles(adapter: &IDXGIAdapter1) -> Result<Vec<(DecodeProfile, 
     let dxgi_adapter: IDXGIAdapter = adapter
         .cast()
         .map_err(|error| format!("DXGI adapter interface: {error}"))?;
-    let (device, _context) = create_video_device(&dxgi_adapter)?;
+    let (device, _context) = super::graphics::create_d3d11_device(Some(&dxgi_adapter), true)?;
     let video: ID3D11VideoDevice = device
         .cast()
         .map_err(|error| format!("D3D11 video device: {error}"))?;
@@ -140,37 +134,6 @@ fn query_decode_profiles(adapter: &IDXGIAdapter1) -> Result<Vec<(DecodeProfile, 
         profiles.push((kind, supported));
     }
     Ok(profiles)
-}
-
-fn create_video_device(
-    adapter: &IDXGIAdapter,
-) -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
-    let levels = [
-        D3D_FEATURE_LEVEL_11_1,
-        D3D_FEATURE_LEVEL_11_0,
-        D3D_FEATURE_LEVEL_10_1,
-        D3D_FEATURE_LEVEL_10_0,
-    ];
-    let mut device = None;
-    let mut context = None;
-    unsafe {
-        D3D11CreateDevice(
-            Some(adapter),
-            D3D_DRIVER_TYPE_UNKNOWN,
-            ::windows::Win32::Foundation::HMODULE::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-            Some(&levels),
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            Some(&mut context),
-        )
-        .map_err(|error| format!("D3D11CreateDevice: {error}"))?;
-    }
-    Ok((
-        device.ok_or("D3D11CreateDevice returned no device")?,
-        context.ok_or("D3D11CreateDevice returned no immediate context")?,
-    ))
 }
 
 fn classify_profile(profile: GUID) -> DecodeProfile {

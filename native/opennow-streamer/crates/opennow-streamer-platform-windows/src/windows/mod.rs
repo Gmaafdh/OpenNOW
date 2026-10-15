@@ -11,12 +11,15 @@ macro_rules! video_log {
 mod adapter_index;
 mod audio;
 mod color;
+mod compatibility;
 mod decoder;
 mod embedded;
 mod graphics;
+mod shader;
 mod y410;
 
 pub(crate) use adapter_index::probe_adapter_decode;
+pub(crate) use compatibility::{is_software_adapter, probe as probe_compatibility};
 
 pub(crate) unsafe fn d3d11_adapter_luid(
     device: *mut std::ffi::c_void,
@@ -757,12 +760,15 @@ impl Worker {
                         let frame = self.decoded_video.pop_front();
                         if let Some(frame) = frame {
                             did_work = true;
-                            if let Err(error) = self.graphics.present(
-                                &frame.texture,
-                                frame.subresource,
-                                frame.timestamp_100ns,
-                                frame.duration_100ns,
-                            ) {
+                            let present = frame.texture().and_then(|texture| {
+                                self.graphics.present(
+                                    texture,
+                                    frame.subresource,
+                                    frame.timestamp_100ns,
+                                    frame.duration_100ns,
+                                )
+                            });
+                            if let Err(error) = present {
                                 if let Err(error) =
                                     self.recover_video(Subsystem::VideoPresentation, error)
                                 {

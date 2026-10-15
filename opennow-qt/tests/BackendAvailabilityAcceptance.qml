@@ -122,6 +122,21 @@ QtObject {
             check(software.detail === "FFmpeg was not built in", "probe reason must be shown")
         }
         check(!ShellStore.codecAvailable("h264"), "an unavailable software backend exposes no codecs")
+        ShellStore.settings = {codec:"auto", nativeVideoBackend:"auto"}
+        ShellStore.acceptNativeCapabilities({protocolVersion:7,videoBackends:[{
+            backend:"d3d11",platform:"windows",available:true,softwareDecode:true,zeroCopyModes:[],codecs:[
+                {codec:"h264",available:true,colorQualities:["8bit_420"],hdrSupported:false,hdrColorQualities:[]},
+                {codec:"h265",available:false,colorQualities:[],hdrSupported:false,hdrColorQualities:[]},
+                {codec:"av1",available:false,colorQualities:[],hdrSupported:false,hdrColorQualities:[]}]}]})
+        check(ShellStore.codecAvailable("h264"), "WARP compatibility must expose its verified H.264 decoder")
+        check(!ShellStore.codecAvailable("h265") && !ShellStore.codecAvailable("av1"),
+            "WARP must not inherit codecs from an unusable physical GPU")
+        check(!ShellStore.hdrDecoderAvailable(), "WARP compatibility must never advertise HDR")
+        if (Qt.platform.os === "windows") {
+            const dx11 = ShellStore.videoBackendItems().find(item => item.value === "d3d11")
+            check(dx11 && !dx11.disabled && dx11.detail === qsTr("CPU decoding; 8-bit 4:2:0 SDR only"),
+                "reuse the existing backend selector and truthful CPU detail without changing the UI")
+        }
         ShellStore.settings = {codec:"h264", nativeVideoBackend:"auto"}
         ShellStore.nativeRuntimeReady = false
         check(!ShellStore.hdrDecoderAvailable(), "stale HDR capabilities must fail closed")

@@ -226,13 +226,23 @@ pub(crate) fn embedded_video_backends_with_config(
     #[cfg(target_os = "windows")]
     let mut backends = {
         use opennow_streamer_platform_windows::WindowsGraphicsApi;
-        vec![windows_hardware_backend(
-            WindowsGraphicsApi::D3d11,
-            "d3d11",
-            "d3d11-nv12",
-            _windows_adapter_luid,
-            WindowsOutputMode::Embedded,
-        )]
+        if opennow_streamer_platform_windows::is_software_adapter(_windows_adapter_luid)
+            .unwrap_or(false)
+        {
+            vec![
+                opennow_streamer_platform_windows::compatibility_video_backend(
+                    _windows_adapter_luid,
+                ),
+            ]
+        } else {
+            vec![windows_hardware_backend(
+                WindowsGraphicsApi::D3d11,
+                "d3d11",
+                "d3d11-nv12",
+                _windows_adapter_luid,
+                WindowsOutputMode::Embedded,
+            )]
+        }
     };
     #[cfg(target_os = "macos")]
     let mut backends = vec![hardware_backend()];
@@ -416,6 +426,7 @@ fn windows_hardware_capability(
         })
     };
     VideoBackendCapability {
+        software_decode: false,
         backend,
         platform: "windows",
         codecs: vec![
@@ -473,6 +484,7 @@ fn hardware_backend() -> VideoBackendCapability {
     let h265_available = macos_backend::h265_available();
     let av1_available = macos_backend::av1_available();
     VideoBackendCapability {
+        software_decode: false,
         backend: "videotoolbox",
         platform: "macos",
         codecs: vec![
@@ -529,6 +541,7 @@ fn software_backend() -> VideoBackendCapability {
         // additionally use a D3D11-aware synchronous Media Foundation decoder.
         let available = true;
         VideoBackendCapability {
+            software_decode: false,
             backend: "software",
             platform: "windows",
             codecs: vec![
@@ -568,6 +581,7 @@ fn software_backend() -> VideoBackendCapability {
     }
     #[cfg(not(target_os = "windows"))]
     VideoBackendCapability {
+        software_decode: false,
         backend: "software",
         platform: "cross-platform",
         codecs: vec![
@@ -609,6 +623,7 @@ fn unavailable_backend(
     reason: &'static str,
 ) -> VideoBackendCapability {
     VideoBackendCapability {
+        software_decode: false,
         backend,
         platform,
         codecs: ["h264", "h265", "av1"]
@@ -649,6 +664,7 @@ mod tests {
     #[test]
     fn disabled_backends_do_not_retain_hdr_or_color_profiles() {
         let mut backends = vec![VideoBackendCapability {
+            software_decode: false,
             backend: "vulkan",
             platform: "linux",
             codecs: vec![CodecCapability {

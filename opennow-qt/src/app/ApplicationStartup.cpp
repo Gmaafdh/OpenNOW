@@ -162,7 +162,7 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
 #else
                                            nullptr,
 #endif
-                                           graphicsDevices.adapterLuid()
+                                           graphicsDevices.presentationAdapterLuid()
     );
     if (!nativeStreamRuntime.start())
         qWarning("Could not start the embedded streamer runtime: %s",

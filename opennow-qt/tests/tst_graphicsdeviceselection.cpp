@@ -87,6 +87,45 @@ private slots:
         QCOMPARE(highPerformanceCanDecode.adapterLuid(), 5ULL);
     }
 
+    void automaticPrefersADecoderThatCanAlsoComposeTheUnchangedUi()
+    {
+        const GraphicsDeviceSelection::Adapter dx10{
+            u"dx10"_s, u"DirectX 10 GPU"_s, 10, 512ULL << 20, false,
+            true, false, false, false};
+        const GraphicsDeviceSelection::Adapter dx11{
+            u"dx11"_s, u"DirectX 11 GPU"_s, 11, 0, false,
+            true, true, false, true};
+        GraphicsDeviceSelection automatic({dx10, dx11}, {});
+        QCOMPARE(automatic.adapterLuid(), 11ULL);
+        QCOMPARE(automatic.presentationAdapterLuid(), 11ULL);
+        QVERIFY(!automatic.usesCompatibilityRenderer());
+
+        // A saved adapter remains a saved physical identity. Its WARP
+        // presentation LUID must not be persisted as a replacement preference.
+        GraphicsDeviceSelection explicitDx10({dx10, dx11}, u"dx10"_s);
+        QCOMPARE(explicitDx10.adapterLuid(), 10ULL);
+        QCOMPARE(explicitDx10.requestedDeviceId(), u"dx10"_s);
+        QVERIFY(!explicitDx10.savedDeviceUnavailable());
+        QVERIFY(explicitDx10.usesCompatibilityRenderer());
+        QVERIFY(explicitDx10.presentationAdapterLuid() != explicitDx10.adapterLuid());
+        QCOMPARE(explicitDx10.choices().size(), 3);
+    }
+
+    void dx10OnlyHardwareRetainsTheSameSelectorAndPreference()
+    {
+        GraphicsDeviceSelection selection({{u"dx10"_s, u"DirectX 10 GPU"_s,
+            10, 512ULL << 20, false, false, false, false, false}}, {});
+        QVERIFY(selection.usesCompatibilityRenderer());
+        QVERIFY(!selection.selectorVisible());
+        QCOMPARE(selection.adapterLuid(), 10ULL);
+        QCOMPARE(selection.choices().size(), 2);
+        QVERIFY(selection.requestedDeviceId().isEmpty());
+#ifdef Q_OS_WIN
+        QVERIFY2(selection.presentationAdapterLuid() != 0,
+                 "Windows compatibility requires a validated, explicit WARP adapter");
+#endif
+    }
+
     void unidentifiedHardwareDoesNotDisableAutomatic()
     {
         GraphicsDeviceSelection selection({{{}, u"Unidentified GPU"_s, 7}, {u"known"_s, u"Known GPU"_s, 8}}, {});

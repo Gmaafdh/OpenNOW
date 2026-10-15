@@ -642,7 +642,7 @@ QtObject {
                 disabled: !nativeRuntimeReady || !backend || !backend.available,
                 detail: !nativeRuntimeReady ? qsTr("Checking hardware…")
                     : !backend ? qsTr("Not supported by this stream view")
-                    : backend.available ? (choice.value === "software"
+                    : backend.available ? (choice.value === "software" || backend.softwareDecode === true
                         ? qsTr("CPU decoding; 8-bit 4:2:0 SDR only") : qsTr("Hardware decoding"))
                     : String(backend.reason || qsTr("Unavailable on this device"))
             })

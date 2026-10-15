@@ -9,9 +9,10 @@ The backend uses only Windows system APIs:
 - Media Foundation hardware MFTs for H.264/HEVC/AV1 decode into NV12/P010, or AYUV/Y410 when the
   installed decoder exposes those exact formats. Hardware selection checks the selected adapter's
   DXVA profile, output format, and decoder configuration before trying adapter-matched transforms
-  and D3D11-aware registered MFTs. A separate software mode accepts only
-  synchronous/asynchronous software MFTs that are D3D11-aware and publish D3D11-backed output;
-  the two modes are never silently mixed.
+  and D3D11-aware registered MFTs. The standalone software mode accepts only
+  synchronous/asynchronous software MFTs that are D3D11-aware and publish D3D11-backed output.
+  The explicit embedded CPU compatibility mode described below instead uses system memory;
+  neither is silently substituted for a hardware decoder.
 - A D3D11 video processor and a two-buffer flip-model DXGI swap chain for NV12 conversion, aspect-correct scaling, and presentation. The swap chain can target a caller-owned HWND, or the backend can create and own a child or top-level HWND.
 - WASAPI shared-mode rendering for interleaved IEEE-float PCM. Windows performs endpoint format conversion when the active mix format differs.
 
@@ -45,6 +46,59 @@ bit depth; capability probes still require the exact requested output format. Th
 notifies the user using the validated actual format exposed by the acquired `D3d11Frame`.
 Installing a different decoder requires restarting the process to refresh cached MFT failures.
 
+## DirectX 10-class machine compatibility (Qt)
+
+Qt 6's D3D11 compositor requires Shader Model 5, `ID3D11DeviceContext1`, and
+constant-buffer offsetting. Lowering only the stream conversion shader to SM4
+cannot make the existing Qt UI render on a feature-level-10 GPU. The shell keeps
+the selected physical GPU's persisted identity, but selects a validated **D3D11
+WARP** presentation adapter when that physical GPU cannot run Qt Quick. Qt and
+native probes/import use the same presentation LUID. This is not a D3D10 renderer,
+does not add a second window/presenter, and does not change the UI or its controls.
+It requires a supported Windows/Qt installation with working WARP and Media Foundation;
+it does not enable unsupported Windows versions or missing system media components.
+
+On that explicit software adapter only, the embedded runtime uses:
+
+- A software H.264 MFT without a DXGI device manager. Actual output must be
+  **system-memory NV12, 8-bit 4:2:0 SDR**; it cannot masquerade as a DXGI surface.
+- Checked, positive-pitch, even NV12 allocations up to 4096x2560 (including codec
+  padding), pitch at most 16384, and caller output buffers at most 64 MiB. Visible
+  dimensions retain the existing 48x48–4096x2304 backend limit. Bad metadata,
+  truncated planes and corrupt samples fail before upload; every lock is released.
+- Reusable R8/R8G8 input textures and at most eight lazily allocated RGBA8 output
+  slots. Upload is NV12 (1.5 bytes/pixel), with shader conversion on Qt's adopted
+  D3D11 context rather than a separate software RGBA converter. Range, matrix,
+  chroma siting and visible aperture are explicit; padded chroma cannot bleed in.
+  Deferred conversion restores Qt's context state. There is no production readback
+  or explicit GPU completion wait, and no D3D11 video-interface requirement on this path.
+- The existing bounded encoded queue and discontinuity/keyframe recovery. CPU
+  decoded-ready queues keep only the latest frame; hardware retains its existing
+  seven-frame burst allowance. Sample leases survive through conversion. Worker
+  shutdown remains detached and bounded to four live workers, including abandoned
+  ones; graphics recreation invalidates old-device frames.
+
+`compatibility_video_backend` exercises a real 64x64 H.264 access unit through the
+software decoder and this exact uploader before advertising support. Successful
+probes are reused for five seconds by presentation LUID, with at most four cache
+entries and no retained device; failures are not cached. Live playback independently
+validates Qt's actual adopted device. This probe is not a throughput qualification.
+
+The backend remains `d3d11` (the actual presentation API), with additive
+`softwareDecode: true`, no zero-copy modes, and only H.264/`8bit_420`. HEVC, AV1,
+10-bit, 4:4:4 and HDR remain unavailable in compatibility mode; an HDR display
+cannot change that. The existing settings detail reports CPU decoding and playback
+reports `H.264 CPU/D3D11 WARP/Qt`. Auto negotiates H.264 without overwriting saved
+preferences; incompatible manual/resumed profiles fail rather than silently
+changing the cloud stream. CPU decode cannot unlock the hardware-only 360 FPS tier.
+
+Drained synchronous decoders now wait on the input/shutdown condition variable for
+up to 100 ms instead of polling the MFT every millisecond; new input wakes them
+immediately. Pending/asynchronous output retains the 1 ms progress interval.
+These allocation/polling changes are intended to reduce overhead, **not measured
+FPS or latency gains**. CPU/WARP throughput depends on the machine; qualify it
+using the Windows acceptance matrix in `docs/qt-acceptance.md` before release.
+
 ## Embedded HDR color contract
 
 `VideoFormat` carries explicit transfer function, primaries, matrix, range, and chroma siting.
@@ -73,7 +127,7 @@ preserving ten-bit precision until Qt's final SDR composition pass. RGB10A2 is a
 intermediate, not an HDR or ten-bit scan-out guarantee. Both full- and limited-range
 BT.709 decoder output are converted to full-range BT.709 RGB.
 
-Embedded conversion requires `ID3D11VideoContext1` for explicit color-space selection and
+Hardware embedded conversion requires `ID3D11VideoContext1` for explicit color-space selection and
 `ID3D11VideoProcessorEnumerator1` to validate the input/output format and color-space pair.
 Unsupported conversions fail explicitly; the producer does not silently replace RGB10A2
 with RGBA8 or rely on legacy driver color defaults. Format, range, and extent changes

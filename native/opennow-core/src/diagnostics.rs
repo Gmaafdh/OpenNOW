@@ -82,6 +82,9 @@ pub fn native_runtime_evidence(capabilities: &Value) -> Value {
         if let Some(value) = backend["available"].as_bool() {
             entry.insert("available".to_owned(), json!(value));
         }
+        if let Some(software_decode) = backend["softwareDecode"].as_bool() {
+            entry.insert("softwareDecode".to_owned(), json!(software_decode));
+        }
         if let Some(reason) = backend["reason"].as_str() {
             entry.insert("reason".to_owned(), json!(runtime_failure_reason(reason)));
         }
@@ -545,6 +548,15 @@ fn redact_lines(value: &str, limit: usize) -> String {
 mod tests {
     use super::*;
     use std::env;
+
+    #[test]
+    fn native_evidence_keeps_the_explicit_cpu_decode_annotation() {
+        let evidence = native_runtime_evidence(&json!({"videoBackends":[{
+            "backend":"d3d11","platform":"windows","available":true,"softwareDecode":true,
+            "adapterLuid":"private-luid","codecs":[{"codec":"h264","available":true}]}]}));
+        assert_eq!(evidence["videoBackends"][0]["softwareDecode"], true);
+        assert!(evidence["videoBackends"][0].get("adapterLuid").is_none());
+    }
 
     #[test]
     fn diagnostics_rotate_during_a_session_and_replace_the_previous_log() {

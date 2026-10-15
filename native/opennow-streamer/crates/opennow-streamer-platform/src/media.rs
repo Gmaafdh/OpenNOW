@@ -1165,6 +1165,8 @@ impl MediaSession {
         host_commands: Sender<HostCommand>,
         config: MediaSessionConfig<'_>,
         frames: crate::GraphicsFramePublisher,
+        #[cfg(target_os = "windows")]
+        windows_decoder_mode: opennow_streamer_platform_windows::WindowsDecoderMode,
         #[cfg(target_os = "linux")] linux_selection: LinuxVideoSelection,
         #[cfg(target_os = "linux")] vulkan_device: Option<Arc<crate::SharedVulkanDevice>>,
     ) -> Result<Self, String> {
@@ -1199,6 +1201,7 @@ impl MediaSession {
                 host_commands,
                 config.stream,
                 frames,
+                windows_decoder_mode,
             );
         }
         #[allow(unreachable_code)]
@@ -1571,6 +1574,7 @@ impl MediaSession {
         host_commands: Sender<HostCommand>,
         stream: MediaStreamConfig,
         frames: crate::GraphicsFramePublisher,
+        decoder_mode: opennow_streamer_platform_windows::WindowsDecoderMode,
     ) -> Result<Self, String> {
         let bridge = Arc::new(WindowsBridge::new());
         let shared = Arc::new(SharedPipeline {
@@ -1597,6 +1601,22 @@ impl MediaSession {
             stream,
             Arc::clone(&submission),
         )));
+        producer
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .decoder_mode = decoder_mode;
+        if decoder_mode == opennow_streamer_platform_windows::WindowsDecoderMode::Software {
+            opennow_streamer_protocol::log::log_line(
+                "WARN",
+                "windows-compatibility",
+                "Explicit H.264 CPU decode / NV12 upload / D3D11 WARP composition; no hardware decode or HDR",
+            );
+            let _ = shared.feedback.send(MediaFeedback::BackendFallback {
+                from: "physical GPU",
+                to: "H.264 CPU/D3D11 WARP",
+                reason: "Qt's compositor requires Shader Model 5; using bounded software compatibility mode".to_owned(),
+            });
+        }
         let notifier = Arc::new(EmbeddedD3d11FrameNotifier {
             state: Arc::downgrade(&producer),
             frames: frames.clone(),
@@ -1924,6 +1944,7 @@ impl MediaSession {
 
 #[cfg(target_os = "windows")]
 struct EmbeddedD3d11State {
+    decoder_mode: opennow_streamer_platform_windows::WindowsDecoderMode,
     format: opennow_streamer_platform_windows::VideoFormat,
     submission: Arc<Mutex<EmbeddedD3d11Submission>>,
     producer: Option<(crate::GraphicsContext, crate::D3d11FrameProducer)>,
@@ -1959,6 +1980,7 @@ impl EmbeddedD3d11State {
         use std::num::NonZeroU32;
 
         Self {
+            decoder_mode: opennow_streamer_platform_windows::WindowsDecoderMode::Hardware,
             format: VideoFormat {
                 codec: match stream.codec {
                     MediaVideoCodec::H264 => VideoCodec::H264,
@@ -2034,9 +2056,7 @@ impl EmbeddedD3d11State {
         command: crate::GraphicsRecordCommand,
     ) -> Result<(crate::GraphicsRecordedFrame, Option<MediaFeedback>), crate::GraphicsFrameError>
     {
-        use opennow_streamer_platform_windows::{
-            AdoptedD3d11Context, D3d11FrameProducer, WindowsDecoderMode,
-        };
+        use opennow_streamer_platform_windows::{AdoptedD3d11Context, D3d11FrameProducer};
 
         if context.api != crate::GraphicsApi::D3d11 {
             return Err(
@@ -2065,7 +2085,7 @@ impl EmbeddedD3d11State {
                         immediate_context: context.queue as *mut std::ffi::c_void,
                     },
                     self.format,
-                    WindowsDecoderMode::Hardware,
+                    self.decoder_mode,
                     Arc::clone(&self.frame_ready),
                 )
             }
@@ -2396,12 +2416,20 @@ impl crate::GraphicsFrame for PendingD3d11Frame {
             frame
         });
         let first_frame = state.take_first_recorded_frame(result.is_ok());
+        let backend = if state.decoder_mode
+            == opennow_streamer_platform_windows::WindowsDecoderMode::Software
+        {
+            "H.264 CPU/D3D11 WARP/Qt"
+        } else {
+            "D3D11/Qt"
+        };
         let keyframe_required = state.take_keyframe_required();
         drop(state);
         if first_frame {
-            let _ = self.shared.feedback.send(MediaFeedback::PlaybackStarted {
-                backend: "D3D11/Qt",
-            });
+            let _ = self
+                .shared
+                .feedback
+                .send(MediaFeedback::PlaybackStarted { backend });
         }
         if let Some(change) = color_change {
             let _ = self.shared.feedback.send(change);

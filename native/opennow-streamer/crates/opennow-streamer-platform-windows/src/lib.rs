@@ -2,6 +2,8 @@
 
 #[cfg(any(windows, test))]
 mod aperture;
+#[cfg(any(windows, test))]
+mod compatibility;
 mod decoder_order;
 mod format;
 mod queue;
@@ -38,8 +40,9 @@ pub use format::{
 pub use queue::{CompressedAdmit, PushOutcome, admit_compressed_frame};
 
 /// Burst allowance for adaptive video delivery. The decoded presenter uses
-/// the same bound and trims stale frames before presentation, keeping latency
-/// low without treating ordinary game-FPS fluctuations as decoder loss.
+/// the same bound for hardware and trims stale frames before presentation,
+/// keeping latency low without treating ordinary game-FPS fluctuations as
+/// decoder loss. Explicit CPU compatibility keeps only the latest ready frame.
 pub const ADAPTIVE_VIDEO_QUEUE_CAPACITY: usize = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +123,46 @@ pub unsafe fn d3d11_adapter_luid(
     device: *mut std::ffi::c_void,
 ) -> Result<WindowsAdapterLuid, String> {
     unsafe { windows::d3d11_adapter_luid(device) }
+}
+
+/// True only for an explicitly configured DXGI software adapter. Hardware
+/// capability results are never reused to authorize compatibility decoding.
+pub fn is_software_adapter(luid: Option<WindowsAdapterLuid>) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        windows::is_software_adapter(luid)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = luid;
+        Ok(false)
+    }
+}
+
+/// Exercises system-memory H.264 decode and the exact Qt texture uploader.
+pub fn probe_compatibility(luid: Option<WindowsAdapterLuid>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        windows::probe_compatibility(luid)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = luid;
+        Err("Windows compatibility rendering is unavailable".to_owned())
+    }
+}
+
+/// Capabilities for Qt's explicitly selected software presentation adapter.
+/// Advertise only after a real system-memory decode and texture upload succeed.
+#[cfg(windows)]
+pub fn compatibility_video_backend(
+    luid: Option<WindowsAdapterLuid>,
+) -> opennow_streamer_protocol::VideoBackendCapability {
+    let result = probe_compatibility(luid);
+    if let Err(error) = &result {
+        log::log_line("WARN", "windows-compatibility", error);
+    }
+    compatibility::video_backend(result.is_ok())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

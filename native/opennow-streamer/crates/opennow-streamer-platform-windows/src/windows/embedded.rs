@@ -174,13 +174,13 @@ impl D3d11FrameSubmitter {
     }
 }
 
-struct EmbeddedMediaRuntime {
+pub(super) struct EmbeddedMediaRuntime {
     mta_cookie: usize,
     media_foundation_started: bool,
 }
 
 impl EmbeddedMediaRuntime {
-    fn initialize() -> Result<Self, String> {
+    pub(super) fn initialize() -> Result<Self, String> {
         super::ensure_media_foundation_available()?;
         unsafe {
             let mta_cookie =
@@ -369,7 +369,7 @@ impl AdoptedResources {
             .ok_or_else(|| format!("invalid D3D11 frame slot {frame_slot}"))?;
         let mut input_description = D3D11_TEXTURE2D_DESC::default();
         unsafe {
-            frame.texture.GetDesc(&mut input_description);
+            frame.texture()?.GetDesc(&mut input_description);
         }
         let pixel_format = pixel_format_from_dxgi(input_description.Format).ok_or_else(|| {
             format!(
@@ -434,7 +434,7 @@ impl AdoptedResources {
             .processor
             .as_mut()
             .ok_or("embedded video processor is unavailable")?;
-        let input_key = (frame.texture.as_raw() as usize, array_slice);
+        let input_key = (frame.texture()?.as_raw() as usize, array_slice);
         let input_view = if let Some(view) = processor.input_views.get(&input_key) {
             view.clone()
         } else {
@@ -452,7 +452,7 @@ impl AdoptedResources {
             unsafe {
                 self.video_device
                     .CreateVideoProcessorInputView(
-                        &frame.texture,
+                        frame.texture()?,
                         &processor.enumerator,
                         &description,
                         Some(&mut view),
@@ -699,7 +699,7 @@ pub(super) unsafe fn probe_decoded_conversion(
     Ok(())
 }
 
-fn enable_multithread_protection(context: &ID3D11DeviceContext) -> Result<(), String> {
+pub(super) fn enable_multithread_protection(context: &ID3D11DeviceContext) -> Result<(), String> {
     // Media Foundation may use the adopted device and immediate context from an asynchronous
     // decoder work-queue thread while Qt records and presents on QSGRenderThread. D3D11 immediate
     // contexts are not thread-safe unless ID3D10Multithread protection is enabled. Without it,
@@ -718,8 +718,8 @@ fn enable_multithread_protection(context: &ID3D11DeviceContext) -> Result<(), St
 }
 
 impl DecoderDevice for AdoptedResources {
-    fn device_manager(&self) -> &IMFDXGIDeviceManager {
-        &self.manager
+    fn device_manager(&self) -> Option<&IMFDXGIDeviceManager> {
+        Some(&self.manager)
     }
 
     fn adapter_luid(&self) -> Result<LUID, String> {
@@ -755,9 +755,65 @@ impl DecoderDevice for AdoptedResources {
     }
 }
 
+enum EmbeddedResources {
+    Hardware(AdoptedResources),
+    Compatibility(super::compatibility::CompatibilityResources),
+}
+
+impl EmbeddedResources {
+    unsafe fn new(
+        adopted: AdoptedD3d11Context,
+        format: VideoFormat,
+        mode: WindowsDecoderMode,
+    ) -> Result<Self, String> {
+        match mode {
+            WindowsDecoderMode::Hardware => {
+                unsafe { AdoptedResources::new(adopted, format) }.map(Self::Hardware)
+            }
+            WindowsDecoderMode::Software => {
+                unsafe { super::compatibility::CompatibilityResources::new(adopted, format) }
+                    .map(Self::Compatibility)
+            }
+        }
+    }
+
+    fn decoder_snapshot(&self) -> Result<DecoderDeviceSnapshot, String> {
+        match self {
+            Self::Hardware(resources) => DecoderDeviceSnapshot::new(resources),
+            Self::Compatibility(resources) => DecoderDeviceSnapshot::new(resources),
+        }
+    }
+
+    unsafe fn validate_adopted_context(&self, adopted: AdoptedD3d11Context) -> Result<(), String> {
+        match self {
+            Self::Hardware(resources) => unsafe { resources.validate_adopted_context(adopted) },
+            Self::Compatibility(resources) => unsafe {
+                resources.validate_adopted_context(adopted)
+            },
+        }
+    }
+
+    fn record(
+        &mut self,
+        frame_slot: u32,
+        frame: &DecodedVideoFrame,
+    ) -> Result<D3d11RecordedFrame, String> {
+        match self {
+            Self::Hardware(resources) => resources.record(frame_slot, frame),
+            Self::Compatibility(resources) => resources.record(frame_slot, frame),
+        }
+    }
+
+    fn reset_decoder_views(&mut self) {
+        if let Self::Hardware(resources) = self {
+            resources.reset_decoder_views();
+        }
+    }
+}
+
 #[derive(Clone)]
 struct DecoderDeviceSnapshot {
-    manager: IMFDXGIDeviceManager,
+    manager: Option<IMFDXGIDeviceManager>,
     adapter_luid: LUID,
     format: VideoFormat,
 }
@@ -768,18 +824,18 @@ struct DecoderDeviceSnapshot {
 unsafe impl Send for DecoderDeviceSnapshot {}
 
 impl DecoderDeviceSnapshot {
-    fn new(resources: &AdoptedResources) -> Result<Self, String> {
+    fn new(resources: &impl DecoderDevice) -> Result<Self, String> {
         Ok(Self {
-            manager: resources.manager.clone(),
+            manager: resources.device_manager().cloned(),
             adapter_luid: resources.adapter_luid()?,
-            format: resources.format,
+            format: resources.video_format(),
         })
     }
 }
 
 impl DecoderDevice for DecoderDeviceSnapshot {
-    fn device_manager(&self) -> &IMFDXGIDeviceManager {
-        &self.manager
+    fn device_manager(&self) -> Option<&IMFDXGIDeviceManager> {
+        self.manager.as_ref()
     }
 
     fn adapter_luid(&self) -> Result<LUID, String> {
@@ -803,7 +859,7 @@ unsafe impl Send for ReadyDecodedFrame {}
 
 struct D3d11Pipeline {
     owner_thread: ThreadId,
-    resources: AdoptedResources,
+    resources: EmbeddedResources,
     decoded: Arc<Mutex<VecDeque<ReadyDecodedFrame>>>,
     encoded: Arc<BoundedQueue<EncodedVideoFrame>>,
     events: Arc<BoundedQueue<BackendEvent>>,
@@ -906,14 +962,15 @@ impl D3d11FrameProducer {
         format.validate()?;
         let worker_lease = DecoderWorkerLease::acquire()?;
         let runtime = Arc::new(EmbeddedMediaRuntime::initialize().map_err(BackendError::Startup)?);
-        let resources =
-            unsafe { AdoptedResources::new(adopted, format) }.map_err(BackendError::Startup)?;
-        let decoder_device =
-            DecoderDeviceSnapshot::new(&resources).map_err(BackendError::Startup)?;
+        let resources = unsafe { EmbeddedResources::new(adopted, format, decoder_mode) }
+            .map_err(BackendError::Startup)?;
+        let decoder_device = resources
+            .decoder_snapshot()
+            .map_err(BackendError::Startup)?;
         let encoded = Arc::new(BoundedQueue::new(ADAPTIVE_VIDEO_QUEUE_CAPACITY));
         let events = Arc::new(BoundedQueue::new(64));
         let decoded = Arc::new(Mutex::new(VecDeque::with_capacity(
-            ADAPTIVE_VIDEO_QUEUE_CAPACITY,
+            crate::compatibility::ready_frame_capacity(decoder_mode),
         )));
         let decoder_generation = Arc::new(AtomicU64::new(1));
         let stopping = Arc::new(AtomicBool::new(false));
@@ -1050,10 +1107,10 @@ impl Drop for D3d11Pipeline {
     }
 }
 
-struct DecoderThreadApartment;
+pub(super) struct DecoderThreadApartment;
 
 impl DecoderThreadApartment {
-    fn initialize() -> Result<Self, String> {
+    pub(super) fn initialize() -> Result<Self, String> {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED)
                 .ok()
@@ -1136,7 +1193,7 @@ fn run_decoder_worker(
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     while let Some(frame) = output.pop_front() {
-                        if ready.len() == ADAPTIVE_VIDEO_QUEUE_CAPACITY {
+                        if ready.len() == crate::compatibility::ready_frame_capacity(mode) {
                             ready.pop_front();
                             let _ = events
                                 .push(BackendEvent::QueueOverflow(Subsystem::VideoPresentation));
@@ -1296,7 +1353,7 @@ fn run_decoder_worker(
         }
 
         if !made_progress {
-            let _ = encoded.wait_for_decoder(DECODER_POLL_INTERVAL, decoder.wants_input());
+            let _ = encoded.wait_for_decoder(decoder.idle_wait(), decoder.wants_input());
         } else {
             thread::yield_now();
         }
@@ -1364,7 +1421,7 @@ fn wait_for_recovery_keyframe(
     None
 }
 
-unsafe fn clone_interface<T: Interface>(pointer: *mut c_void) -> Result<T, String> {
+pub(super) unsafe fn clone_interface<T: Interface>(pointer: *mut c_void) -> Result<T, String> {
     if pointer.is_null() {
         return Err("cannot adopt a null COM interface".to_owned());
     }
@@ -1372,7 +1429,7 @@ unsafe fn clone_interface<T: Interface>(pointer: *mut c_void) -> Result<T, Strin
     Ok((*borrowed).clone())
 }
 
-fn com_identity<T: Interface>(interface: &T) -> Result<usize, String> {
+pub(super) fn com_identity<T: Interface>(interface: &T) -> Result<usize, String> {
     interface
         .cast::<IUnknown>()
         .map(|unknown| unknown.as_raw() as usize)
@@ -1891,7 +1948,7 @@ mod tests {
                     (description.Format, bytes)
                 }
             };
-            let (input_format, input) = read_row(&frame.texture, frame.subresource);
+            let (input_format, input) = read_row(frame.texture().unwrap(), frame.subresource);
             assert_eq!(input_format, DXGI_FORMAT_P010);
             for (index, bytes) in input.chunks_exact(2).enumerate() {
                 let actual = u16::from_le_bytes([bytes[0], bytes[1]]);
@@ -2117,7 +2174,7 @@ mod tests {
             assert_eq!(frame.format.color_matrix, format.color_matrix);
             let mut input_description = D3D11_TEXTURE2D_DESC::default();
             unsafe {
-                frame.texture.GetDesc(&mut input_description);
+                frame.texture().unwrap().GetDesc(&mut input_description);
             }
             assert_eq!(input_description.Format, DXGI_FORMAT_Y410);
             let read_rows = |texture: &ID3D11Texture2D, subresource: u32| {
@@ -2158,7 +2215,7 @@ mod tests {
                     (gray, chroma)
                 }
             };
-            let decoded_pixels = read_rows(&frame.texture, frame.subresource);
+            let decoded_pixels = read_rows(frame.texture().unwrap(), frame.subresource);
             let recorded = resources
                 .record(0, &frame)
                 .expect("convert actual Y410 decoder surface");

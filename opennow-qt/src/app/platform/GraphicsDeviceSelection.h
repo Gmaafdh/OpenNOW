@@ -27,6 +27,9 @@ public:
         bool h264 = false;
         bool h265 = false;
         bool av1 = false;
+        // Qt 6's D3D11 QRhi requires SM5 and constant-buffer offsetting, not
+        // merely a D3D11 runtime exposing a FL10.x device.
+        bool supportsQtQuick = true;
     };
 
     static QList<Adapter> detectAdapters();
@@ -39,6 +42,8 @@ public:
     QString activeDeviceId() const { return m_active.id; }
     bool savedDeviceUnavailable() const;
     quint64 adapterLuid() const { return m_active.luid; }
+    bool usesCompatibilityRenderer() const { return !m_active.supportsQtQuick; }
+    quint64 presentationAdapterLuid() const;
     bool applyTo(QQuickWindow *window) const;
 
 signals:
@@ -55,4 +60,5 @@ private:
     QList<Adapter> m_adapters;
     QString m_requestedDeviceId;
     Adapter m_active;
+    quint64 m_compatibilityLuid = 0;
 };

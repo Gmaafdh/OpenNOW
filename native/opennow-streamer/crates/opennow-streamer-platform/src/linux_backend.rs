@@ -467,6 +467,7 @@ fn multi_codec_capability(
             .unwrap_or("no supported codecs")
     });
     VideoBackendCapability {
+        software_decode: false,
         backend,
         platform: "linux",
         codecs,
@@ -494,6 +495,7 @@ fn h264_capability(
         None
     };
     VideoBackendCapability {
+        software_decode: false,
         backend,
         platform: "linux",
         codecs: vec![
@@ -610,6 +612,7 @@ mod tests {
             ..Default::default()
         };
         let mut backend = VideoBackendCapability {
+            software_decode: false,
             backend: "vaapi",
             platform: "linux",
             codecs: vec![CodecCapability {
@@ -729,6 +732,7 @@ mod tests {
         color_qualities: Vec<&'static str>,
     ) -> VideoBackendCapability {
         VideoBackendCapability {
+            software_decode: false,
             backend: "ffmpeg",
             platform: "linux",
             codecs: vec![CodecCapability {

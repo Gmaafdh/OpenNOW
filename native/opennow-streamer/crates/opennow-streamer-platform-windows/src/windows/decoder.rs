@@ -27,12 +27,12 @@ use ::windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFAttributes, IMFDXGIBuffer, IMFMediaEventGenerator, IMFMediaType, IMFSample,
     IMFTransform, METransformHaveOutput, METransformNeedInput, MF_E_ATTRIBUTENOTFOUND,
     MF_E_NO_EVENTS_AVAILABLE, MF_E_TRANSFORM_NEED_MORE_INPUT, MF_E_TRANSFORM_STREAM_CHANGE,
-    MF_EVENT_FLAG_NO_WAIT, MF_LOW_LATENCY, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
-    MF_MT_GEOMETRIC_APERTURE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE,
-    MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_MPEG2_PROFILE, MF_MT_PAN_SCAN_APERTURE,
+    MF_EVENT_FLAG_NO_WAIT, MF_LOW_LATENCY, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE,
+    MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_GEOMETRIC_APERTURE, MF_MT_INTERLACE_MODE,
+    MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_MPEG2_PROFILE, MF_MT_PAN_SCAN_APERTURE,
     MF_MT_PAN_SCAN_ENABLED, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE,
-    MF_SA_D3D11_AWARE, MF_TRANSFORM_ASYNC, MF_TRANSFORM_ASYNC_UNLOCK, MFCreateAttributes,
-    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFMediaType_Video,
+    MF_SA_D3D11_AWARE, MF_TRANSFORM_ASYNC, MF_TRANSFORM_ASYNC_UNLOCK, MFCreateAlignedMemoryBuffer,
+    MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFMediaType_Video,
     MFNominalRange_0_255, MFSampleExtension_CleanPoint, MFSampleExtension_FrameCorruption,
     MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_ADAPTER_LUID, MFT_ENUM_FLAG, MFT_ENUM_FLAG_ASYNCMFT,
     MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER, MFT_ENUM_FLAG_SYNCMFT,
@@ -59,7 +59,10 @@ use crate::{
 };
 
 pub(super) trait DecoderDevice {
-    fn device_manager(&self) -> &::windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager;
+    // None is allowed only for the explicit system-memory compatibility decoder.
+    fn device_manager(
+        &self,
+    ) -> Option<&::windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager>;
     fn adapter_luid(&self) -> Result<LUID, String>;
     fn video_format(&self) -> VideoFormat;
 }
@@ -67,7 +70,7 @@ pub(super) trait DecoderDevice {
 pub(super) struct DecodedVideoFrame {
     pub(super) format: VideoFormat,
     pub(super) aperture: VideoAperture,
-    pub(super) texture: ID3D11Texture2D,
+    pub(super) surface: DecodedSurface,
     pub(super) subresource: u32,
     pub(super) timestamp_100ns: i64,
     pub(super) duration_100ns: i64,
@@ -79,13 +82,24 @@ pub(super) struct DecodedVideoFrame {
     _sample: IMFSample,
 }
 
+pub(super) enum DecodedSurface {
+    D3d11(ID3D11Texture2D),
+    Nv12(super::compatibility::CpuNv12Surface),
+}
+
 impl DecodedVideoFrame {
-    pub(super) fn from_sample(
-        sample: IMFSample,
-        format: VideoFormat,
-        aperture: VideoAperture,
-        preferred_pixel_format: VideoPixelFormat,
-    ) -> Result<Self, String> {
+    pub(super) fn texture(&self) -> Result<&ID3D11Texture2D, String> {
+        match &self.surface {
+            DecodedSurface::D3d11(texture) => Ok(texture),
+            DecodedSurface::Nv12(_) => {
+                Err("system-memory output cannot enter the hardware presenter".to_owned())
+            }
+        }
+    }
+
+    fn validate_sample(sample: &IMFSample) -> Result<(), String> {
+        // This check also applies to system-memory samples: never display a
+        // corrupt frame merely because a software decoder produced it.
         match unsafe { sample.GetUINT32(&MFSampleExtension_FrameCorruption) } {
             Ok(corrupted) if corrupted != 0 => {
                 return Err("Media Foundation decoder reported a corrupted output frame".to_owned());
@@ -94,6 +108,16 @@ impl DecodedVideoFrame {
             Err(error) if error.code() == MF_E_ATTRIBUTENOTFOUND => {}
             Err(error) => return Err(format!("read decoder output corruption flag: {error}")),
         }
+        Ok(())
+    }
+
+    pub(super) fn from_sample(
+        sample: IMFSample,
+        format: VideoFormat,
+        aperture: VideoAperture,
+        preferred_pixel_format: VideoPixelFormat,
+    ) -> Result<Self, String> {
+        Self::validate_sample(&sample)?;
         let (texture, subresource) = dxgi_surface(&sample)?;
         let mut description = D3D11_TEXTURE2D_DESC::default();
         unsafe {
@@ -104,6 +128,37 @@ impl DecodedVideoFrame {
             format.pixel_format,
             preferred_pixel_format,
         )?;
+        Self::with_surface(
+            sample,
+            format,
+            aperture,
+            DecodedSurface::D3d11(texture),
+            subresource,
+        )
+    }
+
+    pub(super) fn from_memory_sample(
+        sample: IMFSample,
+        format: VideoFormat,
+        aperture: VideoAperture,
+        width: u32,
+        height: u32,
+        stride: i32,
+    ) -> Result<Self, String> {
+        Self::validate_sample(&sample)?;
+        crate::compatibility::validate_format(format)?;
+        aperture.validate_extent(width, height)?;
+        let surface = super::compatibility::CpuNv12Surface::new(&sample, width, height, stride)?;
+        Self::with_surface(sample, format, aperture, DecodedSurface::Nv12(surface), 0)
+    }
+
+    fn with_surface(
+        sample: IMFSample,
+        format: VideoFormat,
+        aperture: VideoAperture,
+        surface: DecodedSurface,
+        subresource: u32,
+    ) -> Result<Self, String> {
         let timestamp_100ns = unsafe { sample.GetSampleTime().unwrap_or(0) };
         let duration_100ns = unsafe {
             sample
@@ -115,7 +170,7 @@ impl DecodedVideoFrame {
         Ok(Self {
             format,
             aperture,
-            texture,
+            surface,
             subresource,
             timestamp_100ns,
             duration_100ns,
@@ -136,6 +191,9 @@ pub(super) struct Decoder {
     negotiated_format: VideoFormat,
     output_validated: bool,
     output_provides_samples: bool,
+    memory_output: bool,
+    output_pending: bool,
+    reusable_output_sample: Option<IMFSample>,
     stopped: bool,
 }
 
@@ -163,8 +221,11 @@ impl Decoder {
         format: VideoFormat,
         mode: WindowsDecoderMode,
     ) -> Result<Self, String> {
+        let memory_output = graphics.device_manager().is_none();
         if mode == WindowsDecoderMode::Hardware {
             ensure_hardware_format(graphics, format)?;
+        } else if memory_output {
+            crate::compatibility::validate_format(format)?;
         }
         let activations = enumerate_decoders(graphics.adapter_luid()?, format.codec, mode)?;
         let mut failures = Vec::new();
@@ -187,7 +248,7 @@ impl Decoder {
                     let hardware_registered =
                         activation_string(&activation, &MFT_ENUM_HARDWARE_URL_Attribute).is_some();
                     video_log!(
-                        "Windows decoder configured codec={} mft={friendly_name:?} hardwareRegistered={hardware_registered} async={} output={pixel_format:?} bitDepth={} chroma={:?} range={} sampleLease=retained-through-video-blit",
+                        "Windows decoder configured codec={} mft={friendly_name:?} hardwareRegistered={hardware_registered} async={} output={pixel_format:?} bitDepth={} chroma={:?} range={} memoryOutput={memory_output} sampleLease=retained-through-conversion",
                         format.codec.label(),
                         events.is_some(),
                         pixel_format.bit_depth(),
@@ -206,6 +267,9 @@ impl Decoder {
                         negotiated_format: format,
                         output_validated: false,
                         output_provides_samples,
+                        memory_output,
+                        output_pending: false,
+                        reusable_output_sample: None,
                         stopped: false,
                     });
                 }
@@ -335,6 +399,7 @@ impl Decoder {
                 .map_err(|error| error.to_string())?;
         }
         self.input_credits -= 1;
+        self.output_pending = true;
         Ok(())
     }
 
@@ -368,12 +433,39 @@ impl Decoder {
                 }
             }
         } else {
-            if self.process_output(decoded_frames, event_queue)? == OutputPoll::Produced {
+            if self.output_pending
+                && self.process_output(decoded_frames, event_queue)? == OutputPoll::Produced
+            {
                 produced += 1;
             }
             self.input_credits = 1;
         }
         Ok(produced)
+    }
+
+    pub(super) fn idle_wait(&self) -> std::time::Duration {
+        // Input arrival/shutdown signal the queue's condition variable. Only a
+        // drained synchronous MFT can sleep longer: asynchronous MFT output
+        // must keep progressing even when transport temporarily stops.
+        crate::compatibility::decoder_idle_wait(self.events.is_some(), self.output_pending)
+    }
+
+    fn memory_output_sample(&mut self) -> Result<Option<IMFSample>, String> {
+        if !self.memory_output || self.output_provides_samples {
+            return Ok(None);
+        }
+        if let Some(sample) = self.reusable_output_sample.take() {
+            return Ok(Some(sample));
+        }
+        let info = unsafe { self.transform.GetOutputStreamInfo(self.output_stream) }
+            .map_err(|error| format!("software output stream info: {error}"))?;
+        let alignment =
+            crate::compatibility::output_buffer_alignment(info.cbSize, info.cbAlignment)?;
+        let buffer = unsafe { MFCreateAlignedMemoryBuffer(info.cbSize, alignment) }
+            .map_err(|error| format!("allocate software decoder output: {error}"))?;
+        let sample = unsafe { MFCreateSample() }.map_err(|error| error.to_string())?;
+        unsafe { sample.AddBuffer(&buffer) }.map_err(|error| error.to_string())?;
+        Ok(Some(sample))
     }
 
     fn process_output(
@@ -383,6 +475,7 @@ impl Decoder {
     ) -> Result<OutputPoll, String> {
         let mut output = MFT_OUTPUT_DATA_BUFFER {
             dwStreamID: self.output_stream,
+            pSample: ManuallyDrop::new(self.memory_output_sample()?),
             ..Default::default()
         };
         let mut status = 0;
@@ -395,13 +488,24 @@ impl Decoder {
         drop(output_events);
 
         if let Err(error) = result {
-            drop(sample);
             if error.code() == MF_E_TRANSFORM_NEED_MORE_INPUT {
+                self.output_pending = false;
+                self.reusable_output_sample = sample;
                 return Ok(OutputPoll::NeedsInput);
             }
+            drop(sample);
             if error.code() == MF_E_TRANSFORM_STREAM_CHANGE {
+                self.reusable_output_sample = None;
                 self.select_video_output_type()?;
                 let updated = self.validate_output()?;
+                if self.memory_output {
+                    let info = unsafe { self.transform.GetOutputStreamInfo(self.output_stream) }
+                        .map_err(|error| error.to_string())?;
+                    self.output_provides_samples = info.dwFlags
+                        & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 as u32
+                            | MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES.0 as u32)
+                        != 0;
+                }
                 let _ = event_queue.push(BackendEvent::VideoFormatChanged(updated));
                 return Ok(OutputPoll::Produced);
             }
@@ -410,21 +514,46 @@ impl Decoder {
 
         let sample = sample.ok_or_else(|| {
             if self.output_provides_samples {
-                "hardware decoder reported output without a sample".to_owned()
+                "decoder reported output without a sample".to_owned()
             } else {
-                "hardware decoder requires caller-allocated output samples".to_owned()
+                "decoder did not return its caller-allocated output sample".to_owned()
             }
         })?;
         if !self.output_validated {
             self.validate_output()?;
         }
-        let frame = DecodedVideoFrame::from_sample(
-            sample,
-            self.format,
-            self.aperture,
-            self.negotiated_format.pixel_format,
-        )?;
-        if decoded_frames.len() == ADAPTIVE_VIDEO_QUEUE_CAPACITY {
+        let frame = if self.memory_output {
+            let media_type = unsafe { self.transform.GetOutputCurrentType(self.output_stream) }
+                .map_err(|error| error.to_string())?;
+            let size = unsafe { media_type.GetUINT64(&MF_MT_FRAME_SIZE) }
+                .map_err(|error| format!("software output extent: {error}"))?;
+            let width = (size >> 32) as u32;
+            let height = size as u32;
+            let stride = unsafe { media_type.GetUINT32(&MF_MT_DEFAULT_STRIDE) }
+                .map(|stride| stride as i32)
+                .unwrap_or(width as i32);
+            DecodedVideoFrame::from_memory_sample(
+                sample,
+                self.format,
+                self.aperture,
+                width,
+                height,
+                stride,
+            )?
+        } else {
+            DecodedVideoFrame::from_sample(
+                sample,
+                self.format,
+                self.aperture,
+                self.negotiated_format.pixel_format,
+            )?
+        };
+        let capacity = if self.memory_output {
+            1
+        } else {
+            ADAPTIVE_VIDEO_QUEUE_CAPACITY
+        };
+        if decoded_frames.len() == capacity {
             decoded_frames.pop_front();
             let _ = event_queue.push(BackendEvent::QueueOverflow(Subsystem::VideoPresentation));
         }
@@ -504,7 +633,7 @@ fn configure_transform<G: DecoderDevice>(
             .map_err(|error| error.to_string())?;
         let asynchronous = attributes.GetUINT32(&MF_TRANSFORM_ASYNC).unwrap_or(0) != 0;
         let d3d11_aware = attributes.GetUINT32(&MF_SA_D3D11_AWARE).unwrap_or(0) != 0;
-        if !d3d11_aware {
+        if graphics.device_manager().is_some() && !d3d11_aware {
             return Err("MFT is not D3D11-aware".to_owned());
         }
         attributes
@@ -515,12 +644,13 @@ fn configure_transform<G: DecoderDevice>(
                 .SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)
                 .map_err(|error| error.to_string())?;
         }
-        transform
-            .ProcessMessage(
-                MFT_MESSAGE_SET_D3D_MANAGER,
-                graphics.device_manager().as_raw() as usize,
-            )
-            .map_err(|error| format!("MFT_MESSAGE_SET_D3D_MANAGER: {error}"))?;
+        if let Some(manager) = graphics.device_manager() {
+            transform
+                .ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, manager.as_raw() as usize)
+                .map_err(|error| format!("MFT_MESSAGE_SET_D3D_MANAGER: {error}"))?;
+        }
+        // With no device manager the MFT must use system memory. In
+        // particular, WARP must not be passed to DXVA as a hardware decoder.
 
         let (input_stream, output_stream) = stream_ids(&transform)?;
         let input_type = video_input_type(format)?;
@@ -535,7 +665,8 @@ fn configure_transform<G: DecoderDevice>(
             .map_err(|error| error.to_string())?;
         let provider_flags = MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 as u32
             | MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES.0 as u32;
-        if stream_info.dwFlags & provider_flags == 0 {
+        let provides_samples = stream_info.dwFlags & provider_flags != 0;
+        if graphics.device_manager().is_some() && !provides_samples {
             return Err("MFT cannot allocate D3D11 output samples".to_owned());
         }
         let events = asynchronous
@@ -553,7 +684,7 @@ fn configure_transform<G: DecoderDevice>(
             events,
             input_stream,
             output_stream,
-            true,
+            provides_samples,
             decoded_format,
             aperture,
         ))
@@ -841,7 +972,9 @@ fn ensure_hardware_format<G: DecoderDevice>(
     graphics: &G,
     format: VideoFormat,
 ) -> Result<(), String> {
-    let manager = graphics.device_manager();
+    let manager = graphics
+        .device_manager()
+        .ok_or("hardware decode requires a D3D11 device manager")?;
     let device = unsafe {
         let handle = manager
             .OpenDeviceHandle()

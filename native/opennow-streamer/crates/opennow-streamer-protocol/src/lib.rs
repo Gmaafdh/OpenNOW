@@ -229,6 +229,10 @@ pub struct GraphicsAdapterCapability {
     pub reason: Option<String>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoBackendCapability {
@@ -236,6 +240,9 @@ pub struct VideoBackendCapability {
     pub platform: &'static str,
     pub codecs: Vec<CodecCapability>,
     pub zero_copy_modes: Vec<&'static str>,
+    /// Explicit CPU-decode compatibility mode behind an existing graphics API.
+    #[serde(skip_serializing_if = "is_false")]
+    pub software_decode: bool,
     pub available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
@@ -253,6 +260,34 @@ pub struct CodecCapability {
     pub hdr_supported: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
+}
+
+#[cfg(test)]
+mod software_decode_tests {
+    use super::VideoBackendCapability;
+
+    #[test]
+    fn software_decode_annotation_is_additive_and_omitted_on_existing_hardware_backends() {
+        let mut backend = VideoBackendCapability {
+            backend: "d3d11",
+            platform: "windows",
+            codecs: Vec::new(),
+            zero_copy_modes: Vec::new(),
+            software_decode: false,
+            available: true,
+            reason: None,
+        };
+        let hardware = serde_json::to_value(&backend).unwrap();
+        assert!(hardware.get("softwareDecode").is_none());
+        backend.software_decode = true;
+        let compatibility = serde_json::to_value(&backend).unwrap();
+        assert_eq!(compatibility["softwareDecode"], true);
+        assert_eq!(compatibility["backend"], "d3d11");
+        assert_eq!(compatibility["zeroCopyModes"], serde_json::json!([]));
+        let mut stripped = compatibility.as_object().unwrap().clone();
+        stripped.remove("softwareDecode");
+        assert_eq!(serde_json::Value::Object(stripped), hardware);
+    }
 }
 
 #[cfg(test)]

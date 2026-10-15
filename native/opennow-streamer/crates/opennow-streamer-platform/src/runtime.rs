@@ -313,6 +313,22 @@ impl MediaRuntime {
                 }
             }
             #[cfg(target_os = "windows")]
+            let windows_decoder_mode = if opennow_streamer_platform_windows::is_software_adapter(
+                self.windows_adapter_luid(),
+            )? {
+                if stream.codec != crate::MediaVideoCodec::H264
+                    || stream.color_quality != crate::MediaColorQuality::EightBit420
+                    || stream.hdr
+                {
+                    return Err(
+                        "Windows compatibility mode requires H.264 8-bit 4:2:0 SDR".to_owned()
+                    );
+                }
+                opennow_streamer_platform_windows::WindowsDecoderMode::Software
+            } else {
+                opennow_streamer_platform_windows::WindowsDecoderMode::Hardware
+            };
+            #[cfg(target_os = "windows")]
             {
                 let (reply, response) = mpsc::channel();
                 self.commands
@@ -336,6 +352,8 @@ impl MediaRuntime {
                     audio_device: &audio_device,
                 },
                 frames.clone(),
+                #[cfg(target_os = "windows")]
+                windows_decoder_mode,
                 #[cfg(target_os = "linux")]
                 crate::linux_backend::select_embedded_video_path(
                     requested,

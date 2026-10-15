@@ -753,9 +753,11 @@ and never saves migrations, creates directories, or renames corrupt settings.
 Missing, corrupt, or oversized input selects Automatic. Qt bounds the subprocess
 and its output and also uses Automatic if bootstrap fails.
 
-Qt resolves the saved identity to a current-boot Windows adapter LUID. The same
-LUID selects Qt's D3D11 adapter and the native runtime's capability probes; LUIDs
-are not persisted. A missing saved GPU falls back for that launch without
+Qt resolves the saved physical identity to a current-boot Windows adapter LUID.
+When it supports Qt Quick's SM5/Context1/constant-buffer-offset requirements, the
+same LUID selects Qt's D3D11 adapter and native capability probes. Otherwise Qt
+keeps that physical preference but uses a validated D3D11 WARP presentation LUID
+for both Qt and native probes/import. Neither LUID is persisted. A missing saved GPU falls back for that launch without
 erasing the preference. The settings selector appears only with at least two
 detected hardware adapters, excluding software adapters. It is on the Stream
 settings page. Saving a different GPU affects the next application launch, not
@@ -763,8 +765,9 @@ the active graphics device or session.
 
 Adapters are enumerated high-performance first. Before that launch, each adapter
 is indexed for H.264, HEVC, and AV1 hardware decode profiles at 1920×1080 or
-1280×720. Automatic uses the first adapter in that order that exposes one of
-those profiles. A hybrid laptop whose discrete GPU has no decoder, such as a
+1280×720. Automatic prefers the first adapter in that order that exposes one of
+those profiles and supports Qt's compositor, before choosing compatibility
+rendering on older hardware. A hybrid laptop whose discrete GPU has no decoder, such as a
 GeForce MX110 beside Intel HD Graphics 620, therefore uses the integrated GPU
 instead of failing the session. An explicit saved GPU is still used even when
 its index is empty. Each settings choice lists the codecs that index found.
@@ -776,6 +779,19 @@ not include the adapter LUID. `active` marks the adapter selected for that
 process. When no hardware backend is available and another indexed adapter can
 decode, the session error names that GPU and points to Settings → Stream →
 Graphics processor. Diagnostics copy the same allowlisted fields.
+
+The `d3d11` backend may include additive `softwareDecode: true` when an explicitly
+selected WARP adapter passes system-memory H.264 decode and the embedded NV12
+uploader probe. False is omitted, preserving existing hardware response shapes.
+This annotation describes decode, not a new renderer choice. Compatibility
+advertises only `h264`/`8bit_420`, explicit empty HDR profiles and zero-copy modes,
+and no HEVC/AV1. Auto can use it without changing persisted codec/backend values;
+manual advanced/HDR profiles and incompatible resumed sessions fail closed.
+The existing UI uses its CPU-decoding detail; diagnostics retain the annotation.
+It is never evidence of a hardware decoder for the conditional 360 FPS tier.
+Protocol 7 and the native FFI ABI are unchanged. See the Windows platform crate
+README for bounds and the distinction between machine compatibility and native
+D3D10/hardware codec support.
 
 ### Recording and replay capture
 

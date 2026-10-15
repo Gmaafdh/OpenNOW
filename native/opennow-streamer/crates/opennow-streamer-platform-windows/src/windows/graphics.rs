@@ -6,8 +6,8 @@ use std::mem::size_of;
 use std::num::NonZeroU32;
 
 use ::windows::Win32::Foundation::{
-    ERROR_CLASS_ALREADY_EXISTS, GetLastError, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT,
-    LUID, RECT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+    E_INVALIDARG, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HANDLE, HINSTANCE, HMODULE, HWND,
+    LPARAM, LRESULT, LUID, RECT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use ::windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_10_0,
@@ -134,37 +134,8 @@ impl DeviceResources {
     }
 
     fn new_d3d11(adapter: Option<&IDXGIAdapter>) -> Result<Self, String> {
-        unsafe {
-            let mut device = None;
-            let mut context = None;
-            let levels = [
-                D3D_FEATURE_LEVEL_11_1,
-                D3D_FEATURE_LEVEL_11_0,
-                D3D_FEATURE_LEVEL_10_1,
-                D3D_FEATURE_LEVEL_10_0,
-            ];
-            D3D11CreateDevice(
-                adapter,
-                if adapter.is_some() {
-                    D3D_DRIVER_TYPE_UNKNOWN
-                } else {
-                    D3D_DRIVER_TYPE_HARDWARE
-                },
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-                Some(&levels),
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut context),
-            )
-            .map_err(|error| error.to_string())?;
-            Self::finish_d3d11_device(
-                device.ok_or("D3D11CreateDevice returned no device")?,
-                context.ok_or("D3D11CreateDevice returned no immediate context")?,
-                None,
-            )
-        }
+        let (device, context) = create_d3d11_device(adapter, true)?;
+        Self::finish_d3d11_device(device, context, None)
     }
 
     fn new_d3d12(adapter: Option<&IDXGIAdapter>) -> Result<Self, String> {
@@ -218,7 +189,56 @@ impl DeviceResources {
     }
 }
 
-fn resolve_adapter(
+pub(super) fn create_d3d11_device(
+    adapter: Option<&IDXGIAdapter>,
+    video: bool,
+) -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
+    let levels = [
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+    ];
+    let flags = if video {
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT
+    } else {
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT
+    };
+    for first in 0..2 {
+        let mut device = None;
+        let mut context = None;
+        let result = unsafe {
+            D3D11CreateDevice(
+                adapter,
+                if adapter.is_some() {
+                    D3D_DRIVER_TYPE_UNKNOWN
+                } else {
+                    D3D_DRIVER_TYPE_HARDWARE
+                },
+                HMODULE::default(),
+                flags,
+                Some(&levels[first..]),
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                Some(&mut context),
+            )
+        };
+        match result {
+            Err(error) if first == 0 && error.code() == E_INVALIDARG => continue,
+            Err(error) => return Err(format!("D3D11CreateDevice: {error}")),
+            Ok(()) => {
+                return Ok((
+                    device.ok_or("D3D11 returned no device")?,
+                    context.ok_or("D3D11 returned no context")?,
+                ));
+            }
+        }
+    }
+    Err("D3D11 device creation exhausted feature-level lists".to_owned())
+}
+
+pub(super) fn resolve_adapter(
     adapter_luid: Option<WindowsAdapterLuid>,
 ) -> Result<Option<IDXGIAdapter>, String> {
     resolve_adapter_with(adapter_luid, |luid, raw| unsafe {
@@ -975,8 +995,8 @@ impl Graphics {
 }
 
 impl DecoderDevice for Graphics {
-    fn device_manager(&self) -> &IMFDXGIDeviceManager {
-        self.device_manager()
+    fn device_manager(&self) -> Option<&IMFDXGIDeviceManager> {
+        Some(self.device_manager())
     }
 
     fn adapter_luid(&self) -> Result<LUID, String> {

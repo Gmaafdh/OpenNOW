@@ -1,6 +1,7 @@
 #include "app/platform/GraphicsDeviceSelection.h"
 
 #include <QCryptographicHash>
+#include <QQuickGraphicsConfiguration>
 #include <QQuickGraphicsDevice>
 #include <QQuickWindow>
 #include <QSet>
@@ -61,26 +62,79 @@ bool decoderProfileSupports(ID3D11VideoDevice *video, const GUID &profile, DXGI_
     return false;
 }
 
-void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1)
+using Microsoft::WRL::ComPtr;
+
+HRESULT createAdapterDevice(IDXGIAdapter *adapter, ComPtr<ID3D11Device> &device,
+                            ComPtr<ID3D11DeviceContext> &context, bool videoSupport = true)
 {
-    *h264 = *h265 = *av1 = false;
-    if (!adapter) return;
-    using Microsoft::WRL::ComPtr;
     const D3D_FEATURE_LEVEL levels[] = {
         D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
         D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0};
+    HRESULT result = E_FAIL;
+    // VIDEO_SUPPORT can reject older drivers that can still compose the UI.
+    // A D3D11.0 runtime also rejects a list containing 11_1 with E_INVALIDARG.
+    for (const UINT flags : {UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT),
+                             UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT)}) {
+        if (!videoSupport && (flags & D3D11_CREATE_DEVICE_VIDEO_SUPPORT)) continue;
+        for (const UINT firstLevel : {0u, 1u}) {
+            device.Reset();
+            context.Reset();
+            result = D3D11CreateDevice(
+                adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags,
+                levels + firstLevel, UINT(std::size(levels)) - firstLevel,
+                D3D11_SDK_VERSION, device.GetAddressOf(), nullptr, context.GetAddressOf());
+            if (SUCCEEDED(result)) return result;
+            if (result != E_INVALIDARG) break;
+        }
+    }
+    return result;
+}
+
+bool supportsQtQuick(ID3D11Device *device, ID3D11DeviceContext *context)
+{
+    if (!device || !context || device->GetFeatureLevel() < D3D_FEATURE_LEVEL_11_0)
+        return false;
+    ComPtr<ID3D11DeviceContext1> context1;
+    D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
+    return SUCCEEDED(context->QueryInterface(IID_PPV_ARGS(&context1)))
+        && SUCCEEDED(device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS,
+                                                &options, sizeof(options)))
+        && options.ConstantBufferOffsetting;
+}
+
+quint64 compatibilityAdapterLuid()
+{
+    ComPtr<IDXGIFactory4> factory;
+    ComPtr<IDXGIAdapter1> adapter;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))
+            || FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter))))
+        return 0;
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
-    const auto created = D3D11CreateDevice(
-        adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,
-        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-        levels, UINT(std::size(levels)), D3D11_SDK_VERSION,
-        device.GetAddressOf(), nullptr, context.GetAddressOf());
+    DXGI_ADAPTER_DESC1 description{};
+    if (FAILED(createAdapterDevice(adapter.Get(), device, context, false))
+            || !supportsQtQuick(device.Get(), context.Get())
+            || FAILED(adapter->GetDesc1(&description))
+            || !(description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
+        return 0;
+    return (quint64(quint32(description.AdapterLuid.HighPart)) << 32)
+        | description.AdapterLuid.LowPart;
+}
+
+void indexAdapterDecode(IDXGIAdapter *adapter, bool *h264, bool *h265, bool *av1,
+                        bool *qtQuick)
+{
+    *h264 = *h265 = *av1 = *qtQuick = false;
+    if (!adapter) return;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    const auto created = createAdapterDevice(adapter, device, context);
     if (FAILED(created) || !device) {
-        qInfo("Graphics adapter decode index skipped device creation: 0x%08lx",
+        qInfo("Graphics adapter index skipped device creation: 0x%08lx",
               static_cast<unsigned long>(created));
         return;
     }
+    *qtQuick = supportsQtQuick(device.Get(), context.Get());
     ComPtr<ID3D11VideoDevice> video;
     if (FAILED(device.As(&video)) || !video) {
         qInfo("Graphics adapter decode index has no D3D11 video device");
@@ -150,12 +204,13 @@ QList<GraphicsDeviceSelection::Adapter> GraphicsDeviceSelection::detectAdapters(
         bool h264 = false;
         bool h265 = false;
         bool av1 = false;
-        indexAdapterDecode(adapter.Get(), &h264, &h265, &av1);
+        bool qtQuick = false;
+        indexAdapterDecode(adapter.Get(), &h264, &h265, &av1, &qtQuick);
         const auto name = QString::fromWCharArray(description.Description);
-        qInfo("Graphics adapter %s decode index: h264=%d h265=%d av1=%d",
-              qUtf8Printable(name), int(h264), int(h265), int(av1));
+        qInfo("Graphics adapter %s index: h264=%d h265=%d av1=%d qtQuick=%d",
+              qUtf8Printable(name), int(h264), int(h265), int(av1), int(qtQuick));
         adapters.append({id, name, luid, quint64(description.DedicatedVideoMemory), false,
-                         h264, h265, av1});
+                         h264, h265, av1, qtQuick});
     }
 #endif
     return adapters;
@@ -173,19 +228,27 @@ GraphicsDeviceSelection::GraphicsDeviceSelection(QList<Adapter> adapters, QStrin
     }
     if (const auto *automatic = automaticAdapter())
         m_active = *automatic;
-    if (m_requestedDeviceId.isEmpty()) {
-        if (m_adapters.size() >= 2 && m_active.luid && m_active.luid != m_adapters.first().luid) {
-            qInfo("Hybrid graphics: %s has no hardware decoder; Automatic selected %s",
-                  qUtf8Printable(m_adapters.first().name), qUtf8Printable(m_active.name));
+    if (!m_requestedDeviceId.isEmpty()) {
+        for (const auto &adapter : std::as_const(m_adapters)) {
+            if (adapter.id == m_requestedDeviceId) {
+                m_active = adapter;
+                break;
+            }
         }
-        return;
+    } else if (m_adapters.size() >= 2 && m_active.luid
+               && m_active.luid != m_adapters.first().luid) {
+        qInfo("Hybrid graphics: Automatic selected %s for decode and composition",
+              qUtf8Printable(m_active.name));
     }
-    for (const auto &adapter : std::as_const(m_adapters)) {
-        if (adapter.id == m_requestedDeviceId) {
-            m_active = adapter;
-            return;
-        }
+#ifdef Q_OS_WIN
+    if (usesCompatibilityRenderer()) {
+        m_compatibilityLuid = compatibilityAdapterLuid();
+        qWarning("Graphics adapter %s cannot run Qt's SM5 renderer; "
+                 "using explicit D3D11 WARP/H.264 SDR compatibility mode (LUID %016llx)",
+                 qUtf8Printable(m_active.name),
+                 static_cast<unsigned long long>(m_compatibilityLuid));
     }
+#endif
 }
 
 QVariantList GraphicsDeviceSelection::choices() const
@@ -211,8 +274,10 @@ const GraphicsDeviceSelection::Adapter *GraphicsDeviceSelection::automaticAdapte
 {
     const Adapter *fallback = nullptr;
     for (const auto &adapter : m_adapters) {
-        if (!fallback) fallback = &adapter;
-        if (canDecode(adapter)) return &adapter;
+        if (!fallback || (!canDecode(*fallback) && canDecode(adapter))) fallback = &adapter;
+        // A DX10 decoder cannot make Qt's SM5 compositor work. Prefer an
+        // adapter supporting both before choosing the compatibility renderer.
+        if (canDecode(adapter) && adapter.supportsQtQuick) return &adapter;
     }
     return fallback;
 }
@@ -258,13 +323,28 @@ bool GraphicsDeviceSelection::savedDeviceUnavailable() const
     return !m_requestedDeviceId.isEmpty() && m_requestedDeviceId != m_active.id;
 }
 
+quint64 GraphicsDeviceSelection::presentationAdapterLuid() const
+{
+    return usesCompatibilityRenderer() ? m_compatibilityLuid : m_active.luid;
+}
+
 bool GraphicsDeviceSelection::applyTo(QQuickWindow *window) const
 {
     if (!m_active.luid) return true;
 #ifdef Q_OS_WIN
     if (!window || window->isVisible() || window->isSceneGraphInitialized()) return false;
+    const auto luid = presentationAdapterLuid();
+    if (!luid) {
+        qCritical("The selected GPU requires compatibility rendering, but D3D11 WARP is unavailable");
+        return false;
+    }
+    if (usesCompatibilityRenderer()) {
+        auto configuration = window->graphicsConfiguration();
+        configuration.setPreferSoftwareDevice(true);
+        window->setGraphicsConfiguration(configuration);
+    }
     window->setGraphicsDevice(QQuickGraphicsDevice::fromAdapter(
-        quint32(m_active.luid), std::bit_cast<qint32>(quint32(m_active.luid >> 32))));
+        quint32(luid), std::bit_cast<qint32>(quint32(luid >> 32))));
     qInfo("Selected graphics adapter: %s (LUID %016llx)", qUtf8Printable(m_active.name),
           static_cast<unsigned long long>(m_active.luid));
     if (savedDeviceUnavailable()) qWarning("Saved graphics adapter is unavailable; using Automatic");

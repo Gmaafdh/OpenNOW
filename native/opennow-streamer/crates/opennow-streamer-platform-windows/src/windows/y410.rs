@@ -2,15 +2,13 @@ use super::decoder::DecodedVideoFrame;
 use super::embedded::MAX_FRAME_SLOTS;
 use crate::VideoFormat;
 use crate::y410_color::Y410Constants;
-use ::windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use ::windows::Win32::Graphics::Direct3D::{
-    D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SRV_DIMENSION_TEXTURE2D, ID3DBlob,
+    D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SRV_DIMENSION_TEXTURE2D,
 };
 use ::windows::Win32::Graphics::Direct3D11::*;
 use ::windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R10G10B10A2_UINT, DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_Y410, DXGI_SAMPLE_DESC,
 };
-use ::windows::core::PCSTR;
 struct OutputSlot {
     texture: ID3D11Texture2D,
     view: ID3D11RenderTargetView,
@@ -82,8 +80,10 @@ impl Y410Converter {
                 .CreateDeferredContext(0, Some(&mut deferred))
                 .map_err(|error| format!("create Y410 deferred context: {error}"))?;
         }
-        let vertex_code = compile(c"vertex_main", c"vs_5_0")?;
-        let pixel_code = compile(c"pixel_main", c"ps_5_0")?;
+        let vertex_code =
+            super::shader::compile(include_bytes!("y410.hlsl"), c"vertex_main", c"vs_5_0")?;
+        let pixel_code =
+            super::shader::compile(include_bytes!("y410.hlsl"), c"pixel_main", c"ps_5_0")?;
         let mut vertex = None;
         let mut pixel = None;
         unsafe {
@@ -213,7 +213,7 @@ impl Y410Converter {
                 0,
                 0,
                 0,
-                &frame.texture,
+                frame.texture()?,
                 frame.subresource,
                 Some(&region),
             );
@@ -247,37 +247,4 @@ impl Y410Converter {
         }
         Ok(&output.texture)
     }
-}
-fn compile(entry: &std::ffi::CStr, target: &std::ffi::CStr) -> Result<ID3DBlob, String> {
-    let source = include_bytes!("y410.hlsl");
-    let mut code = None;
-    let mut errors = None;
-    let result = unsafe {
-        D3DCompile(
-            source.as_ptr().cast(),
-            source.len(),
-            PCSTR::null(),
-            None,
-            None,
-            PCSTR(entry.as_ptr().cast()),
-            PCSTR(target.as_ptr().cast()),
-            0,
-            0,
-            &mut code,
-            Some(&mut errors),
-        )
-    };
-    if let Err(error) = result {
-        let detail = errors
-            .map(|errors| unsafe {
-                String::from_utf8_lossy(std::slice::from_raw_parts(
-                    errors.GetBufferPointer().cast(),
-                    errors.GetBufferSize(),
-                ))
-                .into_owned()
-            })
-            .unwrap_or_default();
-        return Err(format!("compile Y410 shader: {error}: {detail}"));
-    }
-    code.ok_or_else(|| "no Y410 shader bytecode".to_owned())
 }
