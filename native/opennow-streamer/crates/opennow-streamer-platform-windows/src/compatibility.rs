@@ -22,7 +22,7 @@ pub(crate) fn output_buffer_alignment(size: u32, alignment: u32) -> Result<u32, 
 }
 
 pub(crate) fn video_backend(available: bool) -> opennow_streamer_protocol::VideoBackendCapability {
-    use opennow_streamer_protocol::{CodecCapability, VideoBackendCapability};
+    use opennow_streamer_protocol::{CodecCapability, DecodeDimensions, VideoBackendCapability};
     // The ID names Qt's presentation API, not the physical GPU's feature
     // level. Annotate CPU decode without adding a new backend choice to the UI.
     VideoBackendCapability {
@@ -39,6 +39,10 @@ pub(crate) fn video_backend(available: bool) -> opennow_streamer_protocol::Video
                     color_qualities: Some(if usable { vec!["8bit_420"] } else { Vec::new() }),
                     hdr_color_qualities: Some(Vec::new()),
                     hdr_supported: Some(false),
+                    max_decode_dimensions: usable.then_some(DecodeDimensions {
+                        width: crate::MAX_DECODE_WIDTH,
+                        height: crate::MAX_DECODE_HEIGHT,
+                    }),
                     reason: (!usable).then_some(
                         "Windows compatibility mode requires H.264 8-bit 4:2:0 SDR and a usable software decoder",
                     ),
@@ -228,6 +232,13 @@ pub(crate) mod tests {
                 assert_eq!(codec.available, usable);
                 assert_eq!(codec.hdr_supported, Some(false));
                 assert_eq!(codec.hdr_color_qualities, Some(Vec::new()));
+                assert_eq!(
+                    codec
+                        .max_decode_dimensions
+                        .as_ref()
+                        .map(|limit| (limit.width, limit.height)),
+                    usable.then_some((crate::MAX_DECODE_WIDTH, crate::MAX_DECODE_HEIGHT)),
+                );
                 assert_eq!(
                     codec.color_qualities,
                     Some(if usable { vec!["8bit_420"] } else { Vec::new() })

@@ -17,8 +17,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  contracts:
+    name: Validate merged source and packaging contracts
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test source and packaging contracts
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          python3 -m venv "$RUNNER_TEMP/qt-contracts"
+          "$RUNNER_TEMP/qt-contracts/bin/python" -m pip install -r opennow-qt/packaging/icon-requirements.txt
+          "$RUNNER_TEMP/qt-contracts/bin/python" -m unittest discover -s opennow-qt/tests -p 'test_*.py' \
+            2>&1 | tee ci-logs/source-contracts.log
+      - name: Validate localization and repository tooling
+        shell: bash
+        run: |
+          npm run locales:check 2>&1 | tee ci-logs/locales-check.log
+          node --test scripts/check-translations.test.mjs scripts/check-keyboard-layouts.test.mjs \
+            2>&1 | tee ci-logs/node-tests.log
+      - name: Publish source check failures
+        if: failure()
+        shell: bash
+        run: python3 .github/scripts/report-build-log-failures.py ci-logs
+
   windows-x64:
     name: Build and test OpenNOW.exe
+    needs: contracts
     if: github.ref == 'refs/heads/arena/15b83ddf-opennow'
     runs-on: windows-2025
     timeout-minutes: 180
@@ -34,9 +67,9 @@ jobs:
         shell: pwsh
         run: .github/scripts/map-windows-workspace.ps1
 
-      - name: Enable Windows Media Foundation
+      - name: Start Windows Media Foundation setup
         shell: pwsh
-        run: .github/scripts/ensure-windows-media-foundation.ps1
+        run: .github/scripts/windows-media-foundation-background.ps1 Start
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -73,6 +106,7 @@ jobs:
           cache-on-failure: true
           workspaces: |
             native/opennow-streamer -> target
+            native/opennow-core -> target
             native/opennow-core -> ../../build/opennow-qt-release/rust-target
             native/opennow-core -> ../../build/opennow-qt-release/update-helper-rust-target
             native/opennow-streamer -> ../../build/opennow-qt-release/streamer-rust-target
@@ -96,13 +130,35 @@ jobs:
           rustc -Vv
           cargo -V
 
+      - name: Check Rust formatting
+        shell: bash
+        run: |
+          cd /o
+          cargo fmt --manifest-path native/opennow-core/Cargo.toml -- --check \
+            2>&1 | tee ci-logs/core-format.log
+          cargo fmt --manifest-path native/opennow-streamer/Cargo.toml --all -- --check \
+            2>&1 | tee ci-logs/streamer-format.log
+
+      - name: Finish Windows Media Foundation setup
+        shell: pwsh
+        run: |
+          .github/scripts/windows-media-foundation-background.ps1 Wait
+          .github/scripts/ensure-windows-media-foundation.ps1
+
+      - name: Test merged application core
+        shell: bash
+        run: |
+          cd /o
+          cargo test --locked --manifest-path native/opennow-core/Cargo.toml --bin opennow-core \
+            2>&1 | tee ci-logs/core-tests.log
+
       - name: Test Windows decode and protocol (including real WARP tests)
         shell: bash
         run: |
           cd /o
           cargo test --locked --manifest-path native/opennow-streamer/Cargo.toml \
             -p opennow-streamer-platform-windows -p opennow-streamer-protocol \
-            --lib -- --test-threads=1 --nocapture \
+            -p opennow-streamer-platform --lib -- --test-threads=1 --nocapture \
             2>&1 | tee ci-logs/windows-tests.log
 
       - name: Configure Qt release
@@ -204,21 +260,8 @@ jobs:
       # blob downloads are not accessible from every client environment.
       - name: Publish failure excerpts
         if: failure()
-        shell: python
-        run: |
-          import pathlib
-          import re
-          for log in pathlib.Path("O:/ci-logs").glob("*.log"):
-              lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-              hits = [i for i, line in enumerate(lines) if re.search(
-                  r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|test result: FAILED", line)]
-              excerpt = []
-              for i in hits[:3]:
-                  excerpt.extend(lines[max(0, i - 1):i + 8])
-              excerpt.extend(lines[-4:])
-              message = "\n".join(excerpt)[-6500:]
-              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print(f"::error title={log.name}::{message}")
+        shell: bash
+        run: python .github/scripts/report-build-log-failures.py ci-logs
 
       - name: Upload build and test logs
         if: always()

@@ -88,9 +88,13 @@ The backend remains `d3d11` (the actual presentation API), with additive
 `softwareDecode: true`, no zero-copy modes, and only H.264/`8bit_420`. HEVC, AV1,
 10-bit, 4:4:4 and HDR remain unavailable in compatibility mode; an HDR display
 cannot change that. The existing settings detail reports CPU decoding and playback
-reports `H.264 CPU/D3D11 WARP/Qt`. Auto negotiates H.264 without overwriting saved
-preferences; incompatible manual/resumed profiles fail rather than silently
-changing the cloud stream. CPU decode cannot unlock the hardware-only 360 FPS tier.
+reports `H.264 CPU/D3D11 WARP/Qt`. H.264 advertises upstream's
+`maxDecodeDimensions` contract (4096x2304); unavailable codecs advertise no limit.
+Auto negotiates H.264 without overwriting saved preferences. New sessions use
+upstream's explicit color/HDR/mode downgrade notices to select a supported SDR
+profile. Explicit unavailable codecs and incompatible accepted/resumed profiles
+still fail rather than silently reinterpreting the cloud stream. CPU decode
+cannot unlock the hardware-only 360 FPS tier.
 
 Drained synchronous decoders now wait on the input/shutdown condition variable for
 up to 100 ms instead of polling the MFT every millisecond; new input wakes them
