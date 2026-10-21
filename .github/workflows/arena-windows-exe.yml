@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - arena/15b83ddf-opennow
+      - arena/857f597a-opennow
 
 permissions:
   contents: read
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   contracts:
     name: Validate merged source and packaging contracts
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -52,7 +53,7 @@ jobs:
   windows-x64:
     name: Build and test OpenNOW.exe
     needs: contracts
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow'
     runs-on: windows-2025
     timeout-minutes: 180
     env:
