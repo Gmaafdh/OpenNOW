@@ -47,9 +47,19 @@ ItemDelegate {
             color: "transparent"
             border.width: root.cardLifted ? 2 : 1
             border.color: root.cardLifted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
-            Behavior on border.color {
-                ColorAnimation { duration: Theme.focusDuration }
-            }
+            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
+        }
+        // Neon outer glow when lifted
+        Rectangle {
+            visible: root.cardLifted
+            x: art.x - DesktopTokens.cardOutlinePad - 2
+            y: art.y - DesktopTokens.cardOutlinePad - 2
+            width: art.width + DesktopTokens.cardOutlinePad * 2 + 4
+            height: art.height + DesktopTokens.cardOutlinePad * 2 + 4
+            radius: 16
+            color: "transparent"
+            border.width: 1
+            border.color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.22)
         }
         DesktopPosterOverlay {
             id: posterOverlay

@@ -239,21 +239,33 @@ FocusScope {
                     Rectangle {
                         anchors.fill: parent
                         radius: 16
-                        color: "#171B27"
+                        color: "#02040A"
+                        border.width: 1
+                        border.color: DesktopTokens.neonSeam
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             shadowEnabled: true
-                            shadowColor: "#73000000"
-                            blurMax: 48
+                            shadowColor: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.28)
+                            blurMax: 34
                             shadowBlur: 1
-                            shadowVerticalOffset: 10
+                            shadowVerticalOffset: 8
                         }
+                    }
+                    // Neon outer glow
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -1
+                        radius: 17
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.18)
                     }
 
                     Rectangle {
                         id: heroMask
                         anchors.fill: parent
-                        radius: 16
+                        anchors.margins: 1
+                        radius: 15
                         color: "white"
                         visible: false
                         layer.enabled: true
@@ -261,6 +273,7 @@ FocusScope {
 
                     Item {
                         anchors.fill: parent
+                        anchors.margins: 1
                         layer.enabled: true
                         layer.smooth: true
                         layer.effect: MultiEffect {
@@ -278,22 +291,51 @@ FocusScope {
                             asynchronous: true
                             cache: true
                         }
+                        // Cyber duotone
                         Rectangle {
                             anchors.fill: parent
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
-                                GradientStop { position: 0; color: "#EB060912" }
-                                GradientStop { position: 0.62; color: "#4D060912" }
-                                GradientStop { position: 1; color: "#1A060912" }
+                                GradientStop { position: 0; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.32) }
+                                GradientStop { position: 0.42; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.62) }
+                                GradientStop { position: 1; color: Qt.rgba(0,0,0, 0.36) }
                             }
                         }
+                        // Scanlines
+                        Canvas {
+                            anchors.fill: parent
+                            opacity: 0.07
+                            onPaint: { const ctx=getContext("2d"); ctx.reset(); ctx.strokeStyle="#FFFFFF"; ctx.lineWidth=1; for(let y=0;y<height;y+=3){ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke()} }
+                        }
+                        // Grid
+                        Canvas {
+                            anchors.fill: parent
+                            opacity: 0.09
+                            onPaint: { const ctx=getContext("2d"); ctx.reset(); ctx.strokeStyle=Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,1); ctx.lineWidth=1; for(let x=0;x<width;x+=36){ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke()} }
+                        }
                     }
-                    Rectangle {
+                    // Corner brackets
+                    Canvas {
                         anchors.fill: parent
-                        color: "transparent"
-                        border.width: 1
-                        border.color: "#29FFFFFF"
-                        radius: 16
+                        onPaint: {
+                            const ctx=getContext("2d"); ctx.reset(); ctx.strokeStyle=Theme.focus; ctx.lineWidth=1.6
+                            const l=18,r=16,w=width,h=height
+                            ctx.beginPath(); ctx.moveTo(1, r+l); ctx.lineTo(1, r); ctx.arc(r, r, r-1, Math.PI, 1.5*Math.PI); ctx.lineTo(r+l,1); ctx.stroke()
+                            ctx.beginPath(); ctx.moveTo(w - r - l,1); ctx.lineTo(w - r,1); ctx.arc(w - r,r,r-1,1.5*Math.PI,0); ctx.lineTo(w-1,r+l); ctx.stroke()
+                            ctx.beginPath(); ctx.moveTo(1,h - r - l); ctx.lineTo(1,h - r); ctx.arc(r,h - r,r-1,Math.PI,0.5*Math.PI); ctx.lineTo(r+l,h-1); ctx.stroke()
+                            ctx.beginPath(); ctx.moveTo(w - r - l,h-1); ctx.lineTo(w - r,h-1); ctx.arc(w - r,h - r,r-1,0.5*Math.PI,0); ctx.lineTo(w-1,h - r - l); ctx.stroke()
+                        }
+                    }
+                    // Top terminal bar inside hero
+                    Rectangle {
+                        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                        height: 22; radius: 16
+                        color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.14)
+                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 12; color: parent.color }
+                        Row { anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                            Rectangle{width:6;height:6;radius:3;color:"#FF3B30"} Rectangle{width:6;height:6;radius:3;color:"#FFE600"} Rectangle{width:6;height:6;radius:3;color:"#00FF9D"}
+                        }
+                        Text { anchors.centerIn: parent; text: "CONTINUE // GRID SYNC"; color: Theme.focus; font.family: Theme.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1.1 }
                     }
 
                     Column {
@@ -314,25 +356,26 @@ FocusScope {
 
                         Column {
                             width: parent.width
-                            spacing: 6
+                            spacing: 5
                             Text {
                                 width: parent.width
                                 elide: Text.ElideRight
-                                text: root.heroGame ? String(root.heroGame.title || qsTr("Game")) : qsTr("No games yet")
+                                text: (root.heroGame ? String(root.heroGame.title || qsTr("Game")) : qsTr("No games yet")).toUpperCase()
                                 color: "#FFFFFF"
                                 font.family: Theme.displayFont
-                                font.pixelSize: 34
+                                font.pixelSize: 32
                                 font.weight: Font.Black
-                                font.letterSpacing: -1
+                                font.letterSpacing: -0.8
                             }
                             Text {
                                 width: parent.width
                                 elide: Text.ElideRight
-                                text: root.heroMeta()
-                                color: "#B8FFFFFF"
-                                font.family: Theme.bodyFont
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
+                                text: root.heroMeta().toUpperCase()
+                                color: Theme.focus
+                                font.family: Theme.monoFont
+                                font.pixelSize: 11
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.8
                             }
                         }
 
@@ -343,17 +386,18 @@ FocusScope {
                                 id: startButton
                                 width: 158
                                 height: 38
-                                radius: 10
-                                color: startTap.pressed ? "#D9FFFFFF" : "#F2FFFFFF"
+                                radius: 8
+                                color: Theme.focus
                                 border.width: root.focusZone === 0 && root.focusIndex === 0 && AppController.inputMode !== "pointer" ? 2 : 0
                                 border.color: "#FFFFFF"
+                                Rectangle { anchors.fill: parent; anchors.margins: -1; radius: 9; color: "transparent"; border.width: 1; border.color: Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,0.32) }
 
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 8
-                                    DesktopGlyph { anchors.verticalCenter: parent.verticalCenter; width: 11; height: 11; icon: "desktop-play.svg" }
-                                    Text { text: qsTr("Start"); color: "#0B0F1A"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.ExtraBold }
-                                    KeyboardGlyph { shortcut: "Enter"; keySize: 20; ink: "#0B0F1A"; Accessible.name: qsTr("ENTER") }
+                                    DesktopGlyph { anchors.verticalCenter: parent.verticalCenter; width: 12; height: 12; icon: "desktop-play.svg" }
+                                    Text { text: qsTr("JACK IN").toUpperCase(); color: Theme.faceText; font.family: Theme.monoFont; font.pixelSize: 12; font.weight: Font.Black; font.letterSpacing: 1 }
+                                    KeyboardGlyph { shortcut: "Enter"; keySize: 20; ink: Theme.faceText; Accessible.name: qsTr("ENTER") }
                                 }
                                 HoverHandler { id: startHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 0) }
                                 TapHandler { id: startTap; onTapped: root.startHero() }
@@ -361,13 +405,13 @@ FocusScope {
 
                             Rectangle {
                                 id: detailsButton
-                                width: 81
+                                width: 86
                                 height: 38
-                                radius: 10
-                                color: detailsHover.hovered ? "#2EFFFFFF" : "#1FFFFFFF"
-                                border.width: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? 2 : 1
-                                border.color: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? "#FFFFFF" : "#33FFFFFF"
-                                Text { anchors.centerIn: parent; text: qsTr("Details"); color: "#FFFFFF"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.Bold }
+                                radius: 8
+                                color: Qt.rgba(1,1,1,0.08)
+                                border.width: 1
+                                border.color: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? Theme.focus : Theme.neonSeam
+                                Text { anchors.centerIn: parent; text: qsTr("Details").toUpperCase(); color: "#FFFFFF"; font.family: Theme.monoFont; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 0.8 }
                                 HoverHandler { id: detailsHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 1) }
                                 TapHandler { onTapped: root.openGame(root.heroGame) }
                                 Behavior on color { ColorAnimation { duration: AppController.reducedMotion ? 0 : 90 } }
@@ -376,15 +420,16 @@ FocusScope {
                             Rectangle {
                                 width: 182
                                 height: 38
-                                radius: 10
-                                color: "#59000000"
+                                radius: 8
+                                color: Qt.rgba(0,0,0,0.42)
                                 border.width: 1
-                                border.color: "#1FFFFFFF"
+                                border.color: Theme.neonSeam
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 8
-                                    Rectangle { width: 6; height: 6; radius: 3; color: "#1DB954" }
-                                    Text { text: root.streamChip(); color: "#CCFFFFFF"; font.family: Theme.monoFont; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
+                                    Rectangle { width: 6; height: 6; radius: 3; color: Theme.jade
+                                        SequentialAnimation on opacity { running:true; loops:Animation.Infinite; NumberAnimation{to:0.3;duration:620} NumberAnimation{to:1;duration:620}} }
+                                    Text { text: root.streamChip().toUpperCase(); color: "#CCFFFFFF"; font.family: Theme.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 0.6 }
                                 }
                             }
                         }

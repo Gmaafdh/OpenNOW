@@ -61,14 +61,24 @@ FocusScope {
         return root.currentRoute === route
     }
 
+    // Cyber rail background — deep void with neon edge
     Rectangle {
         anchors.fill: parent
-        color: DesktopTokens.shell
+        color: Theme.lightMode ? DesktopTokens.shell : "#02040A"
         Rectangle {
             anchors.right: parent.right
             width: 1
             height: parent.height
-            color: root.overlayOpen ? "#29FFFFFF" : DesktopTokens.seamSoft
+            color: root.overlayOpen ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.28) : Theme.neonSeam
+        }
+        // Left neon hairline
+        Rectangle { anchors.left: parent.left; width: 2; height: parent.height; color: Theme.focus; opacity: root.overlayOpen ? 0.85 : 0.55 }
+        Rectangle { anchors.left: parent.left; anchors.leftMargin: 2; width: 8; height: parent.height; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.09); visible: !Theme.lightMode }
+        // Grid overlay subtle
+        Canvas {
+            anchors.fill: parent
+            opacity: Theme.lightMode ? 0.025 : 0.06
+            onPaint: { const ctx=getContext("2d"); ctx.reset(); ctx.strokeStyle=Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,1); ctx.lineWidth=1; for(let y=0;y<height;y+=28){ctx.beginPath(); ctx.moveTo(0,y+0.5); ctx.lineTo(width,y+0.5); ctx.stroke()} }
         }
     }
 
@@ -225,12 +235,35 @@ FocusScope {
                     padding: 0
                     readonly property bool selected: root.routeSelected(modelData.route)
                     Accessible.name: modelData.name
-                    background: Rectangle {
-                        radius: 10
-                        color: navButton.selected ? DesktopTokens.raisedStrong
-                            : (navButton.hovered || navButton.activeFocus ? DesktopTokens.raised : "transparent")
+                    background: Item {
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 10
+                            color: navButton.selected ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.16)
+                                : (navButton.hovered || navButton.activeFocus ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.08) : "transparent")
+                            border.width: navButton.selected ? 1 : 0
+                            border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.28)
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -1
+                            radius: 11
+                            color: "transparent"
+                            border.width: 1
+                            border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.32)
+                            visible: navButton.selected && !root.compact
+                            opacity: 0.9
+                        }
                     }
                     contentItem: Item {
+                        // left neon indicator
+                        Rectangle {
+                            width: 2; height: 20; radius: 1
+                            color: Theme.focus
+                            visible: navButton.selected
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: 2
+                        }
                         DesktopGlyph {
                             objectName: "sidebarIcon-" + navButton.modelData.route
                             x: 13
@@ -245,11 +278,12 @@ FocusScope {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.reveal > 0
                         opacity: root.reveal
-                            text: navButton.modelData.name
-                            color: navButton.selected ? DesktopTokens.text : DesktopTokens.textMuted
-                            font.family: DesktopTokens.bodyFont
-                            font.pixelSize: DesktopTokens.px(14)
-                            font.weight: navButton.selected ? Font.ExtraBold : Font.DemiBold
+                            text: navButton.modelData.name.toUpperCase()
+                            color: navButton.selected ? Theme.focus : DesktopTokens.textMuted
+                            font.family: DesktopTokens.monoFont
+                            font.pixelSize: DesktopTokens.px(11)
+                            font.weight: navButton.selected ? Font.Black : Font.Bold
+                            font.letterSpacing: 0.8
                         }
                         Row {
                             anchors.right: parent.right
@@ -269,10 +303,10 @@ FocusScope {
                             anchors.rightMargin: 10
                             anchors.verticalCenter: parent.verticalCenter
                             visible: navButton.selected && !root.compact
-                            width: 4
+                            width: 3
                             height: 16
                             radius: 999
-                            color: DesktopTokens.focus
+                            color: Theme.focus
                         }
                     }
                     onClicked: {
