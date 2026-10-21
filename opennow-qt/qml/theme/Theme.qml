@@ -18,19 +18,21 @@ QtObject {
         {id:"cobalt", name:"COBALT", author:"OPENNOW", category:"Light", detail:"COBALT PAPER", bg:"#F7F9FF", darkBg:"#030A14", mid:"#ADC4FF", accent:"#0A84FF", lightAccent:"#0048B0", darkAccent:"#0A84FF"}
     ]
     readonly property string mode: String(ShellStore.settings.appTheme || "auto")
-    readonly property string themePack: ShellStore.previewThemePack !== ""
-                                        ? ShellStore.previewThemePack
-                                        : {
-                                            const requested = String(ShellStore.settings.themePack || "neon-nocturne")
-                                            // migrate old ids to cyberpunk defaults
-                                            const migrate = {aurora:"ghostwire", kraft:"volt-edge", phosphor:"ghostwire", chapel:"synthwave", hibiscus:"neo-tokyo", cobalt:"netrunner", bone:"neon-nocturne", nocturne:"neon-nocturne"}
-                                            return migrate[requested] || requested
-                                          }
+    readonly property string themePack: {
+        const preview = String(ShellStore.previewThemePack || "")
+        if (preview !== "")
+            return preview
+        const requested = String(ShellStore.settings.themePack || "neon-nocturne")
+        // legacy pack ids migrate onto their cyberpunk equivalents
+        const migrate = {aurora: "ghostwire", kraft: "volt-edge", phosphor: "ghostwire", chapel: "synthwave",
+                         hibiscus: "neo-tokyo", cobalt: "netrunner", bone: "neon-nocturne", nocturne: "neon-nocturne"}
+        return String(migrate[requested] || requested)
+    }
     readonly property var pack: packs.find(item => item.id === themePack) || packs[0]
     readonly property bool packLight: pack.category === "Light"
     readonly property bool systemLight: Qt.styleHints.colorScheme === Qt.Light
     readonly property bool lightMode: ShellStore.previewThemePack !== "" ? packLight
-        : mode === \"light\" || (mode === \"auto\" && systemLight)
+        : mode === "light" || (mode === "auto" && systemLight)
     readonly property bool translucent: Boolean(ShellStore.settings.translucentUI)
 
     readonly property string accent: String(ShellStore.settings.appAccentColor || "blue")
