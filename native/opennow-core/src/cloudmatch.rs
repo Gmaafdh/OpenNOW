@@ -681,17 +681,14 @@ impl CloudMatchService {
         }
         info["phase"] =
             Value::String(session_phase(info["status"].as_i64().unwrap_or_default()).to_owned());
-        // Surfaced through the shell's diagnostics log: a queue that stops
-        // moving is otherwise invisible when the player reports being stuck.
-        let status = value_i64(&info["status"]);
-        let queue = value_i64(&info["queuePosition"]);
-        let step = value_i64(&info["seatSetupStep"]);
-        let prev_status = current.as_ref().and_then(|s| value_i64(&s.info["status"]));
-        let prev_queue = current.as_ref().and_then(|s| value_i64(&s.info["queuePosition"]));
-        let prev_step = current.as_ref().and_then(|s| value_i64(&s.info["seatSetupStep"]));
-        if prev_status != status || prev_queue != queue || prev_step != step {
-            let source = queue_position_source(&payload).map_or("none", |found| found.0);
-            eprintln!("session: poll {status:?} queue {queue:?} step {step:?} from {source}");
+        // A queue that stops moving is otherwise invisible in the diagnostics
+        // log, so every poll before the seat is ready records what the server
+        // reported. Plateau length is visible as repeated identical lines.
+        let status = value_i64(&info["status"]).unwrap_or_default();
+        if status < 2 {
+            let queue = value_i64(&info["queuePosition"]).unwrap_or_default();
+            let step = value_i64(&info["seatSetupStep"]).unwrap_or(-1);
+            eprintln!("session: poll status {status} queue {queue} step {step}");
         }
         if current
             .as_ref()
@@ -2664,22 +2661,16 @@ fn normalize_ice_servers(session: &Value) -> Vec<Value> {
     servers
 }
 
-/// Which CloudMatch field supplied the reported queue position. Diagnostics use
-/// it to tell a real personal position apart from a fleet-wide counter.
-fn queue_position_source(session: &Value) -> Option<(&'static str, i64)> {
+fn queue_position(session: &Value) -> Option<i64> {
     [
-        ("queuePosition", &session["queuePosition"]),
-        ("seatSetupInfo", &session["seatSetupInfo"]["queuePosition"]),
-        ("sessionProgress", &session["sessionProgress"]["queuePosition"]),
-        ("progressInfo", &session["progressInfo"]["queuePosition"]),
+        &session["queuePosition"],
+        &session["seatSetupInfo"]["queuePosition"],
+        &session["sessionProgress"]["queuePosition"],
+        &session["progressInfo"]["queuePosition"],
     ]
     .into_iter()
-    .find_map(|(source, value)| value_i64(value).map(|value| (source, value)))
-    .filter(|(_, value)| *value > 0)
-}
-
-fn queue_position(session: &Value) -> Option<i64> {
-    queue_position_source(session).map(|(_, value)| value)
+    .find_map(value_i64)
+    .filter(|value| *value > 0)
 }
 
 fn first_string(value: &Value) -> Option<String> {
