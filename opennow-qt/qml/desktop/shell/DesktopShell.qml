@@ -80,13 +80,7 @@ FocusScope {
             width: parent.width; height: root.headerHeight
             readonly property real availableWidth: Math.max(0, width - DesktopTokens.px(48))
             color: DesktopTokens.topBar
-            // cyber top hairline
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1.5; color: DesktopTokens.focus; opacity: 0.42 }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesktopTokens.neonSeam }
-            // subtle grid in header
-            Canvas { anchors.fill: parent; opacity: 0.04
-                onPaint: { const ctx=getContext("2d"); ctx.reset(); ctx.strokeStyle=Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,1); ctx.lineWidth=1; for(let x=0;x<width;x+=32){ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke()} }
-            }
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesktopTokens.seam }
             Item {
                 id: heading
                 objectName: "desktopHeaderHeading"
@@ -96,19 +90,19 @@ FocusScope {
                 Text {
                     id: headerTitle
                     width: Math.min(implicitWidth, parent.width)
-                    text: root.title.toUpperCase(); elide: Text.ElideRight
-                    color: DesktopTokens.text; font.family: DesktopTokens.monoFont
-                    font.pixelSize: root.settingsPage ? DesktopTokens.px(16) : DesktopTokens.titleSize - 2
-                    font.weight: Font.Black; font.letterSpacing: 0.8
+                    text: root.title; elide: Text.ElideRight
+                    color: DesktopTokens.text; font.family: DesktopTokens.displayFont
+                    font.pixelSize: root.settingsPage ? DesktopTokens.px(22) : DesktopTokens.titleSize
+                    font.weight: Font.Black; font.letterSpacing: -0.4
                 }
                 Text {
                     x: headerTitle.width + DesktopTokens.px(10)
                     width: Math.max(0, parent.width - x)
                     visible: width >= DesktopTokens.px(90)
                     anchors.baseline: headerTitle.baseline
-                    text: root.subtitle.toUpperCase(); elide: Text.ElideRight
-                    color: DesktopTokens.focus; font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.captionSize -1; font.weight: Font.Bold; font.letterSpacing: 1.0
+                    text: root.subtitle; elide: Text.ElideRight
+                    color: DesktopTokens.textMuted; font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.captionSize; font.weight: Font.DemiBold; font.letterSpacing: 0.45
                 }
             }
             TextField {
@@ -127,7 +121,7 @@ FocusScope {
                 font.family: DesktopTokens.bodyFont; font.pixelSize: DesktopTokens.bodySize; font.weight: Font.DemiBold
                 text: root.searchText
                 selectByMouse: true
-                background: Rectangle { radius: 8; color: Theme.lightMode ? DesktopTokens.raised : Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.08); border.width: 1; border.color: DesktopTokens.neonSeam }
+                background: Rectangle { radius: DesktopTokens.px(10); color: Theme.lightMode ? DesktopTokens.raised : "#59000000"; border.width: 1; border.color: DesktopTokens.seam }
                 onTextChanged: root.searchText = text
                 DesktopGlyph { x: DesktopTokens.px(11); anchors.verticalCenter: parent.verticalCenter; width: DesktopTokens.px(14); height: DesktopTokens.px(14); icon: "desktop-search.svg" }
                 KeyboardGlyph { anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(8); anchors.verticalCenter: parent.verticalCenter; shortcut: "/"; keySize: DesktopTokens.px(20); ink: DesktopTokens.textBody }
@@ -185,8 +179,7 @@ FocusScope {
             color: DesktopTokens.statusBar
             clip: true
             readonly property bool compactHints: true
-            Rectangle { width: parent.width; height: 1; color: DesktopTokens.neonSeam }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.focus; opacity: 0.22 }
+            Rectangle { width: parent.width; height: 1; color: DesktopTokens.seam }
             Row { id: shortcutHints; x: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter; spacing: DesktopTokens.px(footer.compactHints ? 8 : 16)
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Arrows"); shortcut: "Arrows"; label: qsTr("Move") }
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Enter"); shortcut: "Enter"; label: qsTr("Play") }

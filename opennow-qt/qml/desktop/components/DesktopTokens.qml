@@ -25,41 +25,35 @@ QtObject {
     }
 
     readonly property color shell: Theme.shell
-    readonly property color shellDeep: Theme.shellDeep
-    readonly property color rail: Theme.lightMode ? Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.90) : Qt.rgba(0.02, 0.05, 0.14, 0.92)
-    readonly property color topBar: Theme.lightMode ? Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.72) : Qt.rgba(0.02, 0.04, 0.10, 0.78)
-    readonly property color statusBar: Theme.lightMode ? Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.82) : Qt.rgba(0.02, 0.05, 0.13, 0.88)
+    readonly property color rail: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.90)
+    readonly property color topBar: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.66)
+    readonly property color statusBar: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.78)
     readonly property color surface: Theme.glass
-    readonly property color raised: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.08) : Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.10)
-    readonly property color raisedStrong: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.12) : Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.18)
+    readonly property color raised: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.08) : "#14FFFFFF"
+    readonly property color raisedStrong: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.12) : "#1FFFFFFF"
     readonly property color seam: Theme.seam
-    readonly property color seamSoft: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.06) : Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.10)
-    readonly property color neonSeam: Theme.neonSeam
-    readonly property color neonGlow: Theme.neonGlow
-    readonly property color cyberGrid: Theme.gridLine
+    readonly property color seamSoft: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.06) : "#0FFFFFFF"
     readonly property color text: Theme.label
     readonly property color textHigh: Theme.label
     readonly property color textBody: Theme.textMuted
     readonly property color textMuted: Theme.textMuted
-    readonly property color textFaint: Theme.textFaint
+    readonly property color textFaint: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.32) : "#52FFFFFF"
     readonly property color focus: Theme.focus
-    // Cyberpunk palette
-    readonly property color cyan: Theme.cyan
-    readonly property color magenta: "#FF2E97"
-    readonly property color amber: Theme.yellow
-    readonly property color jade: Theme.jade
-    readonly property color green: "#00FF9D"
-    readonly property color mint: "#00FF9D"
-    readonly property color ledAmber: "#FFE600"
-    readonly property color danger: Theme.coral
-    readonly property color flightReady: Theme.lightMode ? "#0A9E5E" : green
-    readonly property color flightMint: "#00FF9D"
-    readonly property color flightWarning: Theme.lightMode ? "#9E8700" : amber
-    readonly property color flightDeclined: Theme.lightMode ? "#B51C1C" : danger
+    readonly property color green: "#1DB954"
+    readonly property color mint: "#56E6A5"
+    readonly property color amber: "#FFD166"
+    readonly property color ledAmber: "#F5A623"
+    readonly property color danger: "#FF8A80"
+    readonly property color flightReady: Theme.lightMode ? "#126B4E" : green
+    readonly property color flightMint: "#6EE7B7"
+    readonly property color flightWarning: Theme.lightMode ? "#806017" : amber
+    readonly property color flightDeclined: Theme.lightMode ? "#A9362C" : danger
     readonly property string displayFont: Theme.displayFont
     readonly property string bodyFont: Theme.bodyFont
     readonly property string monoFont: Theme.monoFont
     property real uiScale: 1
+    // Type ramp. Every desktop font size must come from here so text stays
+    // proportionate on any display size; raw pixelSize literals drift.
     readonly property int titleSize: px(26)
     readonly property int headingSize: px(17)
     readonly property int bodySize: px(15)
@@ -96,13 +90,14 @@ QtObject {
     readonly property real cardHoverScale: 1.025
     readonly property int cardOutlinePad: 2
     readonly property color cardOutlineIdle: Theme.seam
-    readonly property color cardOutlineNeon: Theme.neonSeam
 
     function px(value) {
         return Math.max(1, Math.round(Number(value) * uiScale))
     }
 
     function scaleForWindow(width, height) {
+        // Qt already accounts for display DPI. Keep logical text readable;
+        // use reflow, not aggressive downscaling, for smaller windows.
         return Math.max(0.95, Math.min(1.15, Math.min(width / 1440, height / 900)))
     }
 
