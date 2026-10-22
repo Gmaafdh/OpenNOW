@@ -127,6 +127,10 @@ const ENCODED_MEDIA_QUEUE_CAPACITY: usize = 8;
 const NVST_RECOVERY_ATTEMPT_LIMIT: usize = 1;
 const NATIVE_INPUT_POLL_INTERVAL: Duration = Duration::from_micros(250);
 const MAX_STREAM_FPS: u32 = 360;
+/// Official GeForce NOW coalesces raw pointer reports into at most one relative
+/// motion packet per 4 ms (MOUSE_FLUSH_FAST_MS in the reference web client)
+/// instead of shipping every 1000 Hz Raw Input report as its own SCTP message.
+const MOUSE_MOTION_COALESCE_INTERVAL: Duration = Duration::from_millis(4);
 
 trait NvstSessionResources {
     fn take_rumble(&self) -> ([Option<NvstControllerRumble>; 4], usize) {
@@ -1854,6 +1858,79 @@ struct PendingMediaFeedback {
     reports: QueueDropReports,
 }
 
+/// Accumulates relative mouse reports so at most one motion packet leaves per
+/// [`MOUSE_MOTION_COALESCE_INTERVAL`]. Summing hardware deltas keeps the pointer
+/// exact while cutting the packet rate (and the per-message SCTP cost) the way
+/// the official client's coalescer does.
+#[derive(Default)]
+struct CoalescedMouseMotion {
+    delta_x: i32,
+    delta_y: i32,
+    captured_at: Option<Duration>,
+    flush_at: Option<Instant>,
+    last_flush: Option<Instant>,
+    reports: u64,
+    packets: u64,
+}
+
+impl CoalescedMouseMotion {
+    /// Adds one report and reports whether the batch is due for an immediate send.
+    fn accumulate(&mut self, dx: i16, dy: i16, captured_at: Duration, now: Instant) -> bool {
+        if self.flush_at.is_none() {
+            self.captured_at = Some(captured_at);
+            // An idle pointer goes out at once; a burst waits for the interval
+            // that starts at the previous send, exactly like the reference client.
+            self.flush_at = Some(match self.last_flush {
+                Some(last) => last + MOUSE_MOTION_COALESCE_INTERVAL,
+                None => now,
+            });
+        }
+        self.reports = self.reports.saturating_add(1);
+        self.delta_x = self.delta_x.saturating_add(i32::from(dx));
+        self.delta_y = self.delta_y.saturating_add(i32::from(dy));
+        self.is_due(now)
+    }
+
+    fn is_due(&self, now: Instant) -> bool {
+        self.flush_at.is_some_and(|flush_at| now >= flush_at)
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Reports received and packets sent since the previous call.
+    fn take_counts(&mut self) -> (u64, u64) {
+        let counts = (self.reports, self.packets);
+        self.reports = 0;
+        self.packets = 0;
+        counts
+    }
+
+    #[cfg(test)]
+    fn pending_delta(&self) -> (i32, i32) {
+        (self.delta_x, self.delta_y)
+    }
+
+    fn take(&mut self) -> Option<CapturedInputSample> {
+        let captured_at = self.captured_at.take()?;
+        self.flush_at = None;
+        self.last_flush = Some(Instant::now());
+        self.packets = self.packets.saturating_add(1);
+        let dx = self.delta_x.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        let dy = self.delta_y.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        self.delta_x = 0;
+        self.delta_y = 0;
+        Some(CapturedInputSample {
+            input: CapturedInput::MouseMove {
+                delta_x: dx,
+                delta_y: dy,
+            },
+            captured_at,
+        })
+    }
+}
+
 fn forward_nvst_session_events<R: NvstSessionResources>(
     output: &EventSender,
     lifecycle: &Mutex<Lifecycle>,
@@ -1876,6 +1953,8 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
     }
     let mut pending_rumble = [None; 4];
     let mut pending_input = None;
+    let mut pending_motion = CoalescedMouseMotion::default();
+    let mut motion_log_at = Instant::now();
     let mut pending_control_output = NvstControlOutput {
         start_id: start_id.clone(),
         pending: None,
@@ -1927,6 +2006,7 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
             if !feedback_state.input_available {
                 if pending_input.is_none() {
                     captured_input.clear();
+                    pending_motion.clear();
                 }
             } else if captured_input.take_overflowed() {
                 let _ = emit_nvst_terminal(
@@ -1940,8 +2020,10 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
                 );
                 break;
             } else {
-                // Preserve high-polling-rate RawInput/SDL samples rather than
-                // turning several reports into one uneven movement burst.
+                // Coalesce high-polling-rate RawInput/SDL pointer reports into one
+                // relative-motion packet per interval so the input channel is not
+                // flooded with a thousand tiny SCTP messages per second, and keep
+                // every discrete event behind the motion that preceded it.
                 for _ in 0..32 {
                     let Some(input) = pending_input
                         .take()
@@ -1969,6 +2051,37 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
                         forward_shortcut_action(output, shortcut_runtime.as_ref(), *action);
                         continue;
                     }
+                    if let CapturedInput::MouseMove { delta_x, delta_y } = &input.input {
+                        let due = pending_motion.accumulate(
+                            *delta_x,
+                            *delta_y,
+                            input.captured_at,
+                            Instant::now(),
+                        );
+                        if due
+                            && !forward_nvst_coalesced_motion(
+                                output,
+                                lifecycle,
+                                generation,
+                                &resources,
+                                &mut pending_motion,
+                                &feedback_state,
+                            )
+                        {
+                            break 'session;
+                        }
+                        continue;
+                    }
+                    if !forward_nvst_coalesced_motion(
+                        output,
+                        lifecycle,
+                        generation,
+                        &resources,
+                        &mut pending_motion,
+                        &feedback_state,
+                    ) {
+                        break 'session;
+                    }
                     if let Err(error) =
                         forward_nvst_captured_sample(&resources, &input, &feedback_state)
                     {
@@ -1987,6 +2100,30 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
                         break 'session;
                     }
                 }
+            }
+        }
+        if pending_motion.is_due(Instant::now())
+            && !forward_nvst_coalesced_motion(
+                output,
+                lifecycle,
+                generation,
+                &resources,
+                &mut pending_motion,
+                &feedback_state,
+            )
+        {
+            break;
+        }
+        if motion_log_at.elapsed() >= Duration::from_secs(10) {
+            let (reports, packets) = pending_motion.take_counts();
+            motion_log_at = Instant::now();
+            if reports != 0 {
+                let coalesced = reports.saturating_sub(packets);
+                opennow_streamer_protocol::log::log_async(
+                    "INFO",
+                    "input-motion",
+                    &format!("reports={reports} packets={packets} coalesced={coalesced}"),
+                );
             }
         }
         match nvst_events.recv_timeout(NATIVE_INPUT_POLL_INTERVAL) {
@@ -2908,6 +3045,36 @@ fn forward_nvst_captured_sample<R: NvstSessionResources>(
         return resources.send_captured_text(text.clone(), timestamp_us);
     }
     resources.send_captured_input(captured_input_packet(sample.input.clone(), timestamp_us))
+}
+
+/// Sends the coalesced pointer batch, if any. A not-yet-ready input channel is
+/// not fatal for motion: the delta is discarded the same way a queue flush is,
+/// and the next report starts a fresh batch.
+fn forward_nvst_coalesced_motion<R: NvstSessionResources>(
+    output: &EventSender,
+    lifecycle: &Mutex<Lifecycle>,
+    generation: u64,
+    resources: &R,
+    motion: &mut CoalescedMouseMotion,
+    state: &NvstMediaFeedbackState,
+) -> bool {
+    let Some(sample) = motion.take() else {
+        return true;
+    };
+    match forward_nvst_captured_sample(resources, &sample, state) {
+        Ok(()) | Err(TransportError::InputNotReady) => true,
+        Err(error) => {
+            let _ = emit_nvst_terminal(
+                output,
+                lifecycle,
+                generation,
+                resources,
+                "native-input-capture-failed",
+                format!("Native window input capture failed: {error}"),
+            );
+            false
+        }
+    }
 }
 
 fn captured_input_packet(input: CapturedInput, timestamp_us: u64) -> Vec<u8> {
@@ -4700,6 +4867,27 @@ mod tests {
             u64::from_be_bytes(inputs[0][14..22].try_into().unwrap()),
             4_242
         );
+    }
+
+    #[test]
+    fn relative_motion_is_coalesced_without_losing_the_summed_delta() {
+        let mut motion = CoalescedMouseMotion::default();
+        let started = Instant::now();
+        // The first report of an idle pointer goes out at once.
+        assert!(motion.accumulate(3, -2, Duration::from_micros(10), started));
+        // A second report inside the interval joins the same packet.
+        assert!(motion.accumulate(4, 1, Duration::from_micros(11), started));
+        assert_eq!(motion.pending_delta(), (7, -1));
+        let batch = motion.take().expect("coalesced motion");
+        assert_eq!(batch.captured_at, Duration::from_micros(10));
+        assert!(motion.take().is_none());
+
+        // Reports that follow a send wait for the interval instead of piling up.
+        assert!(!motion.accumulate(1, 1, Duration::from_micros(20), started));
+        assert!(!motion.is_due(Instant::now() + Duration::from_millis(1)));
+        assert!(motion.is_due(Instant::now() + MOUSE_MOTION_COALESCE_INTERVAL));
+        motion.clear();
+        assert!(!motion.is_due(Instant::now() + MOUSE_MOTION_COALESCE_INTERVAL));
     }
 
     #[test]

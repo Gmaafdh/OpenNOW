@@ -52,9 +52,9 @@ After SDL toggles relative mode, OpenNOW posts `WM_APP+1` and re-registers the m
 
 Hidden cursor, type 0 id 0, plus focus. Grab on, relative mode on, cursor hidden. Raw Input sends type 7.
 
-Visible cursor. Grab off. SDL sends type 5, letterboxed into the stream viewport. Consecutive absolute samples replace the previous one. Relative samples are not merged.
+Visible cursor. Grab off. SDL sends type 5, letterboxed into the stream viewport. Consecutive absolute samples replace the previous one.
 
-Queue capacity 256. Host pump and NVST drain both use 250 µs. Drain takes up to 32 samples per tick. Motion uses unordered PR-SCTP, 300 ms lifetime, SID 6. Buttons and wheel use reliable control.
+Queue capacity 256. Host pump and NVST drain both use 250 µs. Drain takes up to 32 samples per tick. Relative samples are coalesced: deltas are summed into at most one type-7 packet per 4 ms, which is the reference web client's `MOUSE_FLUSH_FAST_MS` raw-input cadence, so a 1000 Hz mouse no longer sends a thousand tiny SCTP messages per second. Motion uses unordered PR-SCTP, 300 ms lifetime, SID 6. Buttons and wheel use reliable control.
 
 There is no `ClipCursor`, `SetCursorPos`, `SPI_GETMOUSE`, `RIDEV_NOLEGACY`, or `RIDEV_CAPTUREMOUSE` in this crate.
 
@@ -108,7 +108,7 @@ NVST wrap is `COMMAND_REMOTE_INPUT` `0x0206`. Absolute encode injects flags `0x0
 4. **Foreground filter.** The embedded Windows capture binds Raw Input ownership to the Qt window and pauses capture while an overlay owns input. Official's async thread is also focus-scoped, but it restarts on window state 19 and resends alternate settings.
 5. **Binary cursor mode.** Official has visible-unlocked, visible-warped, and hidden-locked. OpenNOW has hidden versus visible. Custom bitmap id 0 stays visible.
 6. **Qt owns pointer state** while the embedded Raw Input controller owns relative motion. Official may keep lock inside `RawInputController`.
-7. **Drain stalls.** Encode and SCTP share the NVST event thread. A hitch batches then bursts. The 300 ms unordered lifetime exists because ordered PR-SCTP already felt like delayed catch-up.
+7. **Drain stalls.** Encode and SCTP share the NVST event thread. A hitch batches then bursts. The 300 ms unordered lifetime exists because ordered PR-SCTP already felt like delayed catch-up. The 4 ms coalescer in `forward_nvst_session_events` keeps a burst inside one packet and logs `input-motion reports=... packets=... coalesced=...` every 10 s.
 
 ## Where things live
 

@@ -165,6 +165,7 @@ impl EmbeddedInputCapture {
                     raw.set_foreground_owner(window_handle as isize);
                 }
                 raw.set_capture(raw_enabled, relative_mouse);
+                log_raw_capture_state(raw_enabled, relative_mouse);
                 raw_enabled
             } else {
                 false
@@ -180,6 +181,18 @@ impl EmbeddedInputCapture {
 
     pub fn queue(&self) -> Arc<CapturedInputQueue> {
         Arc::clone(&self.queue)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn log_raw_capture_state(raw_enabled: bool, relative_mouse: bool) {
+    static LAST: AtomicBool = AtomicBool::new(false);
+    if LAST.swap(raw_enabled, Ordering::AcqRel) != raw_enabled {
+        opennow_streamer_protocol::log::log_line(
+            "INFO",
+            "input",
+            &format!("rawCaptureActive={raw_enabled} relativeMouse={relative_mouse}"),
+        );
     }
 }
 
