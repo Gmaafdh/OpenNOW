@@ -686,7 +686,9 @@ impl CloudMatchService {
         let status = value_i64(&info["status"]).unwrap_or_default();
         let queue = value_i64(&info["queuePosition"]).unwrap_or_default();
         let prev_status = current.as_ref().and_then(|s| value_i64(&s.info["status"]));
-        let prev_queue = current.as_ref().and_then(|s| value_i64(&s.info["queuePosition"]));
+        let prev_queue = current
+            .as_ref()
+            .and_then(|s| value_i64(&s.info["queuePosition"]));
         if prev_status != Some(status) || prev_queue != Some(queue) {
             eprintln!("session: poll status {status} queue position {queue}");
         }
