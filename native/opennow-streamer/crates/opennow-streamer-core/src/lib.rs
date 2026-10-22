@@ -1866,7 +1866,7 @@ struct PendingMediaFeedback {
 struct CoalescedMouseMotion {
     delta_x: i32,
     delta_y: i32,
-    captured_at: Option<Duration>,
+    captured_at: Option<Instant>,
     flush_at: Option<Instant>,
     last_flush: Option<Instant>,
     reports: u64,
@@ -1875,7 +1875,7 @@ struct CoalescedMouseMotion {
 
 impl CoalescedMouseMotion {
     /// Adds one report and reports whether the batch is due for an immediate send.
-    fn accumulate(&mut self, dx: i16, dy: i16, captured_at: Duration, now: Instant) -> bool {
+    fn accumulate(&mut self, dx: i16, dy: i16, captured_at: Instant, now: Instant) -> bool {
         if self.flush_at.is_none() {
             self.captured_at = Some(captured_at);
             // An idle pointer goes out at once; a burst waits for the interval
@@ -4873,17 +4873,18 @@ mod tests {
     fn relative_motion_is_coalesced_without_losing_the_summed_delta() {
         let mut motion = CoalescedMouseMotion::default();
         let started = Instant::now();
+        let captured = started + Duration::from_micros(10);
         // The first report of an idle pointer goes out at once.
-        assert!(motion.accumulate(3, -2, Duration::from_micros(10), started));
+        assert!(motion.accumulate(3, -2, captured, started));
         // A second report inside the interval joins the same packet.
-        assert!(motion.accumulate(4, 1, Duration::from_micros(11), started));
+        assert!(motion.accumulate(4, 1, started + Duration::from_micros(11), started));
         assert_eq!(motion.pending_delta(), (7, -1));
         let batch = motion.take().expect("coalesced motion");
-        assert_eq!(batch.captured_at, Duration::from_micros(10));
+        assert_eq!(batch.captured_at, captured);
         assert!(motion.take().is_none());
 
         // Reports that follow a send wait for the interval instead of piling up.
-        assert!(!motion.accumulate(1, 1, Duration::from_micros(20), started));
+        assert!(!motion.accumulate(1, 1, started + Duration::from_micros(20), started));
         assert!(!motion.is_due(Instant::now() + Duration::from_millis(1)));
         assert!(motion.is_due(Instant::now() + MOUSE_MOTION_COALESCE_INTERVAL));
         motion.clear();
