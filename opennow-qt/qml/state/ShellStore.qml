@@ -3075,8 +3075,13 @@ QtObject {
             return
         if (streamPollTimer.running || streamPollRequestId !== "" || streamStopRequestId !== "")
             return
-        if (sessionStopIntentId === String(activeSession.sessionId) && coreSessionRestoreId === "")
+        if (streamStopRequestId !== "" || streamState === "stopping" || pendingSessionEnd !== null)
             return
+        if (sessionStopIntentId === String(activeSession.sessionId) && coreSessionRestoreId === "") {
+            // A stop that already finished cannot be allowed to freeze the
+            // queue when the same seat is launched again.
+            sessionStopIntentId = ""
+        }
         if (streamPollFailureAttempts > 0)
             return
         if (sessionProgressAutoRecoveries >= maximumSessionProgressAutoRecoveries)
@@ -3093,6 +3098,11 @@ QtObject {
     function reconnectSessionProgress() {
         if (!ready || !activeSession)
             return
+        if (streamStopRequestId !== "" || streamState === "stopping" || pendingSessionEnd !== null)
+            return
+        // The player is asking for this seat again, so a stale stop intent must
+        // not keep the poll chain parked on a finished shutdown.
+        sessionStopIntentId = ""
         const pollId = streamPollRequestId
         streamPollRequestId = ""
         if (pollId !== "")
