@@ -789,6 +789,9 @@ QtObject {
     property string updaterInstallRequestId: ""
     property string socialCapabilitiesRequestId: ""
     property string discordRequestId: ""
+    property string discordPresenceKey: ""
+    property int discordPresencePosition: 0
+    property double discordPresenceSentAtMs: 0
     property double streamStartedAtMs: 0
     property double launchRequestedAtMs: 0
     property string feedbackRequestId: ""
@@ -920,8 +923,12 @@ QtObject {
     // on a stale position forever, so this watchdog restarts it a bounded
     // number of times instead of leaving the player stranded in the queue.
     property double sessionProgressChangedAtMs: 0
+    property double sessionProgressGainedAtMs: 0
     property string sessionProgressKey: ""
+    property string sessionProgressSessionId: ""
+    property int sessionProgressBestPosition: 0
     property int sessionProgressAutoRecoveries: 0
+    property bool requeueRequested: false
     readonly property int maximumSessionProgressAutoRecoveries: 3
     readonly property bool sessionProgressPending: {
         if (!activeSession)
@@ -2248,18 +2255,37 @@ QtObject {
         if (!ready || discordRequestId !== "")
             return
         if (!Boolean(settings.discordRichPresence) || !activeSession) {
+            // Polls call this on every accepted snapshot. Clearing once is
+            // enough; repeating it floods the core with pointless requests.
+            if (discordPresenceKey === "cleared")
+                return
+            discordPresenceKey = "cleared"
+            discordPresencePosition = 0
+            discordPresenceSentAtMs = Date.now()
             discordRequestId = CoreClient.request("discord.activity.clear", {}, 5000)
             return
         }
         const status = Number(activeSession.status || 0)
         const kind = status >= 3 ? "streaming"
             : Number(activeSession.queuePosition || 0) > 0 ? "queued" : "starting"
+        const title = selectedGame ? selectedGame.title : String(activeSession.appId || "GeForce NOW")
+        const position = kind === "queued" ? Number(activeSession.queuePosition || 0) : 0
+        const key = [kind, title, String(streamStartedAtMs)].join("|")
+        const now = Date.now()
+        if (key === discordPresenceKey && position === discordPresencePosition)
+            return
+        // A jittering queue position is not worth an RPC every poll.
+        if (key === discordPresenceKey && now - discordPresenceSentAtMs < 15000)
+            return
+        discordPresenceKey = key
+        discordPresencePosition = position
+        discordPresenceSentAtMs = now
         discordRequestId = CoreClient.request("discord.activity.sync", {
             enabled: true,
-            gameName: selectedGame ? selectedGame.title : String(activeSession.appId || "GeForce NOW"),
+            gameName: title,
             gameImageUrl: selectedGame ? (selectedGame.boxArtUrl || selectedGame.imageUrl || "") : "",
             kind: kind,
-            queuePosition: Number(activeSession.queuePosition || 0),
+            queuePosition: position,
             startTimestampMs: streamStartedAtMs
         }, 5000)
     }
@@ -3062,9 +3088,56 @@ QtObject {
         const key = sessionProgressSnapshotKey(session)
         if (key === sessionProgressKey)
             return
+        const now = Date.now()
+        const sessionId = session ? String(session.sessionId || "") : ""
+        if (sessionId !== sessionProgressSessionId) {
+            sessionProgressSessionId = sessionId
+            sessionProgressBestPosition = 0
+            sessionProgressGainedAtMs = now
+            sessionProgressAutoRecoveries = 0
+        }
+        // GeForce NOW reports a queue position that jitters by a place or two
+        // between polls and can even jump backwards. Only a new best position
+        // counts as movement, so a stalled queue is distinguishable from noise.
+        const position = Number(session && session.queuePosition || 0)
+        if (position > 0 && (sessionProgressBestPosition === 0
+                || position < sessionProgressBestPosition)) {
+            sessionProgressBestPosition = position
+            sessionProgressGainedAtMs = now
+        }
         sessionProgressKey = key
-        sessionProgressChangedAtMs = Date.now()
-        sessionProgressAutoRecoveries = 0
+        sessionProgressChangedAtMs = now
+    }
+
+    // Leaves a queue that stopped moving and requests a fresh rig for the same
+    // game and settings. Reuses the conflict resolution relaunch path.
+    function requeueSession() {
+        if (!ready || !activeSession || streamBusy || requeueRequested
+                || streamStopRequestId !== "" || streamState === "stopping")
+            return
+        if (!pendingLaunchParams) {
+            streamMessage = qsTr("This queue can no longer be restarted. Return to the game and launch it again.")
+            return
+        }
+        requeueRequested = true
+        forceNewAfterStop = true
+        const pollId = streamPollRequestId
+        streamPollRequestId = ""
+        if (pollId !== "")
+            CoreClient.cancel(pollId)
+        streamPollTimer.stop()
+        streamState = "stopping"
+        streamMessage = qsTr("Leaving this queue and requesting a fresh rig…")
+        streamStopRequestId = CoreClient.request("session.stop", {
+            sessionId: activeSession.sessionId,
+            streamingBaseUrl: activeSession.streamingBaseUrl
+        }, 35000)
+        if (streamStopRequestId === "") {
+            requeueRequested = false
+            forceNewAfterStop = false
+            streamState = "error"
+            streamMessage = qsTr("OpenNOW could not leave the queue. Check your connection, then try again.")
+        }
     }
 
     // Restarts polling when a waiting seat lost its poll chain without an
@@ -4308,6 +4381,7 @@ QtObject {
                 root.acceptStreamingSession(result.session || null)
                 if (root.activeSession && String(root.activeSession.sessionId) !== String(result.sessionId))
                     return
+                root.requeueRequested = false
                 if (root.forceNewAfterStop) {
                     root.forceNewAfterStop = false
                     root.conflictSession = null
@@ -4550,6 +4624,7 @@ QtObject {
                     root.accountMessage = message
                 }
                 root.forceNewAfterStop = false
+                root.requeueRequested = false
                 root.streamState = root.conflictSession ? "conflict" : "error"
                 root.streamMessage = qsTr("The previous game hasn't closed. Try again in a moment. We won't start another game until it has ended.")
                 root.lastError = root.streamMessage

@@ -25,14 +25,22 @@ FocusScope {
         && !session && ShellStore.streamCreateRequestId === "" && ShellStore.sessionClaimRequestId === ""
         && ShellStore.streamStopRequestId === ""
     readonly property double appearedAtMs: Date.now()
-    // A queue that stops updating is the difference between "still waiting"
-    // and "stuck". Keep a local clock so the copy can say which it is.
+    // A queue that stops moving is the difference between "still waiting" and
+    // "stuck". GeForce NOW reports a position that jitters between polls, so
+    // only a new best position counts as movement.
     property double clockMs: Date.now()
-    readonly property int queueIdleSeconds: ShellStore.sessionProgressChangedAtMs > 0
-        ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressChangedAtMs) / 1000)) : 0
-    readonly property string queueActivityText: root.queueIdleSeconds < 10
-        ? qsTr("Updates when GeForce NOW reports it")
-        : qsTr("Position unchanged for %1s").arg(root.queueIdleSeconds)
+    readonly property int queueStallSeconds: ShellStore.sessionProgressGainedAtMs > 0
+        ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressGainedAtMs) / 1000)) : 0
+    readonly property bool queueStalled: root.queued && !root.stopping && root.queueStallSeconds >= 180
+    readonly property int queuePositionShown: ShellStore.sessionProgressBestPosition > 0
+        ? ShellStore.sessionProgressBestPosition : root.progress.queuePosition
+    readonly property string queueActivityText: {
+        if (root.queueStallSeconds < 10)
+            return qsTr("Updates when GeForce NOW reports it")
+        if (root.queueStallSeconds < 60)
+            return qsTr("Position unchanged for %1s").arg(root.queueStallSeconds)
+        return qsTr("No queue movement for %1 min").arg(Math.max(1, Math.floor(root.queueStallSeconds / 60)))
+    }
     Timer {
         interval: 1000
         repeat: true
@@ -108,6 +116,7 @@ FocusScope {
             : qsTr("Checking for running games")
         detail: root.failed || root.stopping || root.resuming || !root.session
             ? I18n.source(ShellStore.streamMessage, I18n.revision)
+            : root.queueStalled ? qsTr("GeForce NOW is still holding your slot in this region. You can keep waiting, or leave this queue and request a fresh rig.")
             : root.queued ? qsTr("Waiting for an available rig. Your session starts by itself, so you can put the controller down.")
             : root.progress.detail
         railVisible: !root.failed && !root.stopping
@@ -137,15 +146,16 @@ FocusScope {
                 onClicked: ShellStore.retrySessionLaunch()
             },
             LaunchStage.LaunchAction {
-                id: reconnectButton
-                objectName: "launchReconnectButton"
-                visible: !root.failed && !root.stopping && root.queued && root.queueIdleSeconds >= 10
-                text: qsTr("Reconnect")
-                detail: qsTr("Refresh your queue position")
+                id: requeueButton
+                objectName: "launchRequeueButton"
+                visible: !root.failed && root.queueStalled && ShellStore.pendingLaunchParams !== null
+                enabled: !ShellStore.streamBusy && !ShellStore.requeueRequested
+                text: qsTr("Request a fresh rig")
+                detail: qsTr("Leaves this queue, then queues again")
                 glyph: glyphs.button("Y")
                 keyboardGlyph: glyphs.keyboard
                 KeyNavigation.down: backButton
-                onClicked: ShellStore.reconnectSessionProgress()
+                onClicked: ShellStore.requeueSession()
             },
             LaunchStage.LaunchAction {
                 id: backButton
@@ -172,7 +182,7 @@ FocusScope {
                     border.width: 2
                     border.color: Theme.seam
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: qsTr("Queue position %1").arg(root.progress.queuePosition)
+                    Accessible.name: qsTr("Queue position %1").arg(root.queuePositionShown)
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.baseline: parent.top
@@ -185,10 +195,10 @@ FocusScope {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.baseline: parent.top
                         anchors.baselineOffset: 323.8
-                        text: String(root.progress.queuePosition)
+                        text: String(root.queuePositionShown)
                         color: Theme.yellow
-                        font.family: Theme.displayFont; font.pixelSize: root.progress.queuePosition > 9999 ? 120 : 200
-                        font.weight: Font.Black; font.letterSpacing: root.progress.queuePosition > 9999 ? -4.8 : -8
+                        font.family: Theme.displayFont; font.pixelSize: root.queuePositionShown > 9999 ? 120 : 200
+                        font.weight: Font.Black; font.letterSpacing: root.queuePositionShown > 9999 ? -4.8 : -8
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
