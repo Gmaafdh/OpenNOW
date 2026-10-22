@@ -392,6 +392,7 @@ QtObject {
     property string sessionReportDropId: ""
     property var streamDropCounts: ({})
     onActiveSessionChanged: {
+        noteSessionProgress(activeSession)
         if (!activeSession)
             antiAfkEnabled = false
         if (!activeSession && pendingAccountSwitch)
@@ -913,6 +914,29 @@ QtObject {
         repeat: true
         running: false
         onTriggered: root.pollStreamingSession()
+    }
+    // A seat that is still waiting for a rig must always keep one poll in
+    // flight. If polling ever stops without an error the queue screen would sit
+    // on a stale position forever, so this watchdog restarts it a bounded
+    // number of times instead of leaving the player stranded in the queue.
+    property double sessionProgressChangedAtMs: 0
+    property string sessionProgressKey: ""
+    property int sessionProgressAutoRecoveries: 0
+    readonly property int maximumSessionProgressAutoRecoveries: 3
+    readonly property bool sessionProgressPending: {
+        if (!activeSession)
+            return false
+        if (streamState === "idle" || streamState === "error" || streamState === "failed")
+            return false
+        if (streamer && (streamer.status === "streaming" || streamer.status === "starting"))
+            return false
+        return true
+    }
+    property Timer sessionProgressWatchdog: Timer {
+        interval: 5000
+        repeat: true
+        running: root.ready && Boolean(root.activeSession)
+        onTriggered: root.ensureSessionProgressPolling()
     }
 
     property var pendingSessionEnd: null
@@ -2168,6 +2192,7 @@ QtObject {
             sessionRecoveryAwaitingAuth = false
             streamPollFailureAttempts = 0
             streamerRecoveryExhausted = false
+            sessionProgressAutoRecoveries = 0
         }
         if (!activeSession) {
             reportSessionEnd(previousSession, "remote_ended")
@@ -3024,6 +3049,66 @@ QtObject {
         accessibilityMessage = mediaMessage
     }
 
+    function sessionProgressSnapshotKey(session) {
+        if (!session)
+            return ""
+        const step = session.seatSetupStep === undefined || session.seatSetupStep === null
+            ? "" : String(session.seatSetupStep)
+        return [String(session.sessionId || ""), String(session.status || ""), step,
+            String(session.queuePosition || 0)].join("/")
+    }
+
+    function noteSessionProgress(session) {
+        const key = sessionProgressSnapshotKey(session)
+        if (key === sessionProgressKey)
+            return
+        sessionProgressKey = key
+        sessionProgressChangedAtMs = Date.now()
+        sessionProgressAutoRecoveries = 0
+    }
+
+    // Restarts polling when a waiting seat lost its poll chain without an
+    // error. Bounded so a truly broken seat still surfaces through the normal
+    // failure budget instead of looping forever.
+    function ensureSessionProgressPolling() {
+        if (!ready || !sessionProgressPending)
+            return
+        if (streamPollTimer.running || streamPollRequestId !== "" || streamStopRequestId !== "")
+            return
+        if (sessionStopIntentId === String(activeSession.sessionId) && coreSessionRestoreId === "")
+            return
+        if (streamPollFailureAttempts > 0)
+            return
+        if (sessionProgressAutoRecoveries >= maximumSessionProgressAutoRecoveries)
+            return
+        if (Date.now() - sessionProgressChangedAtMs < 30000)
+            return
+        sessionProgressAutoRecoveries += 1
+        streamPollTimer.restart()
+        pollStreamingSession()
+    }
+
+    // Player-initiated recovery for a queue that stopped updating: drop any
+    // wedged poll, reset the failure budget and ask again immediately.
+    function reconnectSessionProgress() {
+        if (!ready || !activeSession)
+            return
+        const pollId = streamPollRequestId
+        streamPollRequestId = ""
+        if (pollId !== "")
+            CoreClient.cancel(pollId)
+        streamPollFailureAttempts = 0
+        sessionProgressAutoRecoveries = 0
+        streamerRecoveryExhausted = false
+        sessionRecoveryPending = false
+        sessionRecoveryAwaitingAuth = false
+        streamState = activeSession.resumePending ? "resuming" : "preparing"
+        streamMessage = qsTr("Asking GeForce NOW for your queue position…")
+        sessionProgressChangedAtMs = Date.now()
+        streamPollTimer.restart()
+        pollStreamingSession()
+    }
+
     function pollStreamingSession() {
         if (!ready || !activeSession || streamPollRequestId !== "" || streamStopRequestId !== "")
             return
@@ -3056,7 +3141,11 @@ QtObject {
 
     function handleStreamPollFailure(code, message) {
         if (code === "session_owner_authentication_required") {
+            // Polling cannot continue on another account's credential. Surface
+            // it as a retryable failure instead of leaving the queue screen
+            // frozen on its last position with no explanation.
             streamPollTimer.stop()
+            streamState = "error"
             streamMessage = message
             lastError = message
             return

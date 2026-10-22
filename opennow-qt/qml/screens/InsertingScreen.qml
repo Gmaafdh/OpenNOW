@@ -25,6 +25,20 @@ FocusScope {
         && !session && ShellStore.streamCreateRequestId === "" && ShellStore.sessionClaimRequestId === ""
         && ShellStore.streamStopRequestId === ""
     readonly property double appearedAtMs: Date.now()
+    // A queue that stops updating is the difference between "still waiting"
+    // and "stuck". Keep a local clock so the copy can say which it is.
+    property double clockMs: Date.now()
+    readonly property int queueIdleSeconds: ShellStore.sessionProgressChangedAtMs > 0
+        ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressChangedAtMs) / 1000)) : 0
+    readonly property string queueActivityText: root.queueIdleSeconds < 10
+        ? qsTr("Updates when GeForce NOW reports it")
+        : qsTr("Position unchanged for %1s").arg(root.queueIdleSeconds)
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.queued && !root.failed
+        onTriggered: root.clockMs = Date.now()
+    }
     readonly property var rigRows: {
         const rows = []
         const current = session || ({})
@@ -123,6 +137,17 @@ FocusScope {
                 onClicked: ShellStore.retrySessionLaunch()
             },
             LaunchStage.LaunchAction {
+                id: reconnectButton
+                objectName: "launchReconnectButton"
+                visible: !root.failed && !root.stopping && root.queued && root.queueIdleSeconds >= 10
+                text: qsTr("Reconnect")
+                detail: qsTr("Refresh your queue position")
+                glyph: glyphs.button("Y")
+                keyboardGlyph: glyphs.keyboard
+                KeyNavigation.down: backButton
+                onClicked: ShellStore.reconnectSessionProgress()
+            },
+            LaunchStage.LaunchAction {
                 id: backButton
                 objectName: "launchBackButton"
                 visible: root.failed
@@ -169,7 +194,7 @@ FocusScope {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.baseline: parent.top
                         anchors.baselineOffset: 385.3
-                        text: qsTr("Updates when GeForce NOW reports it")
+                        text: root.queueActivityText
                         color: Theme.textMuted
                         font.family: Theme.bodyFont; font.pixelSize: 19; font.weight: Font.Bold
                     }
