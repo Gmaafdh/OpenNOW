@@ -1578,6 +1578,7 @@ mod tests {
             path: PathBuf::from("/not-read-by-state"),
             size: 123,
             sha256: "ab".repeat(32),
+            arena: false,
         });
         for status in ["available", "not-available", "error"] {
             state.status = status;

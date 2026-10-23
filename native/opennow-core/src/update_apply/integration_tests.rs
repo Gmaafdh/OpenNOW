@@ -266,6 +266,7 @@ fn fixture(wrong_identity: bool) -> Fixture {
     let core = OwnedChild(Command::new(&previous).arg("--hold").spawn().unwrap());
     let plan = Plan {
         schema_version: 1,
+        allow_unsigned_manifest: false,
         version: if cfg!(target_os = "linux") && wrong_identity {
             "1.2.4"
         } else {

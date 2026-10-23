@@ -472,6 +472,7 @@ fn plan(directory: &Path, kind: InstallKind) -> Plan {
     };
     Plan {
         schema_version: 1,
+        allow_unsigned_manifest: false,
         version: "1.2.3".to_owned(),
         kind,
         package: directory.join("package.zip"),
