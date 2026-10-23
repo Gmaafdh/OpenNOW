@@ -41,9 +41,7 @@ pub fn decode_verifying_key(encoded: &str) -> Result<VerifyingKey, String> {
 /// Manifests written by PowerShell tooling may start with a UTF-8 byte order
 /// mark, which JSON parsers reject even though the document is otherwise valid.
 pub fn strip_byte_order_mark(bytes: &[u8]) -> &[u8] {
-    bytes
-        .strip_prefix(&[0xef, 0xbb, 0xbf][..])
-        .unwrap_or(bytes)
+    bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..]).unwrap_or(bytes)
 }
 
 pub fn signature_payload(manifest: &UpdateManifest) -> String {
