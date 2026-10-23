@@ -27,8 +27,7 @@ const ARENA_CHANNEL: &str = "arena";
 const ARENA_RELEASES_URL: &str = "https://api.github.com/repos/Gmaafdh/OpenNOW/releases";
 const ARENA_RELEASE_TAG: &str = "arena-fast";
 const ARENA_RELEASE_PAGE: &str = "https://github.com/Gmaafdh/OpenNOW/releases/tag/arena-fast";
-const ARENA_ASSET_PREFIX: &str =
-    "https://github.com/Gmaafdh/OpenNOW/releases/download/arena-fast/";
+const ARENA_ASSET_PREFIX: &str = "https://github.com/Gmaafdh/OpenNOW/releases/download/arena-fast/";
 
 #[derive(Clone)]
 struct AvailableUpdate {
@@ -323,7 +322,8 @@ impl UpdaterService {
             ));
         };
         let Some(compatible) = compatible_asset(&release.assets) else {
-            return Ok(self.fail_arena("The fast-channel release has no package for this platform."));
+            let message = "The fast-channel release has no package for this platform.";
+            return Ok(self.fail_arena(message));
         };
         let Some(manifest_asset) = manifest_asset(&release, compatible) else {
             return Ok(self.fail_arena(

@@ -1545,7 +1545,10 @@ mod tests {
             env::temp_dir().join(format!("opennow-update-settings-{}", rand::random::<u64>()));
         let mut store = SettingsStore::load(Some(directory.clone())).unwrap();
         assert_eq!(store.all()["autoDownloadUpdates"], json!(false));
-        assert_eq!(store.all()["updateChannel"], json!(default_update_channel()));
+        assert_eq!(
+            store.all()["updateChannel"],
+            json!(default_update_channel())
+        );
         store.set("autoCheckForUpdates", json!(false)).unwrap();
         store.set("autoDownloadUpdates", json!(true)).unwrap();
         store.set("updateChannel", json!("stable")).unwrap();
