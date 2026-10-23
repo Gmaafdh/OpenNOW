@@ -68,6 +68,7 @@ Official also has named profiles, AI prefilter, HUD sharpness, and upscaling. Op
 6. Media Foundation decode. Hardware MFTs first, then the Microsoft D3D11-aware MFT. NVIDIA and AMD often only expose that Microsoft DXVA2 MFT. `MF_LOW_LATENCY=1`. Output NV12 or P010.
 7. Present. Flip-discard, 2 buffers, waitable latency object, max latency 1, `DXGI_PRESENT_ALLOW_TEARING` when available. Not vsync-locked. Letterbox with `fit_rect`.
 8. `PresentationClock` ignores GFN RTP timestamps. H.265 and AV1 group timestamps, so the clock learns arrival cadence instead.
+9. Qt Quick presents the imported frame. The app requests a swap interval of 0, which Qt 6.4+ maps onto `QRhiSwapChain::NoVSync`, so a decoded frame is presented as soon as the scene graph is done with it instead of waiting for the next vblank. `OPENNOW_VSYNC=1` restores vblank-locked presents, and the startup line `Stream presentation: swapInterval=…` records which mode is active. `stream-latency decodeMs=… residenceMs=… pingMs=…` is logged every ten seconds so a slow local pipeline can be separated from a slow network.
 
 Live GFN video is Mjolnir.
 

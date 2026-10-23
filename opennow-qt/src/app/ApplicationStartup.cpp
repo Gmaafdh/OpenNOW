@@ -31,6 +31,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <QSGRendererInterface>
 #include <QFileOpenEvent>
 #include <QProcess>
@@ -91,7 +92,24 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
 #endif
     QQuickStyle::setStyle(u"Basic"_s);
 
+    // The official GeForce NOW client presents its stream with tearing allowed
+    // instead of vsync-locking the swapchain, so a decoded frame reaches the
+    // display in the next scanout rather than at a later vblank. Qt 6.4+ maps a
+    // swap interval of 0 onto QRhiSwapChain::NoVSync, which is the only way to
+    // ask the Qt Quick render loop for the same behaviour. OPENNOW_VSYNC=1
+    // restores vblank-locked presents.
+    if (qEnvironmentVariable("OPENNOW_VSYNC").trimmed() != u"1"_s) {
+        auto presentationFormat = QSurfaceFormat::defaultFormat();
+        presentationFormat.setSwapInterval(0);
+        QSurfaceFormat::setDefaultFormat(presentationFormat);
+    }
+
     QGuiApplication application(argc, argv);
+    qInfo("Stream presentation: swapInterval=%d (%s)",
+          QSurfaceFormat::defaultFormat().swapInterval(),
+          QSurfaceFormat::defaultFormat().swapInterval() == 0
+              ? "present as soon as a frame is ready"
+              : "vblank locked");
     QGuiApplication::setDesktopFileName(u"io.github.opencloudgaming.OpenNOW"_s);
     QIcon applicationIcon;
     for (const int size : {16, 24, 32, 48, 64, 128, 256, 512, 1024})

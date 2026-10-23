@@ -2753,6 +2753,7 @@ struct NvstMediaFeedbackState {
     transport_frame_progress_stalled: bool,
     last_video_decoder_error: Option<String>,
     start_id: String,
+    latency_log_at: Instant,
 }
 
 impl NvstMediaFeedbackState {
@@ -2774,6 +2775,7 @@ impl NvstMediaFeedbackState {
             transport_frame_progress_stalled: false,
             last_video_decoder_error: None,
             start_id: String::new(),
+            latency_log_at: Instant::now(),
         }
     }
 }
@@ -2815,10 +2817,40 @@ fn flush_nvst_telemetry<R: NvstSessionResources>(
         .unwrap()
         .clone(),
     );
+    log_latency_budget(resources, state);
     let _ = output.send(event("telemetry", payload));
     state.telemetry_window_started = Instant::now();
     state.telemetry_frames = 0;
     state.telemetry_bytes = 0;
+}
+
+/// A steady latency budget line. Decode and decoder residence are what separate
+/// a slow local pipeline from a slow network, so both are logged every ten
+/// seconds next to the measured ping.
+fn log_latency_budget<R: NvstSessionResources>(
+    resources: &R,
+    state: &mut NvstMediaFeedbackState,
+) {
+    if state.latency_log_at.elapsed() < Duration::from_secs(10) {
+        return;
+    }
+    state.latency_log_at = Instant::now();
+    let timings = state.decode_timings;
+    let p50_ms = |stage: Option<DecodeStageTimings>| match stage {
+        Some(stage) => format!("{:.1}", stage.p50_us as f64 / 1_000.0),
+        None => "n/a".to_owned(),
+    };
+    let decode_ms = p50_ms(timings.and_then(|report| report.call));
+    let residence_ms = p50_ms(timings.and_then(|report| report.residence));
+    let ping_ms = resources.ping_ms();
+    opennow_streamer_protocol::log::log_async(
+        "INFO",
+        "stream-latency",
+        &format!(
+            "decodeMs={decode_ms} residenceMs={residence_ms} pingMs={}",
+            ping_ms.map_or_else(|| "n/a".to_owned(), |value| format!("{value:.1}")),
+        ),
+    );
 }
 
 fn forward_nvst_media_feedback<R: NvstSessionResources>(
