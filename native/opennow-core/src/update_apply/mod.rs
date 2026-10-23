@@ -1264,7 +1264,8 @@ fn read_manifest(
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     if allow_unsigned {
-        let manifest: verification::UpdateManifest = serde_json::from_slice(&bytes)
+        let bytes = verification::strip_byte_order_mark(&bytes);
+        let manifest: verification::UpdateManifest = serde_json::from_slice(bytes)
             .map_err(|error| format!("Invalid update manifest: {error}"))?;
         verification::validate_manifest_fields(&manifest)?;
         Ok(manifest)

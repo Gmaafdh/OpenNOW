@@ -1,7 +1,7 @@
 use crate::update_apply;
 use crate::update_apply::verification::{
     MAXIMUM_MANIFEST_BYTES, MAXIMUM_UPDATE_BYTES, UpdateManifest, embedded_update_key,
-    safe_asset_name, validate_manifest_fields, verify_manifest,
+    safe_asset_name, strip_byte_order_mark, validate_manifest_fields, verify_manifest,
 };
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -409,7 +409,7 @@ impl UpdaterService {
             .map_err(|_| "Could not download the fast-channel manifest".to_owned())?;
         ensure_asset_response(&response, MAXIMUM_MANIFEST_BYTES)?;
         let bytes = read_bounded(response, MAXIMUM_MANIFEST_BYTES)?;
-        let manifest: UpdateManifest = serde_json::from_slice(&bytes)
+        let manifest: UpdateManifest = serde_json::from_slice(strip_byte_order_mark(&bytes))
             .map_err(|error| format!("Fast-channel manifest is invalid: {error}"))?;
         validate_manifest_fields(&manifest)?;
         if !safe_asset_name(&manifest.asset) {
@@ -1085,7 +1085,8 @@ fn verify_downloaded_file(downloaded: &DownloadedUpdate) -> Result<(), String> {
     .map_err(|_| "The staged update manifest could not be read".to_owned())?;
     let manifest_bytes = read_bounded(manifest, MAXIMUM_MANIFEST_BYTES)?;
     let manifest = if downloaded.arena {
-        let manifest: UpdateManifest = serde_json::from_slice(&manifest_bytes)
+        let bytes = strip_byte_order_mark(&manifest_bytes);
+        let manifest: UpdateManifest = serde_json::from_slice(bytes)
             .map_err(|error| format!("Invalid update manifest: {error}"))?;
         validate_manifest_fields(&manifest)?;
         manifest

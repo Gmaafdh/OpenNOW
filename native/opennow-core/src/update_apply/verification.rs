@@ -38,6 +38,14 @@ pub fn decode_verifying_key(encoded: &str) -> Result<VerifyingKey, String> {
     VerifyingKey::from_bytes(&bytes).map_err(|_| "Pinned update signing key is invalid".to_owned())
 }
 
+/// Manifests written by PowerShell tooling may start with a UTF-8 byte order
+/// mark, which JSON parsers reject even though the document is otherwise valid.
+pub fn strip_byte_order_mark(bytes: &[u8]) -> &[u8] {
+    bytes
+        .strip_prefix(&[0xef, 0xbb, 0xbf][..])
+        .unwrap_or(bytes)
+}
+
 pub fn signature_payload(manifest: &UpdateManifest) -> String {
     format!(
         "OpenNOW update manifest v1\nversion={}\nasset={}\nsize={}\nsha256={}\n",
@@ -95,7 +103,7 @@ pub fn verify_signed_manifest(bytes: &[u8]) -> Result<UpdateManifest, String> {
     if bytes.len() as u64 > MAXIMUM_MANIFEST_BYTES {
         return Err("Update manifest exceeds its size limit".to_owned());
     }
-    let manifest = serde_json::from_slice(bytes)
+    let manifest = serde_json::from_slice(strip_byte_order_mark(bytes))
         .map_err(|error| format!("Invalid update manifest: {error}"))?;
     verify_manifest(&manifest, &embedded_update_key()?)?;
     Ok(manifest)

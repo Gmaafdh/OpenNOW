@@ -243,8 +243,20 @@ jobs:
             sha256 = (Get-FileHash $portable[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             signature = ""
           }
-          $manifest | ConvertTo-Json |
-            Set-Content (Join-Path $portable[0].DirectoryName ($portable[0].Name + ".manifest.json")) -Encoding utf8
+          # Set-Content -Encoding utf8 writes a byte order mark on Windows
+          # PowerShell, which JSON parsers reject, so write the text directly.
+          $manifestPath = Join-Path $portable[0].DirectoryName ($portable[0].Name + ".manifest.json")
+          [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
+          $raw = [System.IO.File]::ReadAllBytes($manifestPath)
+          if ($raw.Length -ge 3 -and $raw[0] -eq 0xEF -and $raw[1] -eq 0xBB -and $raw[2] -eq 0xBF) {
+            throw "The fast update manifest must not start with a byte order mark"
+          }
+          $read = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          if ($read.schemaVersion -ne 1 -or $read.version -ne $env:OPENNOW_BUILD_VERSION `
+              -or $read.asset -ne $portable[0].Name -or $read.size -ne $portable[0].Length `
+              -or $read.sha256 -ne $manifest.sha256 -or $read.signature -ne "") {
+            throw "The fast update manifest did not round-trip"
+          }
           "FAST_UPDATE_ASSET=$($portable[0].Name)" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
