@@ -48,7 +48,9 @@ pub fn signature_payload(manifest: &UpdateManifest) -> String {
     )
 }
 
-pub fn verify_manifest(manifest: &UpdateManifest, key: &VerifyingKey) -> Result<(), String> {
+/// Field validation shared by the signed channels and the fast build channel,
+/// which carries no signature but is still checked field by field.
+pub fn validate_manifest_fields(manifest: &UpdateManifest) -> Result<(), String> {
     if manifest.schema_version != 1
         || semver::Version::parse(
             manifest
@@ -63,8 +65,14 @@ pub fn verify_manifest(manifest: &UpdateManifest, key: &VerifyingKey) -> Result<
         || manifest.sha256.len() != 64
         || !manifest.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        return Err("Signed update metadata fields are invalid".to_owned());
+        return Err("Update metadata fields are invalid".to_owned());
     }
+    Ok(())
+}
+
+pub fn verify_manifest(manifest: &UpdateManifest, key: &VerifyingKey) -> Result<(), String> {
+    validate_manifest_fields(manifest)
+        .map_err(|_| "Signed update metadata fields are invalid".to_owned())?;
     let bytes = BASE64
         .decode(&manifest.signature)
         .map_err(|_| "Update signature is not valid base64")?;

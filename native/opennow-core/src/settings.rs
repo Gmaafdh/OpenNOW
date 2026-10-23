@@ -581,8 +581,8 @@ impl SettingsStore {
         normalize_choice(
             &mut self.values,
             "updateChannel",
-            &["stable", "nightly"],
-            crate::version::update_channel(crate::version::APPLICATION_VERSION),
+            &["stable", "nightly", "arena"],
+            default_update_channel(),
         );
         clamp_integer(&mut self.values, "mouseAcceleration", 1, 150, 1);
         clamp_integer(&mut self.values, "controllerLeftStickDeadzone", 0, 50, 5);
@@ -1169,6 +1169,17 @@ fn legacy_data_dirs(primary: &Path) -> Vec<PathBuf> {
     }
 }
 
+/// Builds without a pinned update signing key can never install a signed
+/// release, so they default to the fork's checksum-verified fast channel
+/// instead of offering a feed they are not allowed to install from.
+fn default_update_channel() -> &'static str {
+    if crate::update_apply::verification::embedded_update_key().is_ok() {
+        crate::version::update_channel(crate::version::APPLICATION_VERSION)
+    } else {
+        "arena"
+    }
+}
+
 fn defaults() -> Map<String, Value> {
     json!({
         "onboardingCompleted":false,
@@ -1222,7 +1233,7 @@ fn defaults() -> Map<String, Value> {
         "identifyAsSteamDeck":false, "steamBigPictureMode":false,
         "enableCloudGsync":false, "discordRichPresence":false,
         "autoCheckForUpdates":true, "autoDownloadUpdates":false,
-        "updateChannel":crate::version::update_channel(crate::version::APPLICATION_VERSION),
+        "updateChannel":default_update_channel(),
         "allowEscapeToExitFullscreen":false, "lastSeenReleaseHighlightsVersion":"",
         "videoShader":{"enabled":false,"sharpen":40,"saturation":100,"contrast":100,"brightness":100,"vibrance":0,"filmGrain":0},
         "frameInterpolation":{"enabled":false,"factor":2,"quality":480},
@@ -1534,12 +1545,7 @@ mod tests {
             env::temp_dir().join(format!("opennow-update-settings-{}", rand::random::<u64>()));
         let mut store = SettingsStore::load(Some(directory.clone())).unwrap();
         assert_eq!(store.all()["autoDownloadUpdates"], json!(false));
-        assert_eq!(
-            store.all()["updateChannel"],
-            json!(crate::version::update_channel(
-                crate::version::APPLICATION_VERSION
-            ))
-        );
+        assert_eq!(store.all()["updateChannel"], json!(default_update_channel()));
         store.set("autoCheckForUpdates", json!(false)).unwrap();
         store.set("autoDownloadUpdates", json!(true)).unwrap();
         store.set("updateChannel", json!("stable")).unwrap();

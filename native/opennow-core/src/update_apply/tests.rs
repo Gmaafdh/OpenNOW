@@ -46,6 +46,7 @@ fn msi_registered_install_never_reaches_msiexec() {
             core_pid: 1,
             kind: InstallKind::WindowsMsi,
             data_dir: plan.data_dir,
+            allow_unsigned_manifest: false,
         })
         .unwrap_err(),
         WINDOWS_INSTALLER_REPLACEMENT_MESSAGE

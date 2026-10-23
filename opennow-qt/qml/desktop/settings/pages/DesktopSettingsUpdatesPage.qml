@@ -10,7 +10,8 @@ Column {
     required property real availableWidth
     required property var settingsScreen
     readonly property var updater: ShellStore.updaterState || ({})
-    readonly property string channel: page.settingsScreen.valueSetting("updateChannel", "stable") === "nightly" ? qsTr("NIGHTLY") : qsTr("STABLE")
+    readonly property string channel: ShellStore.updateChannel === "arena" ? qsTr("FAST")
+        : ShellStore.updateChannel === "nightly" ? qsTr("NIGHTLY") : qsTr("STABLE")
     readonly property string versionLine: page.updater.availableVersion && page.updater.availableVersion !== page.updater.currentVersion
         ? qsTr("%1  →  %2 · %3").arg(page.updater.currentVersion || Qt.application.version).arg(page.updater.availableVersion).arg(page.channel)
         : qsTr("%1 · %2").arg(page.updater.currentVersion || Qt.application.version).arg(page.channel)
@@ -93,7 +94,22 @@ Column {
                 Flow {
                     width: parent.width
                     spacing: DesktopTokens.px(10)
-                    DesktopUpdatePrimaryAction { id: primaryAction }
+                    // This fork's builds ship without a release signing key, so
+                    // the fast channel is the only feed they can install from.
+                    // One button runs check, download and install.
+                    DesktopSettingsButton {
+                        objectName: "updatesPageUpdateNow"
+                        visible: ShellStore.updaterFastChannel
+                        primary: true
+                        text: ShellStore.updaterUpdateNowActive
+                            ? (page.updater.status === "downloading" ? qsTr("Downloading…")
+                                : page.updater.status === "preparing" || page.updater.status === "awaiting-exit"
+                                    ? qsTr("Installing…") : qsTr("Checking…"))
+                            : qsTr("Update now")
+                        enabled: !ShellStore.updaterBusy || ShellStore.updaterUpdateNowActive
+                        onClicked: ShellStore.updateNow()
+                    }
+                    DesktopUpdatePrimaryAction { id: primaryAction; visible: !ShellStore.updaterFastChannel }
                     DesktopUpdatePrimaryAction {
                         objectName: "updatesPageInstallStaged"
                         installOnly: true
@@ -139,9 +155,9 @@ Column {
             width: parent.width; paperStyle: true; glyph: "arrows"; title: qsTr("Update channel")
             description: qsTr("Choose which releases OpenNOW checks")
             DesktopSettingsSegmented {
-                options: [{label:qsTr("Stable"),value:"stable"},{label:qsTr("Nightly"),value:"nightly"}]
+                options: [{label:qsTr("Stable"),value:"stable"},{label:qsTr("Nightly"),value:"nightly"},{label:qsTr("Fast"),value:"arena"}]
                 objectName: "renewUpdateChannel"
-                optionWidth: 96; selectedIndex: options.findIndex(item => item.value === page.settingsScreen.valueSetting("updateChannel","stable"))
+                optionWidth: 96; selectedIndex: options.findIndex(item => item.value === ShellStore.updateChannel)
                 onSelected: (index,item) => page.settingsScreen.setChoice("updateChannel",item.value)
             }
         }

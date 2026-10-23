@@ -1,7 +1,7 @@
 use crate::update_apply;
 use crate::update_apply::verification::{
     MAXIMUM_MANIFEST_BYTES, MAXIMUM_UPDATE_BYTES, UpdateManifest, embedded_update_key,
-    safe_asset_name, verify_manifest,
+    safe_asset_name, validate_manifest_fields, verify_manifest,
 };
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -19,12 +19,25 @@ const RELEASES_URL: &str = "https://api.github.com/repos/OpenCloudGaming/OpenNOW
 const RELEASES_PAGE: &str = "https://github.com/OpenCloudGaming/OpenNOW/releases";
 const RELEASE_ASSET_PREFIX: &str = "https://github.com/OpenCloudGaming/OpenNOW/releases/download/";
 const MAXIMUM_RELEASE_METADATA_BYTES: u64 = 8 * 1024 * 1024;
+/// The compatibility fork publishes one rolling pre-release per build under a
+/// fixed tag, so a fast-channel check never has to walk a release history.
+/// These packages are not Ed25519-signed: the manifest still pins the exact
+/// size and SHA-256 of the asset, and both are verified before installation.
+const ARENA_CHANNEL: &str = "arena";
+const ARENA_RELEASES_URL: &str = "https://api.github.com/repos/Gmaafdh/OpenNOW/releases";
+const ARENA_RELEASE_TAG: &str = "arena-fast";
+const ARENA_RELEASE_PAGE: &str = "https://github.com/Gmaafdh/OpenNOW/releases/tag/arena-fast";
+const ARENA_ASSET_PREFIX: &str =
+    "https://github.com/Gmaafdh/OpenNOW/releases/download/arena-fast/";
 
 #[derive(Clone)]
 struct AvailableUpdate {
     version: String,
     asset: Asset,
     manifest_url: String,
+    /// True for the fork's unsigned fast channel, which is checksum-verified
+    /// instead of signature-verified.
+    arena: bool,
 }
 
 #[derive(Clone)]
@@ -34,6 +47,7 @@ struct DownloadedUpdate {
     path: PathBuf,
     size: u64,
     sha256: String,
+    arena: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -208,7 +222,7 @@ impl UpdaterService {
         let channel = params["channel"]
             .as_str()
             .unwrap_or_else(|| crate::version::update_channel(crate::version::APPLICATION_VERSION));
-        if !matches!(channel, "stable" | "nightly") {
+        if !matches!(channel, "stable" | "nightly" | ARENA_CHANNEL) {
             return Err("Unsupported update channel".to_owned());
         }
         {
@@ -218,6 +232,9 @@ impl UpdaterService {
             state.message = "Checking GitHub Releases…".to_owned();
         }
         let _ = fs::remove_file(self.staging_dir.join("active-apply.json"));
+        if channel == ARENA_CHANNEL {
+            return self.check_arena();
+        }
         let releases = self.fetch_releases(RELEASES_URL);
         let releases = match releases {
             Ok(releases) => releases,
@@ -256,6 +273,7 @@ impl UpdaterService {
                         version: version.clone(),
                         asset,
                         manifest_url,
+                        arena: false,
                     });
             state.message = if state.available.is_none() {
                 format!(
@@ -287,6 +305,117 @@ impl UpdaterService {
         }
         restore_downloaded_status(&mut state);
         Ok(state_json(&state))
+    }
+
+    /// Checks the fork's rolling `arena-fast` release. One request for the
+    /// release and one for its manifest; no release history is walked and no
+    /// signature is required, so this channel works for unsigned CI builds.
+    fn check_arena(&self) -> Result<Value, String> {
+        {
+            let mut state = self.state.lock().expect("updater state poisoned");
+            state.last_checked_at = Some(now_ms());
+            state.release_url = Some(ARENA_RELEASE_PAGE.to_owned());
+        }
+        let url = format!("{ARENA_RELEASES_URL}/tags/{ARENA_RELEASE_TAG}");
+        let Some(release) = self.fetch_arena_release(&url)? else {
+            return Ok(self.fail_arena(
+                "No fast-channel build has been published yet. The next Windows build publishes one.",
+            ));
+        };
+        let Some(compatible) = compatible_asset(&release.assets) else {
+            return Ok(self.fail_arena("The fast-channel release has no package for this platform."));
+        };
+        let Some(manifest_asset) = manifest_asset(&release, compatible) else {
+            return Ok(self.fail_arena(
+                "The fast-channel release has no checksum manifest for its package.",
+            ));
+        };
+        let manifest = self.fetch_arena_manifest(&manifest_asset.browser_download_url)?;
+        let mut state = self.state.lock().expect("updater state poisoned");
+        let newer = parse_version(&manifest.version)
+            .zip(parse_version(crate::version::APPLICATION_VERSION))
+            .is_some_and(|(published, current)| published.cmp_precedence(&current).is_gt());
+        if !newer {
+            state.status = "not-available";
+            state.available = None;
+            state.available_version = None;
+            state.message = "This is the newest fast-channel build.".to_owned();
+            restore_downloaded_status(&mut state);
+            return Ok(state_json(&state));
+        }
+        let version = manifest.version.trim_start_matches('v').to_owned();
+        state.status = "available";
+        state.notes_version = Some(version.clone());
+        state.notes = release.body.clone();
+        state.available_version = Some(version.clone());
+        state.available = Some(AvailableUpdate {
+            version: version.clone(),
+            asset: compatible.clone(),
+            manifest_url: manifest_asset.browser_download_url.clone(),
+            arena: true,
+        });
+        state.message = format!(
+            "Fast-channel build {version} is ready to install. It is checksum-verified, not signed."
+        );
+        restore_downloaded_status(&mut state);
+        Ok(state_json(&state))
+    }
+
+    /// Records a fast-channel failure and returns the state instead of an
+    /// error, so the shell shows a message rather than a generic failure.
+    fn fail_arena(&self, message: &str) -> Value {
+        let mut state = self.state.lock().expect("updater state poisoned");
+        state.status = "error";
+        state.available = None;
+        state.available_version = None;
+        state.message = message.to_owned();
+        state_json(&state)
+    }
+
+    fn fetch_arena_release(&self, url: &str) -> Result<Option<Release>, String> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(Duration::from_secs(15))
+            .header(
+                USER_AGENT,
+                concat!("OpenNOW-Qt/", env!("CARGO_PKG_VERSION")),
+            )
+            .header(ACCEPT, "application/vnd.github+json")
+            .send()
+            .map_err(|error| friendly_network_error(&error.to_string()))?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(format!(
+                "GitHub Releases returned HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        let bytes = read_bounded(response, MAXIMUM_RELEASE_METADATA_BYTES)?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| "GitHub Releases returned invalid metadata".to_owned())
+    }
+
+    fn fetch_arena_manifest(&self, url: &str) -> Result<UpdateManifest, String> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(Duration::from_secs(15))
+            .header(USER_AGENT, "OpenNOW-Qt/0.5")
+            .send()
+            .map_err(|_| "Could not download the fast-channel manifest".to_owned())?;
+        ensure_asset_response(&response, MAXIMUM_MANIFEST_BYTES)?;
+        let bytes = read_bounded(response, MAXIMUM_MANIFEST_BYTES)?;
+        let manifest: UpdateManifest = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Fast-channel manifest is invalid: {error}"))?;
+        validate_manifest_fields(&manifest)?;
+        if !safe_asset_name(&manifest.asset) {
+            return Err("Fast-channel manifest names an unsafe asset".to_owned());
+        }
+        Ok(manifest)
     }
 
     fn fetch_releases(&self, releases_url: &str) -> Result<Vec<Release>, String> {
@@ -339,8 +468,10 @@ impl UpdaterService {
             let available = state
                 .available
                 .clone()
-                .ok_or_else(|| "No signed update package is available".to_owned())?;
-            embedded_update_key()?;
+                .ok_or_else(|| "No verified update package is available".to_owned())?;
+            if !available.arena {
+                embedded_update_key()?;
+            }
             state.status = "downloading";
             state.transaction = None;
             state.message = format!("Downloading OpenNOW {}…", available.version);
@@ -430,6 +561,7 @@ impl UpdaterService {
                 core_pid: std::process::id(),
                 kind,
                 data_dir: self.data_dir.clone(),
+                allow_unsigned_manifest: downloaded.arena,
             })?;
             save_prepared_update(&self.staging_dir, &prepared)?;
             self.state
@@ -485,7 +617,11 @@ impl UpdaterService {
         available: &AvailableUpdate,
         progress: &mut dyn FnMut(u64),
     ) -> Result<DownloadedUpdate, String> {
-        let key = embedded_update_key()?;
+        let key = if available.arena {
+            None
+        } else {
+            Some(embedded_update_key()?)
+        };
         let manifest_response = self
             .client
             .get(&available.manifest_url)
@@ -495,8 +631,11 @@ impl UpdaterService {
         ensure_asset_response(&manifest_response, MAXIMUM_MANIFEST_BYTES)?;
         let manifest_bytes = read_bounded(manifest_response, MAXIMUM_MANIFEST_BYTES)?;
         let manifest = serde_json::from_slice::<UpdateManifest>(&manifest_bytes)
-            .map_err(|_| "Signed update metadata is invalid JSON".to_owned())?;
-        verify_manifest(&manifest, &key)?;
+            .map_err(|_| "Update metadata is invalid JSON".to_owned())?;
+        match key {
+            Some(key) => verify_manifest(&manifest, &key)?,
+            None => validate_manifest_fields(&manifest)?,
+        }
         if !manifest_matches_release(&manifest, available) {
             return Err(
                 "Signed update metadata does not match the selected release asset".to_owned(),
@@ -539,14 +678,17 @@ impl UpdaterService {
             path: final_path,
             size: manifest.size,
             sha256: manifest.sha256.to_ascii_lowercase(),
+            arena: available.arena,
         })
     }
 }
 
 fn state_json(state: &State) -> Value {
     let can_download = matches!(state.status, "available" | "error" | "downloaded")
-        && state.available.is_some()
-        && embedded_update_key().is_ok()
+        && state
+            .available
+            .as_ref()
+            .is_some_and(|available| available.arena || embedded_update_key().is_ok())
         && state.available.as_ref().is_some_and(|available| {
             state
                 .downloaded
@@ -571,7 +713,13 @@ fn state_json(state: &State) -> Value {
         "exitRequired": state.status == "awaiting-exit",
         "installVersion": state.transaction.as_ref().map(|transaction| &transaction.version),
         "updateSource": if state.status == "unsupported" { "flatpak" } else { "github-releases" },
-        "signaturePolicy": if embedded_update_key().is_ok() { "ed25519-pinned" } else { "unconfigured-fail-closed" }
+        "signaturePolicy": if state.available.as_ref().is_some_and(|available| available.arena) {
+            "sha256-checksum"
+        } else if embedded_update_key().is_ok() {
+            "ed25519-pinned"
+        } else {
+            "unconfigured-fail-closed"
+        }
     })
 }
 
@@ -935,10 +1083,15 @@ fn verify_downloaded_file(downloaded: &DownloadedUpdate) -> Result<(), String> {
             .with_file_name(format!("{}.manifest.json", downloaded.asset_name)),
     )
     .map_err(|_| "The staged update manifest could not be read".to_owned())?;
-    let manifest = update_apply::verification::verify_signed_manifest(&read_bounded(
-        manifest,
-        MAXIMUM_MANIFEST_BYTES,
-    )?)?;
+    let manifest_bytes = read_bounded(manifest, MAXIMUM_MANIFEST_BYTES)?;
+    let manifest = if downloaded.arena {
+        let manifest: UpdateManifest = serde_json::from_slice(&manifest_bytes)
+            .map_err(|error| format!("Invalid update manifest: {error}"))?;
+        validate_manifest_fields(&manifest)?;
+        manifest
+    } else {
+        update_apply::verification::verify_signed_manifest(&manifest_bytes)?
+    };
     if manifest.version.trim_start_matches('v') != downloaded.version
         || manifest.asset != downloaded.asset_name
         || manifest.size != downloaded.size
@@ -979,8 +1132,12 @@ fn read_bounded(mut response: impl Read, maximum: u64) -> Result<Vec<u8>, String
 }
 
 fn trusted_asset_url(asset: &Asset) -> bool {
-    asset.browser_download_url.starts_with(RELEASE_ASSET_PREFIX)
-        && !asset.browser_download_url[RELEASE_ASSET_PREFIX.len()..].is_empty()
+    [RELEASE_ASSET_PREFIX, ARENA_ASSET_PREFIX].iter().any(|prefix| {
+        asset
+            .browser_download_url
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
+    })
 }
 
 fn parse_version(value: &str) -> Option<Version> {
@@ -1098,6 +1255,7 @@ mod tests {
                     core_pid: std::process::id(),
                     kind,
                     data_dir: directory.path().to_path_buf(),
+                    allow_unsigned_manifest: false,
                 })
                 .unwrap_err(),
                 message
@@ -1752,6 +1910,7 @@ mod tests {
                 size: 123,
             },
             manifest_url: String::new(),
+            arena: false,
         };
         let mut manifest = UpdateManifest {
             schema_version: 1,
@@ -1829,6 +1988,7 @@ mod tests {
                 size: 123,
             },
             manifest_url: String::new(),
+            arena: false,
         });
         updater.state.lock().unwrap().status = "available";
         assert_eq!(updater.state()["canDownload"], false);

@@ -35,7 +35,11 @@
     "chipAccessible": "Updates: %1",
     "updatesDetail": "Version, channel, notes",
     "whatsNew": "WHAT'S NEW",
-    "upToDate": "You're up to date"
+    "upToDate": "You're up to date",
+    "fast": "FAST",
+    "fastChannel": "Fast",
+    "updateNow": "Update now",
+    "installingShort": "Installing…"
   },
   "flightControls": {
     "heading": "FLIGHT CONTROLS & WHEELS",

@@ -66,6 +66,9 @@ pub struct PrepareRequest {
     pub core_pid: u32,
     pub kind: InstallKind,
     pub data_dir: PathBuf,
+    /// The fork's fast channel ships manifests without an Ed25519 signature.
+    /// Their size and SHA-256 are still verified against the downloaded file.
+    pub allow_unsigned_manifest: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -81,6 +84,8 @@ pub struct PreparedUpdate {
 struct Plan {
     schema_version: u32,
     version: String,
+    #[serde(default)]
+    allow_unsigned_manifest: bool,
     kind: InstallKind,
     package: PathBuf,
     target: PathBuf,
@@ -243,7 +248,7 @@ pub fn prepare_update(request: PrepareRequest) -> Result<PreparedUpdate, String>
     #[cfg(target_os = "linux")]
     validate_linux_install_kind(request.kind, std::env::var_os("APPIMAGE").as_deref())?;
     let package = canonical_file(&request.package)?;
-    let manifest = read_manifest(&package)?;
+    let manifest = read_manifest(&package, request.allow_unsigned_manifest)?;
     if manifest.version.trim_start_matches('v') != request.expected_version.trim_start_matches('v')
     {
         return Err("Signed update version does not match the selected release".to_owned());
@@ -295,6 +300,7 @@ pub fn prepare_update(request: PrepareRequest) -> Result<PreparedUpdate, String>
         let plan = Plan {
             schema_version: 1,
             version: manifest.version.trim_start_matches('v').to_owned(),
+            allow_unsigned_manifest: request.allow_unsigned_manifest,
             kind: request.kind,
             package: private_package,
             target,
@@ -609,7 +615,7 @@ fn validate_plan(plan: &Plan, directory: &Path) -> Result<(), String> {
     if plan.processes[0].executable != plan.application_executable {
         return Err("Update process identity does not match the application".to_owned());
     }
-    let manifest = read_manifest(&plan.package)?;
+    let manifest = read_manifest(&plan.package, plan.allow_unsigned_manifest)?;
     if manifest.version.trim_start_matches('v') != plan.version
         || detect_install_kind(&plan.application_executable, &plan.package)? != plan.kind
     {
@@ -1247,14 +1253,24 @@ fn installation_target(kind: InstallKind, executable: &Path) -> Result<PathBuf, 
     }
 }
 
-fn read_manifest(package: &Path) -> Result<verification::UpdateManifest, String> {
+fn read_manifest(
+    package: &Path,
+    allow_unsigned: bool,
+) -> Result<verification::UpdateManifest, String> {
     let mut bytes = Vec::new();
     File::open(canonical_file(&manifest_path(package)?)?)
         .map_err(|error| error.to_string())?
         .take(verification::MAXIMUM_MANIFEST_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
-    verification::verify_signed_manifest(&bytes)
+    if allow_unsigned {
+        let manifest: verification::UpdateManifest = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Invalid update manifest: {error}"))?;
+        verification::validate_manifest_fields(&manifest)?;
+        Ok(manifest)
+    } else {
+        verification::verify_signed_manifest(&bytes)
+    }
 }
 
 fn manifest_path(package: &Path) -> Result<PathBuf, String> {

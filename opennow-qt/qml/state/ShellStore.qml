@@ -327,10 +327,20 @@ QtObject {
     property bool updaterInstallConfirmed: false
     property bool updaterExitScheduled: false
     property bool updaterReconciling: false
+    // Set by updateNow() so the fast channel chains check, download and
+    // install without further clicks.
+    property bool updaterUpdateNowActive: false
     property double lastAutoUpdateCheckMs: 0
     property string autoDownloadAttempt: ""
     property int autoDownloadAttemptCount: 0
     property double autoDownloadAttemptMs: 0
+    // Builds without a pinned signing key cannot install a signed release, so
+    // they follow this fork's checksum-verified fast channel instead.
+    readonly property string updaterDefaultChannel: updaterState.signaturePolicy === "unconfigured-fail-closed"
+        ? "arena" : "stable"
+    readonly property string updateChannel: updaterState.signaturePolicy === "unconfigured-fail-closed"
+        ? "arena" : String(settings.updateChannel || updaterDefaultChannel)
+    readonly property bool updaterFastChannel: updateChannel === "arena"
     readonly property bool updaterSessionSafe: !activeSession && !streamBusy && !sessionRecoveryPending
         && activeSessionRequestId === "" && sessionClaimRequestId === "" && streamCreateRequestId === ""
         && streamerStartRequestId === "" && streamerPrepareRequestId === "" && streamerStopRequestId === ""
@@ -360,6 +370,13 @@ QtObject {
         if (updaterSessionSafe && releaseHighlightsPending) {
             accessibilityMessage = qsTr("Release notes are available in Updates.")
             releaseHighlightsPending = false
+        }
+        // updateNow() waits for an idle session before installing; resume the
+        // chain as soon as the stream is gone.
+        if (updaterSessionSafe && updaterUpdateNowActive && updaterState.status === "downloaded"
+                && updaterState.canInstall === true) {
+            updaterUpdateNowActive = false
+            installUpdate(true)
         }
     }
     property var releaseHighlights: ({})
@@ -1615,7 +1632,7 @@ QtObject {
         autoDownloadAttempt = ""
         autoDownloadAttemptCount = 0
         updaterCheckRequestId = CoreClient.request("updater.check", {
-            channel: settings.updateChannel || "stable"
+            channel: updateChannel
         }, 30000)
     }
 
@@ -1634,6 +1651,31 @@ QtObject {
         updaterInstallRequestId = CoreClient.request("updater.install", {confirmed: true}, 30000)
     }
 
+    // One button: check the fast channel, download the build and install it.
+    // Installation still waits for an idle session, exactly like the manual
+    // path, so a stream is never interrupted.
+    function updateNow() {
+        if (!ready || !updaterSessionSafe)
+            return
+        updaterError = ""
+        updaterUpdateNowActive = true
+        if (updaterState.canInstall === true && updaterState.downloadedVersion) {
+            updaterUpdateNowActive = false
+            installUpdate(true)
+        } else if (updaterState.canDownload === true) {
+            downloadUpdate()
+        } else if (updaterBusy || updaterState.canCheck !== true) {
+            // A check or download is already running; acceptUpdaterState will
+            // continue the chain when it settles.
+        } else {
+            checkForUpdates()
+        }
+    }
+
+    function cancelUpdateNow() {
+        updaterUpdateNowActive = false
+    }
+
     function refreshUpdaterState() {
         if (ready && updaterStateRequestId === "")
             updaterStateRequestId = CoreClient.request("updater.state.get", {})
@@ -1650,6 +1692,19 @@ QtObject {
         updaterReconciling = false
         if (state.message)
             accessibilityMessage = state.message
+        if (updaterUpdateNowActive) {
+            if (state.status === "downloaded" && state.canInstall === true) {
+                if (updaterSessionSafe) {
+                    updaterUpdateNowActive = false
+                    installUpdate(true)
+                }
+            } else if (state.canDownload === true && updaterDownloadRequestId === "") {
+                downloadUpdate()
+            } else if (["not-available", "unsupported", "failed", "rolled-back", "succeeded",
+                         "managed-pending", "reboot-required"].indexOf(state.status) >= 0) {
+                updaterUpdateNowActive = false
+            }
+        }
         if (updaterInstallConfirmed && state.status === "awaiting-exit" && state.exitRequired === true
                 && updaterSessionSafe && !updaterExitScheduled) {
             updaterExitScheduled = true
@@ -1678,7 +1733,7 @@ QtObject {
             return
         if (settings.autoDownloadUpdates === true && updaterState.canDownload === true) {
             const release = String(updaterState.availableVersion || updaterState.releaseUrl || "")
-                + ":" + String(settings.updateChannel || "stable")
+                + ":" + updateChannel
             if (release !== autoDownloadAttempt) {
                 autoDownloadAttempt = release
                 autoDownloadAttemptCount = 0

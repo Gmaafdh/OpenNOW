@@ -160,3 +160,31 @@ helper is deployed as the usual sibling `opennow-update-helper.exe`. Final Windo
 MSI and ZIP validation rejects helper imports outside an explicit Windows system-DLL
 list, so Qt libraries and a separately installed Visual C++ runtime cannot mask a
 dependency that would break the helper when it runs outside the installation.
+
+## Fast channel for unsigned fork builds
+
+Builds that carry no pinned `OPENNOW_UPDATE_ED25519_PUBLIC_KEY` cannot install a
+release from the signed `stable` or `nightly` channels. They default to the `arena`
+channel instead, which the Settings UI calls **Fast**. Both the settings default and
+`ShellStore.updateChannel` fall back to it whenever the updater reports
+`signaturePolicy: "unconfigured-fail-closed"`.
+
+The channel reads a single rolling release, `arena-fast`, on `Gmaafdh/OpenNOW`. A
+check is one request for the release plus one for its manifest; it does not walk the
+release history. `.github/workflows/arena-windows-exe.yml` replaces that release on
+every Windows build with the portable ZIP and a sibling
+`<zip>.manifest.json`:
+
+```json
+{"schemaVersion":1,"version":"…","asset":"OpenNOW-Qt-….zip","size":0,"sha256":"…","signature":""}
+```
+
+The build version stays `major.minor.patch-nightly.<run>.<attempt>`, so every run
+sorts newer than the last and `Update now` always offers the newest build. Signature
+verification is skipped for these packages, but the manifest fields are still
+validated and the download must match the manifest's size and SHA-256 before the
+update helper prepares the replacement — the same checks `stable` and `nightly` run
+after their signature check.
+
+`Update now` in Settings › Updates chains check, download and install into one click
+and defers installation until no stream is active.
