@@ -1700,8 +1700,8 @@ QtObject {
                 }
             } else if (state.canDownload === true && updaterDownloadRequestId === "") {
                 downloadUpdate()
-            } else if (["not-available", "unsupported", "failed", "rolled-back", "succeeded",
-                         "managed-pending", "reboot-required"].indexOf(state.status) >= 0) {
+            } else if (["not-available", "unsupported", "error", "failed", "rolled-back",
+                         "succeeded", "managed-pending", "reboot-required"].indexOf(state.status) >= 0) {
                 updaterUpdateNowActive = false
             }
         }
