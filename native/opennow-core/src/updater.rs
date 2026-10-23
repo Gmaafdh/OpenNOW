@@ -1137,7 +1137,8 @@ fn trusted_asset_url(asset: &Asset) -> bool {
 }
 
 fn trusted_prefix(url: &str, prefix: &str) -> bool {
-    url.strip_prefix(prefix).is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
+    url.strip_prefix(prefix)
+        .is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
 }
 
 fn parse_version(value: &str) -> Option<Version> {
