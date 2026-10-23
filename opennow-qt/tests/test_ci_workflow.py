@@ -304,10 +304,20 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("    branches:\n      - arena/15b83ddf-opennow\n", workflow)
         self.assertIn("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'", workflow)
         self.assertIn("  contents: read", workflow)
-        for prohibited in ("pull_request:", "pull_request_target:", "contents: write",
-                           "secrets.", "gh release", "environment:"):
+        for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, workflow)
+        # The harness publishes exactly one thing: the rolling arena-fast
+        # pre-release that the in-app update button installs from. It must not
+        # touch any other release, and only the Windows job may write.
+        self.assertEqual(workflow.count("      contents: write"), 1)
+        self.assertIn("    permissions:\n      contents: write\n", workflow)
+        for release_command in re.findall(r"gh release \w+ (\S+)", workflow):
+            with self.subTest(release=release_command):
+                self.assertEqual(release_command, "arena-fast")
+        self.assertIn("gh release upload arena-fast $zip $manifest", workflow)
+        self.assertNotIn("--latest", workflow)
+        self.assertIn("--prerelease", workflow)
         self.assertIn("-p opennow-streamer-platform-windows -p opennow-streamer-protocol", workflow)
         self.assertIn("--lib -- --test-threads=1 --nocapture", workflow)
         self.assertIn("--target opennow-qt opennow-graphicsdevices-tests", workflow)
