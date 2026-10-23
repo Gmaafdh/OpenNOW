@@ -293,6 +293,14 @@ jobs:
               --notes "Rolling Windows x64 compatibility build for the fast update channel. Each build replaces the previous one. These packages are checksum-verified, not signed."
             if ($LASTEXITCODE -ne 0) { throw "Could not create the fast update release." }
           }
+          # Replacing by name alone would leave older zips attached, and the
+          # updater picks the first compatible asset it finds, so drop every
+          # asset from the previous run before publishing this one.
+          foreach ($id in (gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/arena-fast" --jq '.assets[].id')) {
+            if (-not $id) { continue }
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$id"
+            if ($LASTEXITCODE -ne 0) { throw "Could not remove a stale fast update asset." }
+          }
           gh release upload arena-fast $zip $manifest build/qt-packages/BUILD-INFO.txt `
             --repo $env:GITHUB_REPOSITORY --clobber
           if ($LASTEXITCODE -ne 0) { throw "Could not publish the fast update package." }
