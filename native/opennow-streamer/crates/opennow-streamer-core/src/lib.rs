@@ -2827,10 +2827,7 @@ fn flush_nvst_telemetry<R: NvstSessionResources>(
 /// A steady latency budget line. Decode and decoder residence are what separate
 /// a slow local pipeline from a slow network, so both are logged every ten
 /// seconds next to the measured ping.
-fn log_latency_budget<R: NvstSessionResources>(
-    resources: &R,
-    state: &mut NvstMediaFeedbackState,
-) {
+fn log_latency_budget<R: NvstSessionResources>(resources: &R, state: &mut NvstMediaFeedbackState) {
     if state.latency_log_at.elapsed() < Duration::from_secs(10) {
         return;
     }
