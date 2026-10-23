@@ -13,6 +13,13 @@ def report(directory):
     for log in sorted(Path(directory).glob("*.log")):
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
         hits = [i for i, line in enumerate(lines) if pattern.search(line)]
+        if log.name.endswith("-format.log"):
+            # Formatting failures are a list of diffs; a few windows around the
+            # first hits would hide the rest, so report the log from the top.
+            message = "\n".join(lines)[:6500]
+            message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error title={log.name}::{message}")
+            continue
         excerpt = []
         for i in hits[:3]:
             excerpt.extend(lines[max(0, i - 1):i + 8])

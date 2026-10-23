@@ -28,6 +28,11 @@ const ARENA_RELEASES_URL: &str = "https://api.github.com/repos/Gmaafdh/OpenNOW/r
 const ARENA_RELEASE_TAG: &str = "arena-fast";
 const ARENA_RELEASE_PAGE: &str = "https://github.com/Gmaafdh/OpenNOW/releases/tag/arena-fast";
 const ARENA_ASSET_PREFIX: &str = "https://github.com/Gmaafdh/OpenNOW/releases/download/arena-fast/";
+const ARENA_NO_RELEASE: &str =
+    "No fast-channel build has been published yet. The next Windows build publishes one.";
+const ARENA_NO_PACKAGE: &str = "The fast-channel release has no package for this platform.";
+const ARENA_NO_MANIFEST: &str =
+    "The fast-channel release has no checksum manifest for its package.";
 
 #[derive(Clone)]
 struct AvailableUpdate {
@@ -317,18 +322,13 @@ impl UpdaterService {
         }
         let url = format!("{ARENA_RELEASES_URL}/tags/{ARENA_RELEASE_TAG}");
         let Some(release) = self.fetch_arena_release(&url)? else {
-            return Ok(self.fail_arena(
-                "No fast-channel build has been published yet. The next Windows build publishes one.",
-            ));
+            return Ok(self.fail_arena(ARENA_NO_RELEASE));
         };
         let Some(compatible) = compatible_asset(&release.assets) else {
-            let message = "The fast-channel release has no package for this platform.";
-            return Ok(self.fail_arena(message));
+            return Ok(self.fail_arena(ARENA_NO_PACKAGE));
         };
         let Some(manifest_asset) = manifest_asset(&release, compatible) else {
-            return Ok(self.fail_arena(
-                "The fast-channel release has no checksum manifest for its package.",
-            ));
+            return Ok(self.fail_arena(ARENA_NO_MANIFEST));
         };
         let manifest = self.fetch_arena_manifest(&manifest_asset.browser_download_url)?;
         let mut state = self.state.lock().expect("updater state poisoned");
@@ -1132,12 +1132,12 @@ fn read_bounded(mut response: impl Read, maximum: u64) -> Result<Vec<u8>, String
 }
 
 fn trusted_asset_url(asset: &Asset) -> bool {
-    [RELEASE_ASSET_PREFIX, ARENA_ASSET_PREFIX].iter().any(|prefix| {
-        asset
-            .browser_download_url
-            .strip_prefix(prefix)
-            .is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
-    })
+    let url = asset.browser_download_url.as_str();
+    trusted_prefix(url, RELEASE_ASSET_PREFIX) || trusted_prefix(url, ARENA_ASSET_PREFIX)
+}
+
+fn trusted_prefix(url: &str, prefix: &str) -> bool {
+    url.strip_prefix(prefix).is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
 }
 
 fn parse_version(value: &str) -> Option<Version> {
