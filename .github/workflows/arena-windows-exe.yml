@@ -204,7 +204,9 @@ jobs:
         shell: bash
         run: |
           cd /o
-          export QT_QPA_PLATFORM=offscreen
+          # Exercise adapter selection with the production Windows QPA; the
+          # isolated theme tests above use the offscreen platform instead.
+          export QT_QPA_PLATFORM=windows
           export QT_FORCE_STDERR_LOGGING=1
           export QT_LOGGING_RULES='*.info=true'
           release="$PWD/build/opennow-qt-release/Release"
