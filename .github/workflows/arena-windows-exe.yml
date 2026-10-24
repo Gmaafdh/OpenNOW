@@ -205,6 +205,8 @@ jobs:
         run: |
           cd /o
           export QT_QPA_PLATFORM=offscreen
+          export QT_FORCE_STDERR_LOGGING=1
+          export QT_LOGGING_RULES='*.info=true'
           release="$PWD/build/opennow-qt-release/Release"
           smoke="$release/OpenNOW-Smoke.exe"
           cp "$release/OpenNOW.exe" "$smoke"

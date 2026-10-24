@@ -14,6 +14,7 @@
 
 #include <cstdlib>
 #include <atomic>
+#include <cstdio>
 #include <memory>
 
 using namespace Qt::StringLiterals;
@@ -75,7 +76,11 @@ int AcceptanceSession::startSessionLaunchWorkload()
     auto *window = m_engine.rootObjects().isEmpty() ? nullptr
         : qobject_cast<QQuickWindow *>(m_engine.rootObjects().first());
     auto *store = m_engine.singletonInstance<QObject *>(u"OpenNOW"_s, u"ShellStore"_s);
-    if (!window || !store) return EXIT_FAILURE;
+    if (!window || !store) {
+        std::fprintf(stderr, "Session launch fixture unavailable: roots=%lld window=%d store=%d\n",
+                     static_cast<long long>(m_engine.rootObjects().size()), window != nullptr, store != nullptr);
+        return EXIT_FAILURE;
+    }
     const bool fullscreen = m_arguments.contains(u"--smoke-motion-fullscreen"_s);
     if (fullscreen) window->showFullScreen();
     window->requestActivate();
