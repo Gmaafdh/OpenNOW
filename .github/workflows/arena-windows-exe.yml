@@ -9,6 +9,7 @@ on:
     branches:
       - arena/15b83ddf-opennow
       - arena/857f597a-opennow
+      - arena/a9a90719-opennow
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   contracts:
     name: Validate merged source and packaging contracts
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -55,7 +56,7 @@ jobs:
     needs: contracts
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow'
     runs-on: windows-2025
     timeout-minutes: 180
     env:
@@ -176,21 +177,33 @@ jobs:
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install" \
             2>&1 | tee ci-logs/cmake-configure.log
 
-      - name: Build OpenNOW.exe and adapter selection tests
+      - name: Build OpenNOW.exe and Qt regression tests
         shell: bash
         run: |
           cd /o
           cmake --build build/opennow-qt-release --config Release --parallel 2 \
-            --target opennow-qt opennow-graphicsdevices-tests \
+            --target opennow-qt opennow-graphicsdevices-tests opennow-theme-tests \
             2>&1 | tee ci-logs/cmake-build.log
 
-      - name: Test Qt graphics adapter selection
+      - name: Test Qt graphics adapter and queue presentation
         shell: bash
         run: |
           cd /o
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^opennow-graphicsdevices-tests$' --output-on-failure --no-tests=error \
+            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests)$' --output-on-failure --no-tests=error \
             2>&1 | tee ci-logs/ctest.log
+
+      - name: Exercise queue transition and capture the redesigned page
+        shell: bash
+        run: |
+          cd /o
+          export QT_QPA_PLATFORM=offscreen
+          screenshot=$(cygpath -w "$PWD/ci-logs/desktop-queue.png")
+          ./build/opennow-qt-release/Release/OpenNOW.exe \
+            --smoke-test --allow-multiple-instances --desktop --route library \
+            --smoke-session-launch --reduced-motion --screenshot "$screenshot" \
+            2>&1 | tee ci-logs/queue-acceptance.log
+          test -s ci-logs/desktop-queue.png
 
       - name: Package portable ZIP
         shell: bash
@@ -315,7 +328,7 @@ jobs:
             "[Download setup.exe and portable ZIP]($env:ARTIFACT_URL)"
             "Source: $env:GITHUB_SHA"
             "Extract the portable ZIP completely and launch bin\OpenNOW.exe."
-            "Windows WARP/protocol and Qt adapter selection tests passed."
+            "Windows WARP/protocol, Qt adapter, and queue presentation tests passed."
             "Physical DX10 gameplay and performance still require device testing."
           ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 

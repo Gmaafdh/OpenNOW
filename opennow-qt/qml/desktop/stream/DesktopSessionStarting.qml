@@ -29,6 +29,24 @@ FocusScope {
         id: setupProgress
         session: root.session
     }
+    readonly property bool queueVisible: !stopping && !failed && !reconnecting && !connecting
+        && setupProgress.queued
+    readonly property int queuePosition: setupProgress.queuePosition
+    property double queueClockMs: Date.now()
+    readonly property int queueStallSeconds: ShellStore.sessionProgressGainedAtMs > 0
+        ? Math.max(0, Math.floor((root.queueClockMs - ShellStore.sessionProgressGainedAtMs) / 1000)) : 0
+    readonly property bool queueStalled: queueVisible && queueStallSeconds >= 180
+    readonly property string queueActivityText: {
+        if (queueStallSeconds < 10) return qsTr("Updates when GeForce NOW reports it")
+        if (queueStallSeconds < 60) return qsTr("Position unchanged for %1s").arg(queueStallSeconds)
+        return qsTr("No queue movement for %1 min").arg(Math.max(1, Math.floor(queueStallSeconds / 60)))
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.visible && root.queueVisible
+        onTriggered: root.queueClockMs = Date.now()
+    }
     readonly property string statusText: {
         if (stopping) return qsTr("Closing your session")
         if (failed) return ShellStore.launchConflictDetected
@@ -53,13 +71,19 @@ FocusScope {
             if (streamer.status === "streaming") return qsTr("Connected. Waiting for the first video frame.")
             return qsTr("Your game will appear here as soon as the video is ready.")
         }
+        if (root.queueStalled)
+            return qsTr("GeForce NOW is still holding your slot in this region. You can keep waiting, or leave this queue and request a fresh rig.")
         return setupProgress.detail
     }
 
     function restoreFocus() {
         if (root.visible && root.enabled
-                && !ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay))
-            cancelButton.forceActiveFocus()
+                && !ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)) {
+            if (root.queueVisible)
+                queueExperience.restoreFocus()
+            else
+                cancelButton.forceActiveFocus()
+        }
     }
 
     ArtworkSource {
@@ -75,7 +99,7 @@ FocusScope {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        opacity: status === Image.Ready ? 0.36 : 0
+        opacity: status === Image.Ready ? (root.queueVisible ? 0.52 : 0.36) : 0
         Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration; easing.type: Easing.OutCubic } }
     }
     Rectangle {
@@ -91,6 +115,7 @@ FocusScope {
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: 32
+        z: 2
         spacing: 10
         DesktopBrandLockup {
             anchors.verticalCenter: parent.verticalCenter
@@ -101,8 +126,39 @@ FocusScope {
         }
     }
 
+    Rectangle {
+        anchors.fill: parent
+        visible: root.queueVisible
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: "#B804060A" }
+            GradientStop { position: 0.55; color: "#5004060A" }
+            GradientStop { position: 1; color: "#1604060A" }
+        }
+    }
+
+    DesktopQueueExperience {
+        id: queueExperience
+        anchors.fill: parent
+        visible: root.queueVisible
+        game: root.game
+        session: root.session
+        queuePosition: root.queuePosition
+        statusText: root.statusText
+        detailText: root.detailText
+        activityText: root.queueActivityText
+        queueStalled: root.queueStalled
+        requeueAvailable: ShellStore.pendingLaunchParams !== null
+        requeueInProgress: ShellStore.requeueRequested === true
+        streamBusy: ShellStore.streamBusy
+        onCancelRequested: root.cancelRequested()
+        onRefreshRequested: ShellStore.reconnectSessionProgress()
+        onRequeueRequested: ShellStore.requeueSession()
+    }
+
     Column {
         anchors.centerIn: parent
+        visible: !root.queueVisible
         width: Math.min(560, root.width - 64)
         spacing: 0
 

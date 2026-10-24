@@ -2662,6 +2662,17 @@ fn normalize_ice_servers(session: &Value) -> Vec<Value> {
 }
 
 fn queue_position(session: &Value) -> Option<i64> {
+    // CloudMatch can leave the last queue counter on the session while the
+    // seat has already moved on to allocation, configuration, or cleanup.
+    // Those explicit steps are authoritative: retaining the stale counter
+    // makes every client surface look stuck at its last position (often 1).
+    // Missing/unknown steps keep the legacy position-only fallback.
+    if matches!(
+        value_i64(&session["seatSetupInfo"]["seatSetupStep"]),
+        Some(0 | 2 | 3 | 4 | 5 | 6)
+    ) {
+        return None;
+    }
     [
         &session["queuePosition"],
         &session["seatSetupInfo"]["queuePosition"],
@@ -6406,6 +6417,35 @@ mod tests {
         let info = session_info(&ready, &base, "auto", "123", "device").unwrap();
         assert_eq!(info["signalingUrl"], "wss://80.1.2.3:443");
         assert_eq!(info["serverIp"], "80.1.2.3");
+    }
+
+    #[test]
+    fn allocated_seat_steps_discard_a_stale_front_of_queue_counter() {
+        let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
+        for step in [0, 2, 3, 4, 5, 6] {
+            let payload = json!({"session":{
+                "sessionId":"queue-transition",
+                "status":1,
+                "queuePosition":1,
+                "seatSetupInfo":{"seatSetupStep":step,"queuePosition":1}
+            }});
+            let info = session_info(&payload, &base, "auto", "123", "device").unwrap();
+            assert_eq!(info["seatSetupStep"], step);
+            assert_eq!(
+                info["queuePosition"],
+                Value::Null,
+                "step {step} retained a stale queue counter"
+            );
+        }
+
+        for payload in [
+            json!({"session":{"sessionId":"queued","status":1,"queuePosition":1,
+                "seatSetupInfo":{"seatSetupStep":1}}}),
+            json!({"session":{"sessionId":"position-only","status":1,"queuePosition":1}}),
+        ] {
+            let info = session_info(&payload, &base, "auto", "123", "device").unwrap();
+            assert_eq!(info["queuePosition"], 1);
+        }
     }
 
     #[test]

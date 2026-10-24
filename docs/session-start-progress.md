@@ -14,10 +14,13 @@ for the desktop loading screen and the console's existing `streamMessage`.
 | `6` | Waiting for cloud storage |
 | Missing, invalid, or unknown | Preparing the game |
 
-A positive queue position retains the queue presentation except when the server
-explicitly reports cleanup or storage waiting. Cloud steps do not form a fixed
-linear sequence and do not support a calculated percentage. Unknown values do
-not imply completion or failure.
+A positive queue position retains the queue presentation only while the server
+reports queue step `1` or omits a usable seat step. Explicit connecting,
+configuration, cleanup, and storage steps outrank a stale counter: CloudMatch
+can briefly retain `queuePosition: 1` after allocating the rig, and that old
+value must not hold the client on the queue page. Cloud steps do not form a
+fixed linear sequence and do not support a calculated percentage. Unknown
+values do not imply completion or failure.
 
 These numbers are **not** the native bridge's `NVB_SESSION_SETUP_STATE` enum.
 That separate enum uses `3` for starting the streamer and `4` for seat ready.

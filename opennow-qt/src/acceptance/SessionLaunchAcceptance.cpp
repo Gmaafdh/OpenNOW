@@ -175,13 +175,16 @@ int AcceptanceSession::startSessionLaunchWorkload()
                     "queue cancellation bypassed confirmation")) return;
             key(Qt::Key_Escape);
             auto preparing = session;
-            preparing.insert(u"queuePosition"_s, 0);
+            // CloudMatch can retain the final queue counter after allocation.
+            // The authoritative seat step must still dismiss the queue page.
+            preparing.insert(u"queuePosition"_s, 1);
+            preparing.insert(u"seatSetupStep"_s, 2);
             store->setProperty("activeSession", preparing);
             store->setProperty("streamState", u"preparing"_s);
         }
         if (tick == 45) {
-            if (!require(cover->property("statusText").toString() == u"Preparing your game"_s
-                    && m_controller.overlay().isEmpty(), "queue did not advance to preparation")) return;
+            if (!require(cover->property("statusText").toString() == u"Configuring your cloud gaming rig"_s
+                    && m_controller.overlay().isEmpty(), "stale queue position hid rig allocation")) return;
             store->setProperty("streamState", u"ready"_s);
             m_controller.navigate(u"stream"_s);
             if (!require(event({{u"type"_s, u"status"_s}, {u"status"_s, u"streaming"_s}}),

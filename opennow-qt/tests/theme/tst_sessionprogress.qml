@@ -51,6 +51,8 @@ TestCase {
             {tag: "configuring-2", session: {seatSetupStep: 2}, title: "Configuring your cloud gaming rig"},
             {tag: "configuring-3-not-native-enum", session: {seatSetupStep: 3}, title: "Configuring your cloud gaming rig"},
             {tag: "configuring-4-not-ready", session: {seatSetupStep: 4}, title: "Configuring your cloud gaming rig"},
+            {tag: "stale-front-of-queue-does-not-hide-allocation", session: {seatSetupStep: 2, queuePosition: 1}, title: "Configuring your cloud gaming rig"},
+            {tag: "stale-queue-does-not-hide-connecting", session: {seatSetupStep: 0, queuePosition: 1}, title: "Connecting to GeForce NOW"},
             {tag: "cleanup", session: {seatSetupStep: 5, queuePosition: 21}, title: "Cleaning up your previous session"},
             {tag: "storage", session: {seatSetupStep: 6, queuePosition: 21}, title: "Waiting for cloud storage"}
         ]
@@ -73,6 +75,30 @@ TestCase {
         }
         progress.session = {queuePosition: 2.7}
         compare(progress.queuePosition, 2)
+    }
+
+    function test_staleFrontOfQueueClearsWhenRigIsAllocated() {
+        ShellStore.activeSession = {sessionId: "queue-transition", seatSetupStep: 1, queuePosition: 1}
+        compare(screen.queueVisible, true)
+        compare(screen.queuePosition, 1)
+        compare(screen.statusText, "Queue position 1")
+
+        // CloudMatch may retain the final counter while allocation advances.
+        ShellStore.activeSession = {sessionId: "queue-transition", seatSetupStep: 2, queuePosition: 1}
+        compare(screen.queueVisible, false)
+        compare(screen.statusText, "Configuring your cloud gaming rig")
+        compare(screen.detailText, "Your rig has been allocated. GeForce NOW is configuring it for your game.")
+    }
+
+    function test_clearedQueueCounterDoesNotReuseHistoricalBest() {
+        ShellStore.sessionProgressBestPosition = 1
+        ShellStore.activeSession = {sessionId: "queue-cleared", seatSetupStep: 1, queuePosition: 1}
+        compare(screen.queuePosition, 1)
+        ShellStore.activeSession = {sessionId: "queue-cleared", seatSetupStep: 1, queuePosition: 0}
+        compare(screen.queueVisible, true)
+        compare(screen.queuePosition, 0)
+        compare(screen.statusText, "Waiting for an available rig")
+        ShellStore.sessionProgressBestPosition = 0
     }
 
     function test_lifecyclePrecedence() {

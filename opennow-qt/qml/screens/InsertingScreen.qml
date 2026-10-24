@@ -32,8 +32,9 @@ FocusScope {
     readonly property int queueStallSeconds: ShellStore.sessionProgressGainedAtMs > 0
         ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressGainedAtMs) / 1000)) : 0
     readonly property bool queueStalled: root.queued && !root.stopping && root.queueStallSeconds >= 180
-    readonly property int queuePositionShown: ShellStore.sessionProgressBestPosition > 0
-        ? ShellStore.sessionProgressBestPosition : root.progress.queuePosition
+    // Show the latest server snapshot, not a historical best. In particular,
+    // clearing position 1 must be allowed to leave the queue presentation.
+    readonly property int queuePositionShown: root.progress.queuePosition
     readonly property string queueActivityText: {
         if (root.queueStallSeconds < 10)
             return qsTr("Updates when GeForce NOW reports it")

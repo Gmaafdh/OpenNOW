@@ -42,6 +42,7 @@ public slots:
             qmlRegisterSingletonType(QUrl::fromLocalFile(source + "/" + entry.second), "OpenNOW", 1, 0, entry.first);
         }
         for (const auto &entry : {std::pair{"DesktopSessionStarting", "desktop/stream/DesktopSessionStarting.qml"},
+                                 {"DesktopQueueExperience", "desktop/stream/DesktopQueueExperience.qml"},
                                  {"DesktopBrandLockup", "desktop/components/DesktopBrandLockup.qml"},
                                  {"SessionSetupProgress", "state/SessionSetupProgress.qml"},
                                  {"DesktopGameModal", "desktop/components/DesktopGameModal.qml"},
@@ -74,6 +75,9 @@ public slots:
         m_shell.insert("streamState", "preparing");
         m_shell.insert("streamerRestartAttempts", 0);
         m_shell.insert("sessionReconnectAttempts", 0);
+        m_shell.insert("sessionProgressGainedAtMs", 0.0);
+        m_shell.insert("sessionProgressBestPosition", 0);
+        m_shell.insert("requeueRequested", false);
         m_shell.insert("launchConflictDetected", false);
         m_shell.insert("streamMessage", QString{});
         m_shell.insert("streamBusy", false);

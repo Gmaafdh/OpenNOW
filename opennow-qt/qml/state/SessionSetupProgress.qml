@@ -11,8 +11,11 @@ QtObject {
         const position = Number(session && session.queuePosition || 0)
         return Number.isFinite(position) ? Math.min(2147483647, Math.max(0, Math.floor(position))) : 0
     }
-    readonly property bool queued: setupStep !== 5 && setupStep !== 6
-        && (setupStep === 1 || queuePosition > 0)
+    // An explicit non-queue seat step outranks a stale queue counter. Some
+    // CloudMatch responses keep queuePosition: 1 while the rig is already
+    // being configured; treating that counter as current strands the UI on
+    // the queue page until the final ready response.
+    readonly property bool queued: setupStep === 1 || (setupStep < 0 && queuePosition > 0)
     readonly property string title: {
         if (setupStep === 5) return qsTr("Cleaning up your previous session")
         if (setupStep === 6) return qsTr("Waiting for cloud storage")

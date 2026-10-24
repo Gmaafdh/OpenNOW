@@ -506,6 +506,13 @@
     "opacity": "Image opacity",
     "opacityDescription": "0% hides the image · 100% shows the full image"
   },
+  "queueExperience": {
+    "cloudQueue": "CLOUD QUEUE",
+    "yourPlaceInLine": "YOUR PLACE IN LINE",
+    "automaticStart": "Your session starts automatically",
+    "relax": "You can relax",
+    "automaticStartDetail": "We'll take it from here. Your game opens automatically when your rig is ready."
+  },
   "sessionLaunch": {
     "ending": "ENDING SESSION",
     "closing": "Closing your session",
