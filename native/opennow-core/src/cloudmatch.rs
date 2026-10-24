@@ -1377,24 +1377,42 @@ impl CloudMatchService {
         let mut last_error = None;
         for attempt in 0..=2 {
             match client.get(url.clone()).headers(headers.clone()).send() {
-                Ok(response)
-                    if attempt < 2
-                        && matches!(
-                            response.status().as_u16(),
-                            408 | 425 | 429 | 500 | 502 | 503 | 504
-                        ) =>
-                {
-                    thread::sleep(Duration::from_millis(if attempt == 0 { 250 } else { 750 }));
-                }
                 Ok(response) => {
-                    if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    let status = response.status();
+                    if status == reqwest::StatusCode::NOT_FOUND {
                         return Err(ServiceError {
                             code: "session_not_found",
                             message: "The requested GeForce NOW session no longer exists."
                                 .to_owned(),
                         });
                     }
-                    return read_cloudmatch_response("Session polling failed", response, false);
+                    // A seat that is still queued answers its own polls with an
+                    // error status: `503 SESSION_QUEUE_LENGTH_EXCEEDED` carries
+                    // the live queue position in `seatSetupInfo`. Failing here
+                    // threw that snapshot away, so the shell burned its poll
+                    // budget and the player was stranded on position 1 with a
+                    // stale screen. Keep the queue snapshot instead; the shell
+                    // keeps polling and its stall detector still offers a new
+                    // rig when the position genuinely stops moving.
+                    let payload = response.json::<Value>();
+                    let queued = match &payload {
+                        Ok(payload) => queued_poll_progress(status, payload),
+                        Err(_) => false,
+                    };
+                    if queued {
+                        eprintln!("session: queue poll kept for {status}");
+                        return payload.map_err(|error| network("Session polling failed", error));
+                    }
+                    if attempt < 2 && retryable_cloudmatch_status(status) {
+                        thread::sleep(Duration::from_millis(if attempt == 0 { 250 } else { 750 }));
+                        continue;
+                    }
+                    return validate_cloudmatch_response(
+                        "Session polling failed",
+                        status,
+                        payload,
+                        false,
+                    );
                 }
                 Err(error) => {
                     last_error = Some(error);
@@ -2357,6 +2375,52 @@ fn validate_cloudmatch_response(
         });
     }
     Ok(payload)
+}
+
+fn retryable_cloudmatch_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 408 | 425 | 429 | 500 | 502 | 503 | 504)
+}
+
+/// True when a response body describes a seat that still has no rig.
+fn queued_session_snapshot(payload: &Value) -> bool {
+    let session = &payload["session"];
+    if session["sessionId"]
+        .as_str()
+        .is_none_or(|session_id| session_id.trim().is_empty())
+    {
+        return false;
+    }
+    match value_i64(&session["status"]) {
+        Some(status) => status <= 1,
+        // Some replies omit the seat status and only report the queue.
+        None => value_i64(&session["seatSetupInfo"]["queuePosition"])
+            .is_some_and(|position| position > 0),
+    }
+}
+
+/// True when GeForce NOW reports queue pressure instead of a poll result.
+fn queue_pressure_rejection(payload: &Value) -> bool {
+    value_i64(&payload["requestStatus"]["statusCode"]) == Some(62)
+        || payload["requestStatus"]["statusDescription"]
+            .as_str()
+            .is_some_and(|description| description.to_ascii_uppercase().contains("QUEUE"))
+}
+
+/// True when a rejected poll still describes a live queued seat. GeForce NOW
+/// reports queue pressure while the body keeps carrying `seatSetupInfo`: the
+/// common case is `503 SESSION_QUEUE_LENGTH_EXCEEDED`, and the same rejection
+/// can arrive with a success status. That body is queue progress, not a dead
+/// poll, so callers must keep it and stay in the queue instead of consuming a
+/// failure budget. Authentication, missing sessions, and non-queue errors are
+/// never progress.
+fn queued_poll_progress(status: reqwest::StatusCode, payload: &Value) -> bool {
+    if matches!(status.as_u16(), 401 | 403 | 404) || !queued_session_snapshot(payload) {
+        return false;
+    }
+    if retryable_cloudmatch_status(status) {
+        return true;
+    }
+    status.is_success() && queue_pressure_rejection(payload)
 }
 
 fn is_session_conflict(payload: &Value) -> bool {
@@ -4438,6 +4502,115 @@ mod tests {
             assert!(has_webrtc_endpoint(&polled["session"]));
             assert_eq!(server.join().unwrap().len(), 2);
         }
+    }
+
+    #[test]
+    fn rejected_queue_polls_are_kept_as_progress() {
+        let queued = json!({"session":{"sessionId":"Q","status":1,
+            "seatSetupInfo":{"queuePosition":1,"seatSetupStep":1}}});
+        for status in [
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            reqwest::StatusCode::BAD_GATEWAY,
+        ] {
+            assert!(queued_poll_progress(status, &queued), "{status}");
+        }
+        // The same rejection can arrive with a success status.
+        let mut rejected = queued.clone();
+        rejected["requestStatus"] = json!({"statusCode":62,
+            "statusDescription":"SESSION_QUEUE_LENGTH_EXCEEDED"});
+        assert!(queued_poll_progress(
+            reqwest::StatusCode::OK,
+            &rejected,
+        ));
+        // A successful poll and any other rejection keep their own handling.
+        let mut accepted = queued.clone();
+        accepted["requestStatus"] = json!({"statusCode":1});
+        assert!(!queued_poll_progress(reqwest::StatusCode::OK, &accepted));
+        let mut expired = queued.clone();
+        expired["requestStatus"] = json!({"statusCode":32,
+            "statusDescription":"SESSION_EXPIRED"});
+        assert!(!queued_poll_progress(reqwest::StatusCode::OK, &expired));
+        for status in [
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+            reqwest::StatusCode::NOT_FOUND,
+        ] {
+            assert!(!queued_poll_progress(status, &queued), "{status}");
+        }
+        // A body without a seat status still describes the queue when it names
+        // a position for a known seat.
+        assert!(queued_poll_progress(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            &json!({"session":{"sessionId":"Q","seatSetupInfo":{"queuePosition":2}}}),
+        ));
+        // A seat that already has a rig, an empty body, and a body without an
+        // identity are failures, not queue progress.
+        for payload in [
+            json!({"session":{"sessionId":"Q","status":2}}),
+            json!({}),
+            json!({"session":{"sessionId":"  ","status":1}}),
+            json!({"session":{"status":1}}),
+            json!({"session":{"sessionId":"Q","seatSetupInfo":{"queuePosition":0}}}),
+        ] {
+            assert!(
+                !queued_poll_progress(reqwest::StatusCode::SERVICE_UNAVAILABLE, &payload),
+                "{payload}",
+            );
+        }
+    }
+
+    #[test]
+    fn queued_seat_keeps_polling_when_the_server_rejects_queue_polls() {
+        let control = json!({"ip":"np-ams-01.cloudmatchbeta.nvidiagrid.net","port":443});
+        let snapshot = |position: i64| {
+            json!({"session":{"sessionId":"Q","status":1,
+                "sessionControlInfo":control.clone(),
+                "seatSetupInfo":{"queuePosition":position,"seatSetupStep":1}}})
+        };
+        let mut queued = snapshot(1);
+        queued["requestStatus"] = json!({"statusCode":1});
+        let mut rejected = snapshot(1);
+        rejected["requestStatus"] = json!({"statusCode":62,
+            "statusDescription":"SESSION_QUEUE_LENGTH_EXCEEDED","unifiedErrorCode":176959496});
+        let mut moved = snapshot(4);
+        moved["requestStatus"] = json!({"statusCode":1});
+        let (base, server) = session_server(
+            vec![
+                (200, queued),
+                (503, rejected.clone()),
+                (503, rejected),
+                (200, moved),
+            ],
+            |_| {},
+        );
+        let client = Client::new();
+        let mut service = CloudMatchService::new(client.clone());
+        service.set_test_control_base(base.clone());
+        let auth = conflict_auth();
+        let created = service
+            .create_at(&json!({"appId":"123"}), &json!({}), &auth, "device", || {
+                Ok((client.clone(), base.clone()))
+            })
+            .unwrap();
+        assert_eq!(created["session"]["queuePosition"], 1);
+        service.finish_create("Q", true).unwrap();
+        // The two rejected polls still report the live queue, so they are not
+        // failures and they do not consume the shell's poll budget.
+        for _ in 0..2 {
+            let polled = service
+                .poll(&json!({"sessionId":"Q"}), &auth, "device")
+                .unwrap();
+            assert_eq!(polled["session"]["status"], 1);
+            assert_eq!(polled["session"]["phase"], "preparing");
+            assert_eq!(polled["session"]["queuePosition"], 1);
+        }
+        let polled = service
+            .poll(&json!({"sessionId":"Q"}), &auth, "device")
+            .unwrap();
+        assert_eq!(polled["session"]["queuePosition"], 4);
+        assert_eq!(server.join().unwrap().len(), 4);
     }
 
     #[test]

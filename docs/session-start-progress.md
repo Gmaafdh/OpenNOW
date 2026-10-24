@@ -25,6 +25,36 @@ Do not apply those meanings directly to `seatSetupStep`. The supplied SDK maps
 raw steps `0`, `1`, `5`, and `6` explicitly and defaults other steps to configuring.
 OpenNOW only names the bounded known range and keeps a generic future-value fallback.
 
+## Queue polls that answer with an error status
+
+A queued seat is polled with `GET /v2/session/{id}`. GeForce NOW answers those
+polls with an error status while the queue is under pressure — the common case is
+`503` with `requestStatus.statusCode: 62` and
+`statusDescription: SESSION_QUEUE_LENGTH_EXCEEDED` — but the body still carries
+the live `session.status` and `seatSetupInfo` for the same seat.
+
+`get_session` in `native/opennow-core/src/cloudmatch.rs` keeps that snapshot
+whenever the body describes a seat that has no rig yet (`session.status` `1` or
+lower, or only a queue position, with a session ID) and the reply is either a
+retryable status (`408`, `425`, `429`, `500`, `502`, `503`, `504`) or a
+success status whose `requestStatus` is the queue rejection (`statusCode` `62` or
+a description containing `QUEUE`). Those polls are queue progress, not failures:
+
+- the shell receives a normal session snapshot and stays on the queue screen with
+  the reported position;
+- the poll does not consume `streamPollFailureAttempts`, so a long queue cannot be
+  ended by the server's own queue-pressure replies;
+- the snapshot is returned immediately instead of after the transient-failure
+  backoff, so queue updates keep their cadence;
+- the queue stall detector still counts only real movement, so a position that
+  genuinely stops moving still offers "leave queue and request a fresh rig".
+
+Authentication (`401`/`403`), missing sessions (`404`), an empty body, a body
+for a seat that already has a rig, and any other rejection such as
+`SESSION_EXPIRED` remain failures and keep their existing handling. Because
+these polls are not failures, they also stop producing automatic bug reports
+while the player is legitimately waiting in a queue.
+
 After navigating to the stream, the existing native `starting` status displays
 connection initialization. The native `streaming` status before the first-frame
 handoff displays a wait for video. It does not claim that gameplay is visible.
