@@ -114,6 +114,7 @@ struct ActiveSession {
     zone: String,
     app_id: String,
     info: Value,
+    lowest_queue_position: Option<i64>,
     client: Client,
 }
 
@@ -682,13 +683,21 @@ impl CloudMatchService {
         info["phase"] =
             Value::String(session_phase(info["status"].as_i64().unwrap_or_default()).to_owned());
         // A queue that stops moving is otherwise invisible in the diagnostics
-        // log, so every poll before the seat is ready records what the server
-        // reported. Plateau length is visible as repeated identical lines.
+        // log. Record the normalized value and each redacted server counter so
+        // a real allocation plateau can be distinguished from counter switching.
         let status = value_i64(&info["status"]).unwrap_or_default();
         if status < 2 {
             let queue = value_i64(&info["queuePosition"]).unwrap_or_default();
             let step = value_i64(&info["seatSetupStep"]).unwrap_or(-1);
-            eprintln!("session: poll status {status} queue {queue} step {step}");
+            let raw = &payload["session"];
+            eprintln!(
+                "session: poll status {status} queue {queue} step {step} \
+                 raw-queue top={:?} seat={:?} progress={:?} info={:?}",
+                value_i64(&raw["queuePosition"]),
+                value_i64(&raw["seatSetupInfo"]["queuePosition"]),
+                value_i64(&raw["sessionProgress"]["queuePosition"]),
+                value_i64(&raw["progressInfo"]["queuePosition"])
+            );
         }
         if current
             .as_ref()
@@ -1332,11 +1341,24 @@ impl CloudMatchService {
             }
             return Ok(());
         }
+        let mut lowest_queue_position = None;
         if let Some(previous) = active.as_ref() {
             preserve_session_profile(info, &previous.info);
-            if previous.session_id == session_id && info["keyboardLayout"].is_null() {
-                info["keyboardLayout"] = previous.info["keyboardLayout"].clone();
+            if previous.session_id == session_id {
+                if info["keyboardLayout"].is_null() {
+                    info["keyboardLayout"] = previous.info["keyboardLayout"].clone();
+                }
+                lowest_queue_position = previous.lowest_queue_position;
             }
+        }
+        // CloudMatch can expose different counters in successive responses.
+        // Match the official client: retain the lowest position observed for
+        // this allocation instead of displaying a later increase. A new
+        // session ID starts a new floor; an omitted position stays omitted.
+        if let Some(position) = info["queuePosition"].as_i64() {
+            let shown = lowest_queue_position.map_or(position, |lowest| lowest.min(position));
+            info["queuePosition"] = json!(shown);
+            lowest_queue_position = Some(shown);
         }
         *active = Some(ActiveSession {
             session_id,
@@ -1347,6 +1369,7 @@ impl CloudMatchService {
             zone: zone.to_owned(),
             app_id: app_id.to_owned(),
             info: info.clone(),
+            lowest_queue_position,
             client,
         });
         Ok(())
@@ -1422,7 +1445,7 @@ impl CloudMatchService {
         if explicit_create_base(params, settings) {
             return Ok(requested.clone());
         }
-        self.resolve_create_base(client, requested, token, device_id, true)
+        self.resolve_create_base(client, requested, token, device_id)
     }
 
     fn resolve_create_base(
@@ -1431,7 +1454,6 @@ impl CloudMatchService {
         requested: &Url,
         token: &str,
         device_id: &str,
-        prefer_regional: bool,
     ) -> Result<Url, ServiceError> {
         let Ok(url) = requested.join("v2/serverInfo") else {
             return Ok(requested.clone());
@@ -1449,11 +1471,12 @@ impl CloudMatchService {
         let Ok(payload) = response.json::<Value>() else {
             return Ok(requested.clone());
         };
+        // `local-region` is the server's detected allocation region and may
+        // itself be an np-* zone. The official client uses that zone directly;
+        // skipping it can silently put Auto launches in a different queue.
         Ok(regional_bases(&payload)
             .into_iter()
-            .find(|base| {
-                !prefer_regional || !base.host_str().unwrap_or_default().starts_with("np-")
-            })
+            .next()
             .unwrap_or_else(|| requested.clone()))
     }
 }
@@ -2673,15 +2696,17 @@ fn queue_position(session: &Value) -> Option<i64> {
     ) {
         return None;
     }
+    // The official client prefers the seat-setup counter. Empty or zero
+    // containers must not hide a positive position in a later container.
     [
-        &session["queuePosition"],
         &session["seatSetupInfo"]["queuePosition"],
+        &session["queuePosition"],
         &session["sessionProgress"]["queuePosition"],
         &session["progressInfo"]["queuePosition"],
     ]
     .into_iter()
-    .find_map(value_i64)
-    .filter(|value| *value > 0)
+    .filter_map(value_i64)
+    .find(|value| *value > 0)
 }
 
 fn first_string(value: &Value) -> Option<String> {
@@ -5990,12 +6015,12 @@ mod tests {
     }
 
     #[test]
-    fn concrete_create_zones_bypass_local_region_but_auto_discovers_it() {
+    fn concrete_create_zones_bypass_local_region_but_auto_uses_detected_np_zone() {
         let selected = json!({"metaData":[
             {"key":"local-region","value":"nearest"},
-            {"key":"nearest","value":"https://nearest.partner.example/"},
+            {"key":"nearest","value":"https://np-nearest.partner.example/"},
             {"key":"gfn-regions","value":"queue"},
-            {"key":"queue","value":"https://np-queue.nvidiagrid.net/"}
+            {"key":"queue","value":"https://regional.partner.example/"}
         ]});
         let (requested, server) = session_server(vec![(200, selected)], |_| {});
         let client = Client::builder().no_proxy().build().unwrap();
@@ -6039,7 +6064,7 @@ mod tests {
                 )
                 .unwrap()
                 .as_str(),
-            "https://nearest.partner.example/"
+            "https://np-nearest.partner.example/"
         );
         assert_eq!(server.join().unwrap(), ["GET /v2/serverInfo HTTP/1.1"]);
     }
@@ -6678,6 +6703,74 @@ mod tests {
             .store_active(&mut different, &base, "auto", "123", client)
             .unwrap();
         assert!(different["keyboardLayout"].is_null());
+    }
+
+    #[test]
+    fn queue_position_prefers_seat_setup_and_skips_empty_containers() {
+        assert_eq!(
+            queue_position(&json!({"queuePosition":65,"seatSetupInfo":{
+                "queuePosition":24,"seatSetupStep":1
+            }})),
+            Some(24)
+        );
+        assert_eq!(
+            queue_position(&json!({"queuePosition":0,"seatSetupInfo":{
+                "queuePosition":0,"seatSetupStep":1
+            },"sessionProgress":{"queuePosition":7}})),
+            Some(7)
+        );
+        assert_eq!(
+            queue_position(&json!({"seatSetupInfo":{
+                "queuePosition":0,"seatSetupStep":1
+            }})),
+            None
+        );
+        // Explicit post-queue steps still suppress every stale counter.
+        assert_eq!(
+            queue_position(&json!({"queuePosition":25,"seatSetupInfo":{
+                "queuePosition":24,"seatSetupStep":2
+            }})),
+            None
+        );
+    }
+
+    #[test]
+    fn active_queue_position_never_rises_for_the_same_session() {
+        let client = Client::new();
+        let service = CloudMatchService::new(client.clone());
+        let base = Url::parse(DEFAULT_STREAMING_BASE).unwrap();
+        let mut shown = Vec::new();
+        for (session_id, position) in [
+            ("seat-one", json!(65)),
+            ("seat-one", json!(24)),
+            ("seat-one", json!(65)),
+            ("seat-one", Value::Null),
+            ("seat-one", json!(25)),
+            ("seat-one", json!(4)),
+            ("seat-two", json!(65)),
+        ] {
+            let mut polled = json!({"sessionId":session_id,"status":1,"queuePosition":position});
+            service
+                .store_active(&mut polled, &base, "auto", "123", client.clone())
+                .unwrap();
+            assert_eq!(
+                service.active.lock().unwrap().as_ref().unwrap().info,
+                polled
+            );
+            shown.push(polled["queuePosition"].clone());
+        }
+        assert_eq!(
+            shown,
+            [
+                json!(65),
+                json!(24),
+                json!(24),
+                Value::Null,
+                json!(24),
+                json!(4),
+                json!(65)
+            ]
+        );
     }
 
     #[test]

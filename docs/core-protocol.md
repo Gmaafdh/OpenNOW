@@ -801,6 +801,13 @@ alliance providers, does not alter persisted region preferences, and does not
 bypass account scope, catalog eligibility, or subscription checks. All other
 region overrides retain the provider-discovery rules above.
 
+Without an explicit saved-region or queue-location override, fresh creation
+resolves the provider's `serverInfo` and uses its detected `local-region` first.
+That endpoint may be an `np-*` CloudMatch zone; Auto must not skip it in favor
+of another advertised region. Explicit choices still bypass this discovery.
+If discovery or local-region parsing is unavailable, creation retains the
+requested provider endpoint.
+
 `session.create` requires `catalogAppId` as the parent LCARS identifier,
 `variantId` as the selected positive GraphQL Int identifier encoded as a string,
 and `appId` equal to that exact variant ID. `scope` must contain the current

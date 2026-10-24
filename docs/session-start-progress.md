@@ -18,9 +18,20 @@ A positive queue position retains the queue presentation only while the server
 reports queue step `1` or omits a usable seat step. Explicit connecting,
 configuration, cleanup, and storage steps outrank a stale counter: CloudMatch
 can briefly retain `queuePosition: 1` after allocating the rig, and that old
-value must not hold the client on the queue page. Cloud steps do not form a
-fixed linear sequence and do not support a calculated percentage. Unknown
-values do not imply completion or failure.
+value must not hold the client on the queue page. While the seat is still in
+queue step `1`, the core prefers `seatSetupInfo.queuePosition`, skips empty
+containers, and retains the lowest position reported for that session ID. This
+matches the official client's handling of conflicting or temporarily increasing
+counters; a new allocation starts with a new floor. These rules correct counter
+selection and presentation only—they do not claim to accelerate NVIDIA's
+server-side seat allocation. Cloud steps do not form a fixed linear sequence
+and do not support a calculated percentage. Unknown values do not imply
+completion or failure.
+
+Pre-ready poll diagnostics include the normalized queue value and the four
+redacted server counters (top-level, seat setup, session progress, and progress
+info). They contain no credential, token, cookie, or session ID, and allow a
+genuine allocation plateau to be distinguished from switching counters.
 
 These numbers are **not** the native bridge's `NVB_SESSION_SETUP_STATE` enum.
 That separate enum uses `3` for starting the streamer and `4` for seat ready.
