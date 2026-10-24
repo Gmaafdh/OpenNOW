@@ -300,9 +300,24 @@ class CIWorkflowTest(unittest.TestCase):
             ["ubuntu-24.04", "windows-2025"],
         )
         self.assertIn("    needs: contracts", workflow)
-        self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
-        self.assertIn("    branches:\n      - arena/15b83ddf-opennow\n", workflow)
-        self.assertIn("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'", workflow)
+        # Every branch that can start the harness must pass both job guards, so
+        # a new Arena branch cannot publish to the fast channel from a job it is
+        # not scoped to.
+        branches = re.findall(r"^      - (arena/\S+)$", workflow, re.MULTILINE)
+        self.assertEqual(
+            branches,
+            [
+                "arena/15b83ddf-opennow",
+                "arena/857f597a-opennow",
+                "arena/e8db883e-opennow",
+            ],
+        )
+        for branch in branches:
+            self.assertEqual(
+                workflow.count(f"refs/heads/{branch}"),
+                2,
+                f"both jobs must be scoped to {branch}",
+            )
         self.assertIn("  contents: read", workflow)
         for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):
