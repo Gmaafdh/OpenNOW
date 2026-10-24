@@ -1317,6 +1317,7 @@ if(BUILD_TESTING)
             opennow-controllericons-tests
             opennow-streamtoasts-tests
             opennow-waylandhdroutput-tests
+            opennow-theme-tests
             opennow-frameinterpolator-tests
             opennow-fsrupscaler-tests
             opennow-localization-tests
@@ -1379,6 +1380,7 @@ if(BUILD_TESTING)
                 opennow-controllericons-tests
                 opennow-streamtoasts-tests
                 opennow-waylandhdroutput-tests
+                opennow-theme-tests
                 opennow-hdrcolor-tests
                 opennow-fsrupscaler-tests
                 opennow-localization-tests
