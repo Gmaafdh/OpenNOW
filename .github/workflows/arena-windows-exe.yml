@@ -189,9 +189,16 @@ jobs:
         shell: bash
         run: |
           cd /o
+          status=0
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests)$' --output-on-failure --no-tests=error \
-            2>&1 | tee ci-logs/ctest.log
+            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests)$' --output-on-failure --verbose --no-tests=error \
+            2>&1 | tee ci-logs/ctest.log || status=$?
+          results=build/opennow-qt-release/opennow-theme-results.txt
+          if [[ -f "$results" ]]; then
+            cp "$results" ci-logs/theme-results.log
+            cat "$results"
+          fi
+          exit "$status"
 
       - name: Exercise queue transition and capture the redesigned page
         shell: bash
