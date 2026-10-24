@@ -205,12 +205,21 @@ jobs:
         run: |
           cd /o
           export QT_QPA_PLATFORM=offscreen
+          release="$PWD/build/opennow-qt-release/Release"
+          smoke="$release/OpenNOW-Smoke.exe"
+          cp "$release/OpenNOW.exe" "$smoke"
+          editbin //SUBSYSTEM:CONSOLE "$(cygpath -w "$smoke")" 2>&1 | tee ci-logs/smoke-console.log
           screenshot=$(cygpath -w "$PWD/ci-logs/desktop-queue.png")
-          ./build/opennow-qt-release/Release/OpenNOW.exe \
+          status=0
+          "$smoke" \
             --smoke-test --allow-multiple-instances --desktop --route library \
             --smoke-session-launch --reduced-motion --screenshot "$screenshot" \
-            2>&1 | tee ci-logs/queue-acceptance.log
-          test -s ci-logs/desktop-queue.png
+            2>&1 | tee ci-logs/queue-acceptance.log || status=$?
+          if [[ $status -ne 0 ]]; then exit "$status"; fi
+          if [[ ! -s ci-logs/desktop-queue.png ]]; then
+            echo "::error::The session-launch acceptance did not create desktop-queue.png"
+            exit 1
+          fi
 
       - name: Package portable ZIP
         shell: bash

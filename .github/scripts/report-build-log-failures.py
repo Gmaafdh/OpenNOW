@@ -7,7 +7,7 @@ import sys
 
 def report(directory):
     pattern = re.compile(
-        r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|"
+        r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|critical default:|"
         r"test result: FAILED|^FAIL!?\s*:|AssertionError:|^Diff in "
     )
     for log in sorted(Path(directory).glob("*.log")):
