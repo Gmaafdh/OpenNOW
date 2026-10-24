@@ -4520,10 +4520,7 @@ mod tests {
         let mut rejected = queued.clone();
         rejected["requestStatus"] = json!({"statusCode":62,
             "statusDescription":"SESSION_QUEUE_LENGTH_EXCEEDED"});
-        assert!(queued_poll_progress(
-            reqwest::StatusCode::OK,
-            &rejected,
-        ));
+        assert!(queued_poll_progress(reqwest::StatusCode::OK, &rejected));
         // A successful poll and any other rejection keep their own handling.
         let mut accepted = queued.clone();
         accepted["requestStatus"] = json!({"statusCode":1});
