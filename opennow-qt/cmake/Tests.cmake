@@ -334,7 +334,8 @@ if(BUILD_TESTING)
     add_test(NAME opennow-theme-tests COMMAND opennow-theme-tests
         -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/theme"
         -o -,txt -o "${CMAKE_CURRENT_BINARY_DIR}/opennow-theme-results.txt,txt")
-    set_tests_properties(opennow-theme-tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+    set_tests_properties(opennow-theme-tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 30)
     qt_add_resources(opennow-qt "theme-settings-acceptance"
         PREFIX "/acceptance" BASE tests FILES tests/ThemeSettingsAcceptance.qml)
     qt_add_resources(opennow-qt "pending-settings-client"

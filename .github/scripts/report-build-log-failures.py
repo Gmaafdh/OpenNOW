@@ -8,7 +8,7 @@ import sys
 def report(directory):
     pattern = re.compile(
         r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|"
-        r"test result: FAILED|^FAIL:|AssertionError:|^Diff in "
+        r"test result: FAILED|^FAIL!?\s*:|AssertionError:|^Diff in "
     )
     for log in sorted(Path(directory).glob("*.log")):
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()

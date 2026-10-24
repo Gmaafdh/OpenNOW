@@ -35,9 +35,20 @@ TestCase {
         return result
     }
 
+    function visibleOnScreen(item) {
+        for (let current = item; current; current = current.parent) {
+            if (current.visible === false)
+                return false
+            if (current === screen)
+                return true
+        }
+        return false
+    }
+
     function textItem(text) {
-        const item = descendants(screen).find(item => item.text === text && item.color !== undefined)
-        verify(item !== undefined, "Missing text: " + text)
+        const item = descendants(screen).find(item => item.text === text && item.color !== undefined
+            && visibleOnScreen(item))
+        verify(item !== undefined, "Missing visible text: " + text)
         return item
     }
 
