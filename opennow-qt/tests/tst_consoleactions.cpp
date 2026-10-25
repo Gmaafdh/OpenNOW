@@ -49,6 +49,7 @@ public slots:
         qmlRegisterType(QUrl::fromLocalFile(source + "/desktop/settings/controls/DesktopSettingsIcon.qml"),
                         "OpenNOW", 1, 0, "DesktopSettingsIcon");
         QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/OpenNOW/res/fonts/Nunito-Variable.ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/OpenNOW/res/fonts/Syne-Variable.ttf"));
         m_app.setReducedMotion(true);
     }
 

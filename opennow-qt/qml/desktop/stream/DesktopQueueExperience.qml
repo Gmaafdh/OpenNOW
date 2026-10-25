@@ -24,10 +24,11 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 700
-    readonly property color cardInk: "#14251F"
-    readonly property color cardMuted: "#5B6961"
-    readonly property color cardAccent: "#286548"
-    readonly property color cardSoft: "#E5EAE1"
+    readonly property color cardInk: Theme.mediaForeground
+    readonly property color cardMuted: Theme.mediaMuted
+    readonly property color cardAccent: Theme.mediaAccent
+    readonly property color cardSoft: "#12FFFFFF"
+    readonly property color cardSurface: "#E60B1422"
 
     Accessible.role: Accessible.Pane
     Accessible.name: root.statusText
@@ -82,10 +83,10 @@ FocusScope {
                 text: String(root.game.title || qsTr("GeForce NOW"))
                 color: Theme.mediaForeground
                 font.family: DesktopTokens.displayFont
-                font.pixelSize: DesktopTokens.px(root.veryCompact ? 32 : root.compact ? 40 : 50)
+                font.pixelSize: DesktopTokens.px(root.veryCompact ? 32 : root.compact ? 42 : 54)
                 font.weight: Font.Black
-                font.letterSpacing: -DesktopTokens.px(1.2)
-                lineHeight: 1.04
+                font.letterSpacing: -DesktopTokens.px(1.4)
+                lineHeight: 1.02
                 maximumLineCount: 2
                 wrapMode: Text.WordWrap
                 elide: Text.ElideRight
@@ -99,8 +100,9 @@ FocusScope {
                 text: root.statusText
                 color: Theme.mediaForeground
                 font.family: DesktopTokens.displayFont
-                font.pixelSize: DesktopTokens.px(root.veryCompact ? 19 : 25)
+                font.pixelSize: DesktopTokens.px(root.veryCompact ? 19 : 26)
                 font.weight: Font.ExtraBold
+                font.letterSpacing: -DesktopTokens.px(0.35)
                 wrapMode: Text.WordWrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -120,34 +122,46 @@ FocusScope {
             Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 16 : 24) }
             Rectangle {
                 width: parent.width
-                height: DesktopTokens.px(76)
-                radius: DesktopTokens.px(18)
-                color: "#14FFFFFF"
+                height: DesktopTokens.px(78)
+                radius: DesktopTokens.px(16)
+                color: "#0DFFFFFF"
                 border.width: 1
                 border.color: "#1FFFFFFF"
                 visible: !root.veryCompact
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.margins: DesktopTokens.px(12)
+                    width: DesktopTokens.px(3)
+                    radius: width / 2
+                    color: Theme.mediaAccent
+                }
                 Row {
                     anchors.fill: parent
-                    anchors.margins: DesktopTokens.px(16)
-                    spacing: DesktopTokens.px(14)
+                    anchors.leftMargin: DesktopTokens.px(22)
+                    anchors.rightMargin: DesktopTokens.px(16)
+                    spacing: DesktopTokens.px(12)
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: DesktopTokens.px(40)
+                        width: DesktopTokens.px(36)
                         height: width
                         radius: width / 2
-                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.16)
+                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.14)
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
                         Text {
                             anchors.centerIn: parent
                             text: "✓"
                             color: Theme.mediaAccent
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: DesktopTokens.px(20)
+                            font.pixelSize: DesktopTokens.px(18)
                             font.weight: Font.Black
                         }
                     }
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - DesktopTokens.px(54)
+                        width: parent.width - DesktopTokens.px(48)
                         spacing: DesktopTokens.px(3)
                         Text {
                             text: qsTr("You can relax")
@@ -209,13 +223,13 @@ FocusScope {
         Rectangle {
             anchors.right: queuePass.right
             anchors.verticalCenter: queuePass.verticalCenter
-            anchors.rightMargin: -DesktopTokens.px(34)
-            width: queuePass.width + DesktopTokens.px(68)
-            height: queuePass.height + DesktopTokens.px(68)
-            radius: DesktopTokens.px(42)
+            anchors.rightMargin: -DesktopTokens.px(30)
+            width: queuePass.width + DesktopTokens.px(60)
+            height: queuePass.height + DesktopTokens.px(60)
+            radius: DesktopTokens.px(44)
             color: "transparent"
             border.width: 1
-            border.color: "#12FFFFFF"
+            border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.10)
             visible: !root.veryCompact
         }
 
@@ -224,36 +238,52 @@ FocusScope {
             objectName: "desktopQueuePass"
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(DesktopTokens.px(400), parent.width * 0.42)
-            height: Math.min(parent.height, DesktopTokens.px(root.veryCompact ? 410 : root.compact ? 540 : 610))
-            radius: DesktopTokens.px(30)
-            color: "#F4F3EB"
+            width: Math.min(DesktopTokens.px(420), parent.width * 0.42)
+            height: Math.min(parent.height, DesktopTokens.px(root.veryCompact ? 430 : root.compact ? 500 : 560))
+            radius: DesktopTokens.px(32)
+            color: root.cardSurface
             border.width: 1
-            border.color: "#FFFFFFFF"
+            border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
             clip: true
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: DesktopTokens.px(5)
+                height: DesktopTokens.px(3)
                 color: root.cardAccent
             }
-            CircleAccent {
+            Rectangle {
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.rightMargin: -DesktopTokens.px(60)
-                anchors.topMargin: -DesktopTokens.px(72)
-                diameter: DesktopTokens.px(190)
-                tone: root.cardAccent
+                anchors.rightMargin: -DesktopTokens.px(72)
+                anchors.topMargin: -DesktopTokens.px(84)
+                width: DesktopTokens.px(230)
+                height: width
+                radius: width / 2
+                color: "transparent"
+                border.width: DesktopTokens.px(26)
+                border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.045)
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: -DesktopTokens.px(110)
+                anchors.bottomMargin: -DesktopTokens.px(120)
+                width: DesktopTokens.px(260)
+                height: width
+                radius: width / 2
+                color: "transparent"
+                border.width: 1
+                border.color: "#0EFFFFFF"
             }
 
             Column {
                 id: passContent
-                x: DesktopTokens.px(root.veryCompact ? 16 : root.compact ? 20 : 28)
-                y: DesktopTokens.px(root.veryCompact ? 16 : root.compact ? 20 : 28)
+                x: DesktopTokens.px(root.veryCompact ? 18 : root.compact ? 22 : 28)
+                y: DesktopTokens.px(root.veryCompact ? 18 : root.compact ? 22 : 28)
                 width: parent.width - 2 * x
-                spacing: DesktopTokens.px(root.veryCompact || root.compact ? 8 : 10)
+                spacing: DesktopTokens.px(root.veryCompact ? 8 : 11)
 
                 Item {
                     width: parent.width
@@ -261,12 +291,12 @@ FocusScope {
                     Text {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("CLOUD QUEUE")
+                        text: qsTr("ALLOCATION CONSOLE")
                         color: root.cardInk
                         font.family: DesktopTokens.monoFont
                         font.pixelSize: DesktopTokens.px(10)
                         font.weight: Font.Bold
-                        font.letterSpacing: DesktopTokens.px(1.5)
+                        font.letterSpacing: DesktopTokens.px(1.35)
                     }
                     Rectangle {
                         anchors.right: parent.right
@@ -275,6 +305,8 @@ FocusScope {
                         height: DesktopTokens.px(26)
                         radius: height / 2
                         color: root.cardSoft
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.20)
                         Row {
                             id: liveRow
                             anchors.centerIn: parent
@@ -304,7 +336,7 @@ FocusScope {
                         }
                     }
                 }
-                Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 2 : root.compact ? 4 : 8) }
+
                 Text {
                     text: qsTr("YOUR PLACE IN LINE")
                     color: root.cardMuted
@@ -313,102 +345,178 @@ FocusScope {
                     font.weight: Font.Bold
                     font.letterSpacing: DesktopTokens.px(1.4)
                 }
+
                 Item {
+                    id: orbit
                     width: parent.width
-                    height: DesktopTokens.px(root.veryCompact ? 82 : root.compact ? 96 : 116)
-                    Text {
+                    height: DesktopTokens.px(root.veryCompact ? 118 : root.compact ? 154 : 190)
+                    readonly property real ringDiameter: Math.min(height - DesktopTokens.px(8), width - DesktopTokens.px(20))
+
+                    Rectangle {
                         anchors.centerIn: parent
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
-                        color: root.cardInk
-                        font.family: DesktopTokens.displayFont
-                        font.pixelSize: DesktopTokens.px(root.queuePosition > 999
-                            ? (root.veryCompact ? 64 : 88) : (root.veryCompact ? 84 : root.compact ? 96 : 116))
-                        font.weight: Font.Black
-                        font.letterSpacing: -DesktopTokens.px(4)
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: root.statusText
+                        width: orbit.ringDiameter
+                        height: width
+                        radius: width / 2
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: orbit.ringDiameter * 0.78
+                        height: width
+                        radius: width / 2
+                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.035)
+                        border.width: 1
+                        border.color: "#16FFFFFF"
+                    }
+                    Item {
+                        anchors.centerIn: parent
+                        width: orbit.ringDiameter
+                        height: width
+                        RotationAnimation on rotation {
+                            from: 0
+                            to: 360
+                            duration: 18000
+                            loops: Animation.Infinite
+                            running: root.visible && !AppController.reducedMotion
+                        }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: -DesktopTokens.px(4)
+                            width: DesktopTokens.px(8)
+                            height: width
+                            radius: width / 2
+                            color: root.cardAccent
+                            border.width: 1
+                            border.color: Theme.mediaForeground
+                        }
+                    }
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: DesktopTokens.px(2)
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
+                            color: root.cardInk
+                            font.family: DesktopTokens.displayFont
+                            font.pixelSize: DesktopTokens.px(root.queuePosition > 999
+                                ? (root.veryCompact ? 54 : 76) : (root.veryCompact ? 68 : root.compact ? 88 : 108))
+                            font.weight: Font.Black
+                            font.letterSpacing: -DesktopTokens.px(4)
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: root.statusText
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: qsTr("IN QUEUE")
+                            color: root.cardAccent
+                            font.family: DesktopTokens.monoFont
+                            font.pixelSize: DesktopTokens.px(9)
+                            font.weight: Font.Bold
+                            font.letterSpacing: DesktopTokens.px(1.6)
+                        }
                     }
                 }
+
                 Text {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: qsTr("Your session starts automatically")
                     color: root.cardMuted
                     font.family: DesktopTokens.bodyFont
-                    font.pixelSize: DesktopTokens.px(13)
+                    font.pixelSize: DesktopTokens.px(12)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
-                Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 2 : root.compact ? 4 : 6) }
-                Rectangle { width: parent.width; height: 1; color: "#D9DED4" }
-                Column {
+
+                Rectangle {
                     width: parent.width
-                    spacing: DesktopTokens.px(8)
-                    visible: !root.veryCompact
-                    Repeater {
-                        model: 3
-                        delegate: Item {
-                            id: step
-                            required property int index
-                            width: parent.width
-                            height: DesktopTokens.px(root.compact ? 32 : 36)
-                            Accessible.role: Accessible.ListItem
-                            Accessible.name: root.stepLabel(index) + (index === 0 ? ", " + qsTr("done")
-                                : index === 1 ? ", " + qsTr("in progress") : "")
+                    height: 1
+                    color: "#18FFFFFF"
+                }
+
+                Item {
+                    width: parent.width
+                    height: stepColumn.implicitHeight
+                    Rectangle {
+                        x: DesktopTokens.px(10)
+                        y: DesktopTokens.px(16)
+                        width: 1
+                        height: Math.max(0, parent.height - DesktopTokens.px(32))
+                        color: "#24FFFFFF"
+                    }
+                    Column {
+                        id: stepColumn
+                        width: parent.width
+                        spacing: DesktopTokens.px(4)
+                        Repeater {
+                            model: 3
+                            delegate: Item {
+                                id: step
+                                required property int index
+                                width: parent.width
+                                height: DesktopTokens.px(root.veryCompact ? 28 : 34)
                             Rectangle {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: DesktopTokens.px(26)
+                                width: DesktopTokens.px(21)
                                 height: width
                                 radius: width / 2
-                                color: step.index === 0 ? root.cardAccent : step.index === 1 ? root.cardSoft : "transparent"
-                                border.width: step.index === 2 ? 1 : 0
-                                border.color: "#C7CFC3"
+                                color: step.index === 1 ? Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.16) : "#0BFFFFFF"
+                                border.width: 1
+                                border.color: step.index === 1 ? root.cardAccent : "#38FFFFFF"
                                 Text {
                                     anchors.centerIn: parent
                                     text: step.index === 0 ? "✓" : String(step.index + 1)
-                                    color: step.index === 0 ? "#FFFFFF" : step.index === 1 ? root.cardAccent : root.cardMuted
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: DesktopTokens.px(11)
+                                    color: step.index === 1 ? root.cardAccent : step.index === 0 ? root.cardInk : root.cardMuted
+                                    font.family: step.index === 0 ? DesktopTokens.bodyFont : DesktopTokens.monoFont
+                                    font.pixelSize: DesktopTokens.px(10)
                                     font.weight: Font.Bold
                                 }
                             }
                             Text {
                                 anchors.left: parent.left
-                                anchors.leftMargin: DesktopTokens.px(38)
+                                anchors.leftMargin: DesktopTokens.px(36)
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.stepLabel(step.index)
                                 color: step.index === 2 ? root.cardMuted : root.cardInk
                                 font.family: DesktopTokens.bodyFont
-                                font.pixelSize: DesktopTokens.px(13)
+                                font.pixelSize: DesktopTokens.px(12)
                                 font.weight: step.index === 1 ? Font.ExtraBold : Font.DemiBold
                                 elide: Text.ElideRight
                             }
-                            Rectangle {
+                            Text {
                                 visible: step.index === 1
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: DesktopTokens.px(7)
-                                height: width
-                                radius: width / 2
+                                text: qsTr("NOW")
                                 color: root.cardAccent
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: DesktopTokens.px(9)
+                                font.weight: Font.Bold
+                                font.letterSpacing: DesktopTokens.px(1)
                             }
                         }
                     }
                 }
+                }
+
             }
 
             Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
+                x: passContent.x
+                width: parent.width - 2 * x
                 anchors.bottom: parent.bottom
-                anchors.margins: DesktopTokens.px(root.veryCompact ? 16 : root.compact ? 20 : 24)
-                height: DesktopTokens.px(52)
-                radius: DesktopTokens.px(15)
+                anchors.bottomMargin: passContent.y
+                height: DesktopTokens.px(50)
+                radius: DesktopTokens.px(14)
                 color: root.cardSoft
+                border.width: 1
+                border.color: "#16FFFFFF"
                 Row {
                     anchors.fill: parent
                     anchors.leftMargin: DesktopTokens.px(14)
@@ -434,16 +542,5 @@ FocusScope {
                 }
             }
         }
-    }
-
-    component CircleAccent: Rectangle {
-        property real diameter: 100
-        property color tone: "#286548"
-        width: diameter
-        height: diameter
-        radius: diameter / 2
-        color: "transparent"
-        border.width: DesktopTokens.px(28)
-        border.color: Qt.rgba(tone.r, tone.g, tone.b, 0.055)
     }
 }

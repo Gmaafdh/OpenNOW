@@ -23,6 +23,7 @@ public slots:
             qmlRegisterType(QUrl::fromLocalFile(source + "/components/" + name + ".qml"), "OpenNOW", 1, 0, name);
         }
         QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/OpenNOW/res/fonts/Nunito-Variable.ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/OpenNOW/res/fonts/Syne-Variable.ttf"));
         for (const auto *name : {"Regular", "Medium", "Bold"}) {
             QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/OpenNOW/res/fonts/IBMPlexMono-%1.ttf")
                 .arg(QString::fromLatin1(name)));

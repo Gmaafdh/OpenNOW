@@ -33,6 +33,7 @@ public slots:
     {
         const auto source = QStringLiteral(OPENNOW_QML_SOURCE_DIR);
         QFontDatabase::addApplicationFont(source + "/../res/fonts/Nunito-Variable.ttf");
+        QFontDatabase::addApplicationFont(source + "/../res/fonts/Syne-Variable.ttf");
         QFontDatabase::addApplicationFont(source + "/../res/fonts/IBMPlexMono-Medium.ttf");
         qmlRegisterSingletonType(QUrl::fromLocalFile(source + "/theme/Theme.qml"), "OpenNOW.ThemeTests", 1, 0, "Theme");
         qmlRegisterType(QUrl::fromLocalFile(source + "/state/settings/SettingsState.qml"), "OpenNOW.ThemeTests", 1, 0, "SettingsState");

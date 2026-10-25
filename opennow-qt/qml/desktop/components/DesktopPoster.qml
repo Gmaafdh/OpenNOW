@@ -34,16 +34,16 @@ ItemDelegate {
             id: art
             x: root.artGutter; y: root.artGutter; width: root.artWidth; height: root.artHeight
             artwork: DesktopTokens.artworkUrl(root.game, false)
-            cornerRadius: 12
+            cornerRadius: 15
             scrimStart: root.cardLifted || root.showPlay ? 0.3 : 1
-            fallbackColor: "#1A2232"
+            fallbackColor: "#111D2B"
         }
         Rectangle {
             x: art.x - DesktopTokens.cardOutlinePad
             y: art.y - DesktopTokens.cardOutlinePad
             width: art.width + DesktopTokens.cardOutlinePad * 2
             height: art.height + DesktopTokens.cardOutlinePad * 2
-            radius: 14
+            radius: 17
             color: "transparent"
             border.width: root.cardLifted ? 2 : 1
             border.color: root.cardLifted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle

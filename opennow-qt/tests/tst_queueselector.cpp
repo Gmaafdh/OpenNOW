@@ -39,7 +39,7 @@ public slots:
         for (const auto *name : {"DesktopSettingsButton", "DesktopSettingsIcon"}) {
             qmlRegisterType(QUrl::fromLocalFile(source + "/desktop/settings/controls/" + name + ".qml"), "OpenNOW", 1, 0, name);
         }
-        for (const auto *font : {"Nunito-Variable.ttf", "IBMPlexMono-Regular.ttf",
+        for (const auto *font : {"Nunito-Variable.ttf", "Syne-Variable.ttf", "IBMPlexMono-Regular.ttf",
                  "IBMPlexMono-Medium.ttf", "IBMPlexMono-Bold.ttf"}) {
             QFontDatabase::addApplicationFont(source + "/../res/fonts/" + font);
         }

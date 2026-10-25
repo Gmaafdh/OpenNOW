@@ -64,6 +64,11 @@ FocusScope {
     Rectangle {
         anchors.fill: parent
         color: DesktopTokens.shell
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.glassStrong }
+            GradientStop { position: 0.55; color: DesktopTokens.shell }
+            GradientStop { position: 1; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, Theme.lightMode ? 0.035 : 0.055) }
+        }
         Rectangle {
             anchors.right: parent.right
             width: 1
@@ -221,14 +226,26 @@ FocusScope {
                     id: navButton
                     required property var modelData
                     width: parent.width
-                    height: 44
+                    height: 46
                     padding: 0
                     readonly property bool selected: root.routeSelected(modelData.route)
                     Accessible.name: modelData.name
                     background: Rectangle {
-                        radius: 10
-                        color: navButton.selected ? DesktopTokens.raisedStrong
+                        radius: 12
+                        color: navButton.selected ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, Theme.lightMode ? 0.12 : 0.14)
                             : (navButton.hovered || navButton.activeFocus ? DesktopTokens.raised : "transparent")
+                        border.width: navButton.selected ? 1 : 0
+                        border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.26)
+                        Rectangle {
+                            visible: navButton.selected
+                            anchors.left: parent.left
+                            anchors.leftMargin: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 3
+                            height: 22
+                            radius: 2
+                            color: Theme.focus
+                        }
                     }
                     contentItem: Item {
                         DesktopGlyph {
@@ -249,6 +266,7 @@ FocusScope {
                             color: navButton.selected ? DesktopTokens.text : DesktopTokens.textMuted
                             font.family: DesktopTokens.bodyFont
                             font.pixelSize: DesktopTokens.px(14)
+                            font.letterSpacing: 0.1
                             font.weight: navButton.selected ? Font.ExtraBold : Font.DemiBold
                         }
                         Row {

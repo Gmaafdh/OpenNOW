@@ -20,6 +20,7 @@ public slots:
             qmlRegisterType(QUrl::fromLocalFile(source + "/desktop/settings/controls/" + name + ".qml"), "OpenNOW", 1, 0, name);
         }
         QFontDatabase::addApplicationFont(source + "/../res/fonts/Nunito-Variable.ttf");
+        QFontDatabase::addApplicationFont(source + "/../res/fonts/Syne-Variable.ttf");
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)
