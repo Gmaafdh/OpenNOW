@@ -17,6 +17,7 @@ AbstractButton {
     property real entranceProgress: 1
     property bool selectionPulse: false
     property real selectionProgress: 0
+    property real hoverMorph: 0
     property bool manageMode: false
     property bool lastUsed: false
     property bool switching: false
@@ -27,6 +28,10 @@ AbstractButton {
 
     readonly property real avatarSize: Math.round(tileSize * unit)
     property real cornerRadius: Math.round(avatarSize * 36 / 168)
+    readonly property real shapeMorph: Math.max(1 - root.entranceProgress,
+        Math.max(root.selectionPulse ? root.selectionProgress : 0, root.hoverMorph))
+    readonly property real animatedCornerRadius: Math.min(root.avatarSize / 2,
+        root.cornerRadius + root.avatarSize * 0.22 * root.shapeMorph)
     readonly property string displayName: addTile ? (compact ? qsTr("Add") : qsTr("Add account"))
         : String(account && account.displayName || qsTr("NVIDIA profile"))
     readonly property string tier: liveTier !== "" ? liveTier : String(account && account.membershipTier || "")
@@ -46,6 +51,17 @@ AbstractButton {
     }
 
     function u(value) { return Math.round(value * root.unit) }
+
+    onHoveredChanged: {
+        hoverAnimation.stop()
+        if (AppController.reducedMotion) {
+            hoverMorph = 0
+        } else {
+            hoverAnimation.from = hoverMorph
+            hoverAnimation.to = hovered ? 1 : 0
+            hoverAnimation.start()
+        }
+    }
 
     implicitWidth: avatarSize + u(compact ? 16 : 32)
     implicitHeight: avatarOnly ? avatarSize : column.implicitHeight
@@ -88,7 +104,12 @@ AbstractButton {
             anchors.horizontalCenter: parent.horizontalCenter
             width: root.avatarSize
             height: root.avatarSize
-            scale: root.switching ? pulse.value : (root.hovered && !root.current ? 1.025 : 1)
+            scale: (0.72 + 0.28 * root.entranceProgress)
+                * (root.switching ? pulse.value : 1 + 0.08 * root.hoverMorph
+                    + 0.10 * (root.selectionPulse ? root.selectionProgress : 0))
+            rotation: -12 * (1 - root.entranceProgress)
+                + (root.selectionPulse ? 8 * (1 - root.selectionProgress) : 0)
+            transformOrigin: Item.Center
             Behavior on scale { NumberAnimation { duration: DesktopTokens.quickDuration } }
 
             QtObject {
@@ -102,13 +123,20 @@ AbstractButton {
                 NumberAnimation { target: pulse; property: "value"; to: 1.04; duration: 520; easing.type: Easing.InOutSine }
                 NumberAnimation { target: pulse; property: "value"; to: 1; duration: 520; easing.type: Easing.InOutSine }
             }
+            NumberAnimation {
+                id: hoverAnimation
+                target: root
+                property: "hoverMorph"
+                duration: 380
+                easing.type: Easing.OutBack
+            }
 
             Rectangle {
                 anchors.centerIn: parent
                 visible: root.current
                 width: parent.width + root.u(14)
                 height: width
-                radius: root.cornerRadius + root.u(7)
+                radius: root.animatedCornerRadius + root.u(7)
                 color: root.expired ? DesktopTokens.amber : DesktopTokens.focus
             }
             Rectangle {
@@ -116,15 +144,16 @@ AbstractButton {
                 visible: root.current
                 width: parent.width + root.u(8)
                 height: width
-                radius: root.cornerRadius + root.u(4)
+                radius: root.animatedCornerRadius + root.u(4)
                 color: Theme.shell
             }
             Rectangle {
                 anchors.centerIn: parent
                 visible: root.selectionPulse
-                width: parent.width + root.u(18) + root.u(22) * root.selectionProgress
+                width: parent.width + root.u(18) + root.u(34) * root.selectionProgress
                 height: width
-                radius: root.cornerRadius + root.u(12)
+                radius: root.animatedCornerRadius + root.u(12)
+                rotation: 48 * root.selectionProgress
                 color: "transparent"
                 border.width: Math.max(1, root.u(2))
                 border.color: root.expired ? DesktopTokens.amber : DesktopTokens.focus
@@ -144,7 +173,7 @@ AbstractButton {
                         GradientStop { position: 0; color: root.gradient[0] }
                         GradientStop { position: 1; color: root.gradient[1] }
                     }
-                    PathRectangle { width: root.avatarSize; height: root.avatarSize; radius: root.cornerRadius }
+                    PathRectangle { width: root.avatarSize; height: root.avatarSize; radius: root.animatedCornerRadius }
                 }
             }
             Text {
@@ -173,7 +202,7 @@ AbstractButton {
                         x: 1; y: 1
                         width: root.avatarSize - 2
                         height: root.avatarSize - 2
-                        radius: root.cornerRadius
+                        radius: root.animatedCornerRadius
                     }
                 }
             }
@@ -229,8 +258,8 @@ AbstractButton {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 height: Math.round(root.avatarSize * (root.compact ? 0.26 : 0.2))
-                bottomLeftRadius: root.cornerRadius
-                bottomRightRadius: root.cornerRadius
+                bottomLeftRadius: root.animatedCornerRadius
+                bottomRightRadius: root.animatedCornerRadius
                 color: "#D90B0F1A"
                 Text {
                     anchors.centerIn: parent
@@ -337,6 +366,15 @@ AbstractButton {
                     font.weight: Font.DemiBold
                     font.letterSpacing: root.u(10) * 0.1
                 }
+            }
+        }
+    }
+    Connections {
+        target: AppController
+        function onReducedMotionChanged() {
+            if (AppController.reducedMotion) {
+                hoverAnimation.stop()
+                root.hoverMorph = 0
             }
         }
     }

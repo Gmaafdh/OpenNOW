@@ -169,6 +169,8 @@ FocusScope {
 
     focus: true
     opacity: 1 - exitProgress
+    scale: 1 - 0.07 * exitProgress
+    transformOrigin: Item.Center
     Component.onCompleted: {
         currentIndex = initialIndex()
         if (!AppController.reducedMotion)
@@ -203,7 +205,7 @@ FocusScope {
         property: "entranceProgress"
         from: 0
         to: 1
-        duration: 560
+        duration: 820
         easing.type: Easing.OutCubic
     }
     NumberAnimation {
@@ -212,7 +214,7 @@ FocusScope {
         property: "exitProgress"
         from: 0
         to: 1
-        duration: 220
+        duration: 360
         easing.type: Easing.InCubic
     }
     NumberAnimation {
@@ -221,12 +223,12 @@ FocusScope {
         property: "selectionProgress"
         from: 0
         to: 1
-        duration: 380
-        easing.type: Easing.OutCubic
+        duration: 620
+        easing.type: Easing.OutBack
     }
     Timer {
         id: closeTimer
-        interval: 220
+        interval: 360
         repeat: false
         onTriggered: ShellStore.leaveAccountPicker()
     }
