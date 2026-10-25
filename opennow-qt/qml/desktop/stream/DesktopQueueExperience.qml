@@ -166,7 +166,7 @@ FocusScope {
                         width: parent.width
                         height: root.stacked ? 270 : artworkPanel.coverPanelHeight - 132
                         radius: 20
-                        color: Theme.lightMode ? "#E8EBF0" : "#101827"
+                        color: "#101827"
                         border.width: 1
                         border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.34)
                         clip: true
@@ -187,7 +187,7 @@ FocusScope {
                             width: parent.width - 40
                             visible: coverImage.status !== Image.Ready
                             text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: Theme.lightMode ? Theme.label : Theme.mediaForeground
+                            color: Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
                             font.pixelSize: 24
                             font.weight: Font.Black
