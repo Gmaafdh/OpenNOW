@@ -191,7 +191,7 @@ jobs:
           cd /o
           status=0
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|qml-account-picker-launch|qml-account-picker-many|qml-game-labels-1440|qml-collections-1440)$' --output-on-failure --verbose --no-tests=error \
+            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|qml-account-picker-launch|qml-account-picker-many|qml-game-labels-1600|qml-collections-1440)$' --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
           results=build/opennow-qt-release/opennow-theme-results.txt
           if [[ -f "$results" ]]; then
