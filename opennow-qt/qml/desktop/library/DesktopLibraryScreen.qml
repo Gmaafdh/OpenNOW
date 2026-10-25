@@ -24,6 +24,29 @@ FocusScope {
     signal detailsRequested(var game)
     signal playRequested(var game)
     property real entranceProgress: AppController.reducedMotion ? 1 : 0
+    readonly property bool compactCinema: height < 940
+    readonly property int heroHeight: compactCinema ? 176 : Math.max(210, Math.min(278, Math.round(height * 0.28)))
+    readonly property int marqueeHeight: compactCinema ? 76 : 112
+
+    function revealAt(delay) {
+        if (AppController.reducedMotion)
+            return 1
+        return Math.max(0, Math.min(1, (entranceProgress - delay) / (1 - delay)))
+    }
+
+    function artworkCandidates() {
+        const fallback = root.activeFilter === "all" && root.searchQuery.trim() === ""
+            ? (ShellStore.catalogGames || []) : []
+        const source = root.games.length > 0 ? root.games : fallback
+        const result = []
+        for (let index = 0; index < source.length; ++index) {
+            if (DesktopTokens.artworkUrl(source[index], true) !== "")
+                result.push(source[index])
+        }
+        return result
+    }
+    readonly property var heroGames: artworkCandidates().slice(0, 6)
+    readonly property var marqueeGames: artworkCandidates().slice(0, 10)
 
     Component.onCompleted: if (!AppController.reducedMotion) entranceAnimation.start()
     Connections {
@@ -41,7 +64,7 @@ FocusScope {
         property: "entranceProgress"
         from: 0
         to: 1
-        duration: 420
+        duration: 760
         easing.type: Easing.OutCubic
     }
 
@@ -125,7 +148,7 @@ FocusScope {
     }
     readonly property var games: filteredGames()
     readonly property real tileScale: Math.max(0.75, Math.min(1.5, Number(ShellStore.settings.posterSizeScale || 1.05))) / 1.05
-    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (176 * tileScale)))
+    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (156 * tileScale)))
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
     // Artwork, frame padding and the persistent information deck share one
     // geometry contract with DesktopPoster; no title or focus ring is clipped.
@@ -145,18 +168,65 @@ FocusScope {
         onCollectionOpened: collectionId => ShellStore.activeCollectionId = collectionId
     }
 
-    Rectangle {
-        id: collectionToolbar
+    DesktopLibraryHero {
+        id: libraryHero
         x: 24
         y: 16
         width: parent.width - 48
-        height: 88
+        height: root.heroHeight
+        games: root.heroGames
+        opacity: root.revealAt(0)
+        scale: 0.94 + 0.06 * root.revealAt(0)
+        transformOrigin: Item.TopLeft
+        onPlayRequested: game => {
+            ShellStore.selectedGame = game
+            root.playRequested(game)
+        }
+        onDetailsRequested: game => {
+            ShellStore.selectedGame = game
+            root.detailsRequested(game)
+        }
+    }
+
+    DesktopLibraryMarquee {
+        id: libraryMarquee
+        x: 24
+        y: libraryHero.y + libraryHero.height + 28
+        width: parent.width - 48
+        height: root.marqueeHeight
+        games: root.marqueeGames
+        opacity: root.revealAt(0.12)
+        transform: Translate { x: 54 * (1 - root.revealAt(0.12)) }
+        onGameRequested: game => {
+            ShellStore.selectedGame = game
+            root.detailsRequested(game)
+        }
+    }
+
+    Text {
+        x: 30
+        y: libraryMarquee.y - 18
+        text: qsTr("ARTWORK IN MOTION  /  HOVER TO PAUSE")
+        color: DesktopTokens.textFaint
+        font.family: DesktopTokens.monoFont
+        font.pixelSize: DesktopTokens.tinySize
+        font.weight: Font.DemiBold
+        font.letterSpacing: 1.1
+        opacity: root.revealAt(0.12)
+    }
+
+    Rectangle {
+        id: collectionToolbar
+        x: 24
+        y: libraryMarquee.y + libraryMarquee.height + 18
+        width: parent.width - 48
+        height: root.compactCinema ? 60 : 76
         radius: 18
-        opacity: root.entranceProgress
+        opacity: root.revealAt(0.22)
         color: DesktopTokens.surface
         border.width: 1
         border.color: DesktopTokens.seam
-        transform: Translate { y: 10 * (1 - root.entranceProgress) }
+        transform: Translate { y: 24 * (1 - root.revealAt(0.22)) }
 
         Rectangle {
             x: 16
@@ -232,9 +302,10 @@ FocusScope {
         width: parent.width - 48
         height: visible ? Math.max(58, noticeText.implicitHeight + 24) : 0
         visible: root.activeFilter === "cloud-favorites" || (ShellStore.catalogSource === "account-library" && ShellStore.catalogState !== "ready")
-        opacity: root.entranceProgress
+        opacity: root.revealAt(0.30)
         radius: 12
         color: DesktopTokens.surface
+        transform: Translate { y: 26 * (1 - root.revealAt(0.30)) }
         border.color: DesktopTokens.seam
         Text {
             id: noticeText
@@ -263,7 +334,8 @@ FocusScope {
         y: catalogNotice.y + catalogNotice.height + (catalogNotice.visible ? 12 : 0)
         width: parent.width - 48
         spacing: 8
-        opacity: root.entranceProgress
+        opacity: root.revealAt(0.38)
+        transform: Translate { y: 30 * (1 - root.revealAt(0.38)) }
         Repeater {
             model: [
                 {key:"all", label:qsTr("All"), count:root.countWhere(function(game) { return !root.isHiddenGame(game) })},
@@ -390,7 +462,7 @@ FocusScope {
         anchors.rightMargin: 24
         anchors.verticalCenter: filterRow.verticalCenter
         visible: filterRow.height <= 40 && root.width - 24 - libraryHint.implicitWidth > 40 + filterRow.childrenRect.width
-        opacity: root.entranceProgress
+        opacity: root.revealAt(0.38)
         text: qsTr("RIGHT-CLICK A GAME FOR ACTIONS")
         color: DesktopTokens.textFaint
         font.family: DesktopTokens.monoFont
@@ -408,7 +480,8 @@ FocusScope {
         width: parent.width - 36
         height: parent.height - y
         clip: true
-        opacity: root.entranceProgress
+        opacity: root.revealAt(0.46)
+        transform: Translate { y: 42 * (1 - root.revealAt(0.46)) }
         cellWidth: root.libraryCellW
         cellHeight: root.libraryCellH
         model: root.games

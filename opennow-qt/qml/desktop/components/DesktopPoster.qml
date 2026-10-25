@@ -14,11 +14,22 @@ ItemDelegate {
     property int tileHeight: showTitle ? DesktopTokens.px(300) : DesktopTokens.libraryCellHeight
     property int revealIndex: 0
     property real revealProgress: AppController.reducedMotion ? 1 : 0
+    property real hoverMorph: 0
     readonly property int artGutter: 6
     readonly property int framePadding: 6
     readonly property int artWidth: Math.max(1, tileWidth - 2 * (artGutter + framePadding))
     readonly property int artHeight: Math.max(1, Math.round(artWidth * 198 / 132))
     readonly property bool cardLifted: hovered || activeFocus
+    onCardLiftedChanged: {
+        morphAnimation.stop()
+        if (AppController.reducedMotion) {
+            hoverMorph = 0
+        } else {
+            morphAnimation.from = hoverMorph
+            morphAnimation.to = cardLifted ? 1 : 0
+            morphAnimation.start()
+        }
+    }
     readonly property string title: game ? String(game.title || qsTr("Game")) : qsTr("Game")
     readonly property string secondaryLabel: {
         if (!game)
@@ -43,9 +54,10 @@ ItemDelegate {
     z: cardLifted || contentItem.scale !== 1 ? 20 : 1
     background: Item {}
     contentItem: Item {
-        scale: AppController.reducedMotion ? 1 : root.down ? 0.985 : root.cardLifted ? DesktopTokens.cardHoverScale : 1
+        scale: AppController.reducedMotion ? 1 : root.down ? 0.97
+            : (0.93 + 0.07 * root.revealProgress) * (1 + 0.065 * root.hoverMorph)
         opacity: root.revealProgress
-        transform: Translate { y: DesktopTokens.px(12) * (1 - root.revealProgress) }
+        transform: Translate { y: DesktopTokens.px(26) * (1 - root.revealProgress) - DesktopTokens.px(8) * root.hoverMorph }
         transformOrigin: Item.Center
         Behavior on scale { NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.OutCubic } }
 
@@ -55,7 +67,7 @@ ItemDelegate {
             y: root.artGutter
             width: root.tileWidth - root.artGutter * 2
             height: root.tileHeight - root.artGutter * 2
-            radius: DesktopTokens.px(16)
+            radius: DesktopTokens.px(16 + 12 * root.hoverMorph)
             color: Theme.glassStrong
             border.width: 1
             border.color: root.cardLifted
@@ -70,20 +82,32 @@ ItemDelegate {
             width: root.artWidth
             height: root.artHeight
             artwork: DesktopTokens.artworkUrl(root.game, false)
-            cornerRadius: DesktopTokens.px(12)
-            scrimStart: root.cardLifted || root.showPlay ? 0.3 : 0.82
+            cornerRadius: DesktopTokens.px(12 + 16 * root.hoverMorph)
+            scrimStart: root.showPlay ? 0.3 : 0.82 - 0.52 * root.hoverMorph
             fallbackColor: "#1A2232"
+            scale: 1 + 0.06 * root.hoverMorph
+            transformOrigin: Item.Center
         }
         Rectangle {
             x: art.x - DesktopTokens.cardOutlinePad
             y: art.y - DesktopTokens.cardOutlinePad
             width: art.width + DesktopTokens.cardOutlinePad * 2
             height: art.height + DesktopTokens.cardOutlinePad * 2
-            radius: DesktopTokens.px(14)
+            radius: DesktopTokens.px(14 + 16 * root.hoverMorph)
             color: "transparent"
             border.width: root.cardLifted ? 2 : 1
             border.color: root.cardLifted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
             Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
+        }
+        Rectangle {
+            x: art.x
+            y: art.y + art.height + 2
+            width: 34 + 86 * root.hoverMorph
+            height: 3 + 3 * root.hoverMorph
+            radius: height / 2
+            rotation: -4 * root.hoverMorph
+            color: DesktopTokens.focus
+            opacity: 0.35 + 0.65 * root.hoverMorph
         }
         DesktopPosterOverlay {
             id: posterOverlay
@@ -177,15 +201,22 @@ ItemDelegate {
     }
     SequentialAnimation {
         id: revealAnimation
-        PauseAnimation { duration: Math.min(root.revealIndex, 8) * 35 }
+        PauseAnimation { duration: Math.min(root.revealIndex, 10) * 55 }
         NumberAnimation {
             target: root
             property: "revealProgress"
             from: 0
             to: 1
-            duration: 300
-            easing.type: Easing.OutCubic
+            duration: 540
+            easing.type: Easing.OutBack
         }
+    }
+    NumberAnimation {
+        id: morphAnimation
+        target: root
+        property: "hoverMorph"
+        duration: 420
+        easing.type: Easing.OutBack
     }
     Component.onCompleted: if (!AppController.reducedMotion) revealAnimation.start()
     Connections {
@@ -193,7 +224,9 @@ ItemDelegate {
         function onReducedMotionChanged() {
             if (AppController.reducedMotion) {
                 revealAnimation.stop()
+                morphAnimation.stop()
                 root.revealProgress = 1
+                root.hoverMorph = 0
             }
         }
     }
