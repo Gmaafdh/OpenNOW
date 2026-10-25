@@ -360,6 +360,11 @@ impl CloudMatchService {
         crate::requests::check()?;
         session_params["networkTestSessionId"] = json!(network_test["sessionId"].as_str());
         let body = build_create_body(&app_id, &session_params, settings, device_id);
+        eprintln!(
+            "session: create zone {} region-latency {:?}",
+            params["zone"].as_str().unwrap_or("auto"),
+            params["regionLatencyMs"].as_i64()
+        );
         let mut url = base
             .join("v2/session")
             .map_err(|_| invalid("Invalid CloudMatch session URL"))?;
@@ -1703,11 +1708,29 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id: 
     let reflex = cloud_gsync || fps >= 120;
     let persistence = setting_bool(settings, "enablePersistingInGameSettings", true)
         && params["supportsInGameSettingsPersistence"].as_bool() == Some(true);
-    let metadata = vec![
+    let mut metadata = vec![
         json!({"key":"wssignaling","value":"1"}),
         json!({"key":"SubSessionId","value":random_uuid()}),
         json!({"key":"surroundAudioInfo","value":"2"}),
     ];
+    // The official client's deterministic manual-routing path sends the
+    // cached latency for the selected regional endpoint, or -1 when no cached
+    // measurement exists. The shell supplies only its latest core TCP ping for
+    // this exact saved region. Auto and concrete NP queue launches do not
+    // synthesize or inherit a regional measurement.
+    let region_latency = params["regionLatencyMs"]
+        .as_i64()
+        .filter(|latency| (-1..=60_000).contains(latency));
+    let region_host = params["streamingBaseUrl"]
+        .as_str()
+        .and_then(|raw| trusted_cloudmatch_base(raw).ok())
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .filter(|host| !host.starts_with("np-"));
+    if let (Some(latency), Some(host)) = (region_latency, region_host) {
+        metadata.push(json!({
+            "key":format!("latency@{host}"), "value":latency.to_string()
+        }));
+    }
     // requestedStreamingFeatures, field-for-field with the official Bifrost request
     // builder: reflex, bitDepth, cloudGsync, enabledL4S, mouseMovementFlags, trueHdr,
     // supportedHidDevices, profile, fallbackToLogicalResolution, hidDevices,
@@ -6012,6 +6035,64 @@ mod tests {
                 Some("networkType" | "ClientImeSupport" | "clientPhysicalResolution")
             ) && !entry["key"].as_str().unwrap().starts_with("latency@")
         }));
+    }
+
+    #[test]
+    fn saved_region_latency_matches_official_manual_routing() {
+        for (latency, expected) in [(196, "196"), (-1, "-1")] {
+            let body = build_create_body(
+                "12345",
+                &json!({
+                    "zone":"Bulgaria",
+                    "streamingBaseUrl":"https://eu-bulgaria.cloudmatchbeta.nvidiagrid.net/",
+                    "regionLatencyMs":latency
+                }),
+                &json!({}),
+                "device-id",
+            );
+            let metadata = body["sessionRequestData"]["metaData"].as_array().unwrap();
+            assert_eq!(metadata.len(), 4);
+            assert_eq!(
+                metadata[3],
+                json!({
+                    "key":"latency@eu-bulgaria.cloudmatchbeta.nvidiagrid.net",
+                    "value":expected
+                })
+            );
+        }
+
+        for params in [
+            json!({}),
+            json!({"regionLatencyMs":196}),
+            json!({
+                "zone":"NP-SOF-02",
+                "streamingBaseUrl":"https://np-sof-02.cloudmatchbeta.nvidiagrid.net/",
+                "regionLatencyMs":196
+            }),
+            json!({
+                "zone":"Bulgaria",
+                "streamingBaseUrl":"https://eu-bulgaria.cloudmatchbeta.nvidiagrid.net/",
+                "regionLatencyMs":-2
+            }),
+            json!({
+                "zone":"Bulgaria",
+                "streamingBaseUrl":"https://eu-bulgaria.cloudmatchbeta.nvidiagrid.net/",
+                "regionLatencyMs":60001
+            }),
+        ] {
+            let body = build_create_body("12345", &params, &json!({}), "device-id");
+            assert!(
+                body["sessionRequestData"]["metaData"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|entry| !entry["key"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("latency@")),
+                "unexpected latency metadata for {params}"
+            );
+        }
     }
 
     #[test]

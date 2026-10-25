@@ -826,7 +826,7 @@ private slots:
             var selectedGame = {id:'parent',launchAppId: '1001', title: 'Multi Store Game', selectedVariantIndex: 0,
                 variants: [{id: '1001', store: 'Steam', inLibrary: false},
                            {id: '1003', store: 'Xbox', inLibrary: true}]};
-            var settings = {}, selectedRegion = '', regions = [], requests = [], pendingLaunchParams = null;
+            var settings = {}, selectedRegion = '', regions = [], regionPingResults = {}, requests = [], pendingLaunchParams = null;
             var storeLaunchTarget = null;
             var CoreClient = {request: function(method, params) {
                 requests.push({method: method, params: params}); return 'request';
@@ -849,6 +849,21 @@ private slots:
         QVERIFY(!engine.evaluate(QStringLiteral(
             "launchInspectRequestId=''; pendingLaunchParams=null; storeLaunchTarget={appId:'parent',variantId:'1003'}; selectGameVariant(0); launchSelectedGame(false);")).isError());
         QVERIFY(engine.evaluate(QStringLiteral("requests[3].params.storeLaunch")).isUndefined());
+        QVERIFY(!engine.evaluate(QStringLiteral(R"JS(
+            selectedRegion='https://eu-bulgaria.cloudmatchbeta.nvidiagrid.net/';
+            regions=[{name:'Bulgaria',url:selectedRegion}];
+            regionPingResults={}; regionPingResults[selectedRegion]=196;
+            launchInspectRequestId=''; launchSelectedGame(false);
+        )JS")).isError());
+        QCOMPARE(engine.evaluate(QStringLiteral("pendingLaunchParams.zone")).toString(),
+                 QStringLiteral("Bulgaria"));
+        QCOMPARE(engine.evaluate(QStringLiteral("pendingLaunchParams.regionLatencyMs")).toInt(), 196);
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "delete regionPingResults[selectedRegion]; launchInspectRequestId=''; launchSelectedGame(false);")).isError());
+        QCOMPARE(engine.evaluate(QStringLiteral("pendingLaunchParams.regionLatencyMs")).toInt(), -1);
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "selectedRegion=''; regions=[]; regionPingResults={}; launchInspectRequestId=''; launchSelectedGame(false);")).isError());
+        QVERIFY(engine.evaluate(QStringLiteral("pendingLaunchParams.regionLatencyMs")).isUndefined());
     }
 
     void existingSessionLaunchFlow_data()

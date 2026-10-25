@@ -1972,7 +1972,10 @@ QtObject {
         onSelected: location => {
             if (!root.launchIntentCurrent()) return
             if (location) root.pendingLaunchParams = Object.assign({}, root.pendingLaunchParams, {
-                zone: location.zoneId, streamingBaseUrl: location.streamingBaseUrl
+                zone: location.zoneId, streamingBaseUrl: location.streamingBaseUrl,
+                // A concrete NP queue zone is not the saved regional endpoint
+                // whose latency was measured in Network settings.
+                regionLatencyMs: null
             })
             root.discoverPendingLaunch()
         }
@@ -2057,6 +2060,13 @@ QtObject {
             if (configuredRegion === region.name || configuredRegion === region.url) {
                 params.zone = region.name
                 params.streamingBaseUrl = region.url
+                const rawPing = regionPingResults ? regionPingResults[region.url] : undefined
+                const measuredPing = Number(rawPing)
+                // Match the official deterministic manual-routing metadata.
+                // -1 is its explicit unknown value, not a fabricated ping.
+                params.regionLatencyMs = rawPing !== undefined && rawPing !== null && rawPing !== ""
+                    && Number.isFinite(measuredPing) && measuredPing >= 0
+                    ? Math.round(measuredPing) : -1
                 break
             }
         }

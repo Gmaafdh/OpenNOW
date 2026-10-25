@@ -74,11 +74,14 @@ QtObject {
         check(count("session.remote.list") === 0 && count("session.create") === 0,
             "session started before a region was chosen")
         if (Qt.application.arguments.indexOf("--queue-selector-preview") >= 0) return true
+        ShellStore.pendingLaunchParams = Object.assign({}, ShellStore.pendingLaunchParams, {regionLatencyMs:21})
         ShellStore.queueSelector.choose("NP-DAL-04")
         const sent = client.calls.find(item => item.id === ShellStore.remoteSessionsRequestId)
         check(sent && sent.params.zone === "NP-DAL-04"
             && sent.params.streamingBaseUrl === locations[1].streamingBaseUrl,
             "selected route did not reach session discovery")
+        check(sent.params.regionLatencyMs === null,
+            "concrete queue zone inherited a saved region's latency")
         check(!ShellStore.settings.region, "one-launch route changed the saved region")
         ShellStore.remoteSessionsRequestId = ""
         ShellStore.pendingLaunchParams = null

@@ -801,6 +801,15 @@ alliance providers, does not alter persisted region preferences, and does not
 bypass account scope, catalog eligibility, or subscription checks. All other
 region overrides retain the provider-discovery rules above.
 
+For a saved regional override, the shell attaches `regionLatencyMs` from the
+latest successful core TCP ping of that exact region URL. If no successful
+measurement is available, it sends `-1`, the official client's explicit unknown
+value for deterministic manual routing. Fresh creation serializes this bounded
+value as `latency@<saved-region-host>`; it does not accept arbitrary `latency@`
+keys from the shell. Concrete `np-*` queue launches clear and ignore this
+regional value, and Auto does not invent one. This is request-construction
+parity, not a claim that the metadata guarantees faster server allocation.
+
 Without an explicit saved-region or queue-location override, fresh creation
 resolves the provider's `serverInfo` and uses its detected `local-region` first.
 That endpoint may be an `np-*` CloudMatch zone; Auto must not skip it in favor
