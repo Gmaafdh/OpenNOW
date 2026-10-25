@@ -25,8 +25,8 @@ FocusScope {
     signal playRequested(var game)
     property real entranceProgress: AppController.reducedMotion ? 1 : 0
     readonly property bool compactCinema: height < 940
-    readonly property int heroHeight: compactCinema ? 176 : Math.max(210, Math.min(278, Math.round(height * 0.28)))
-    readonly property int marqueeHeight: compactCinema ? 76 : 112
+    readonly property int heroHeight: compactCinema ? 168 : Math.max(210, Math.min(278, Math.round(height * 0.28)))
+    readonly property int marqueeHeight: compactCinema ? 68 : 112
 
     function revealAt(delay) {
         if (AppController.reducedMotion)
@@ -148,7 +148,7 @@ FocusScope {
     }
     readonly property var games: filteredGames()
     readonly property real tileScale: Math.max(0.75, Math.min(1.5, Number(ShellStore.settings.posterSizeScale || 1.05))) / 1.05
-    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (156 * tileScale)))
+    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (176 * tileScale)))
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
     // Artwork, frame padding and the persistent information deck share one
     // geometry contract with DesktopPoster; no title or focus ring is clipped.
