@@ -227,19 +227,19 @@ FocusScope {
             Item {
                 id: heroRow
                 width: parent.width
-                height: 300
+                height: 262
 
                 Item {
                     id: heroCard
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.right: parent.right
-                    height: 300
+                    height: 262
 
                     Rectangle {
                         anchors.fill: parent
-                        radius: 22
-                        color: "#0B1422"
+                        radius: 16
+                        color: "#171B27"
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             shadowEnabled: true
@@ -253,7 +253,7 @@ FocusScope {
                     Rectangle {
                         id: heroMask
                         anchors.fill: parent
-                        radius: 22
+                        radius: 16
                         color: "white"
                         visible: false
                         layer.enabled: true
@@ -282,9 +282,9 @@ FocusScope {
                             anchors.fill: parent
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
-                                GradientStop { position: 0; color: "#F0080D17" }
-                                GradientStop { position: 0.58; color: "#66080D17" }
-                                GradientStop { position: 1; color: "#1A080D17" }
+                                GradientStop { position: 0; color: "#EB060912" }
+                                GradientStop { position: 0.62; color: "#4D060912" }
+                                GradientStop { position: 1; color: "#1A060912" }
                             }
                         }
                     }
@@ -292,26 +292,16 @@ FocusScope {
                         anchors.fill: parent
                         color: "transparent"
                         border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
-                        radius: 22
-                    }
-
-                    Rectangle {
-                        anchors.top: parent.top
-                        anchors.left: parent.left
-                        anchors.leftMargin: 28
-                        width: 74
-                        height: 3
-                        radius: 2
-                        color: Theme.mediaAccent
+                        border.color: "#29FFFFFF"
+                        radius: 16
                     }
 
                     Column {
-                        x: 28
-                        width: parent.width - 56
+                        x: 22
+                        width: parent.width - 44
                         anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 28
-                        spacing: 16
+                        anchors.bottomMargin: 22
+                        spacing: 14
 
                         Text {
                             text: qsTr("CONTINUE PLAYING")
@@ -329,11 +319,11 @@ FocusScope {
                                 width: parent.width
                                 elide: Text.ElideRight
                                 text: root.heroGame ? String(root.heroGame.title || qsTr("Game")) : qsTr("No games yet")
-                                color: Theme.mediaForeground
-                                font.family: DesktopTokens.displayFont
-                                font.pixelSize: 40
+                                color: "#FFFFFF"
+                                font.family: Theme.displayFont
+                                font.pixelSize: 34
                                 font.weight: Font.Black
-                                font.letterSpacing: -1.25
+                                font.letterSpacing: -1
                             }
                             Text {
                                 width: parent.width
@@ -352,18 +342,18 @@ FocusScope {
                             Rectangle {
                                 id: startButton
                                 width: 158
-                                height: 42
-                                radius: 12
-                                color: startTap.pressed ? Qt.darker(Theme.mediaAccent, 1.12) : Theme.mediaAccent
+                                height: 38
+                                radius: 10
+                                color: startTap.pressed ? "#D9FFFFFF" : "#F2FFFFFF"
                                 border.width: root.focusZone === 0 && root.focusIndex === 0 && AppController.inputMode !== "pointer" ? 2 : 0
-                                border.color: Theme.mediaForeground
+                                border.color: "#FFFFFF"
 
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 8
                                     DesktopGlyph { anchors.verticalCenter: parent.verticalCenter; width: 11; height: 11; icon: "desktop-play.svg" }
-                                    Text { text: qsTr("Start"); color: Theme.contrastText(Theme.mediaAccent); font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.ExtraBold }
-                                    KeyboardGlyph { shortcut: "Enter"; keySize: 20; ink: Theme.contrastText(Theme.mediaAccent); Accessible.name: qsTr("ENTER") }
+                                    Text { text: qsTr("Start"); color: "#0B0F1A"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.ExtraBold }
+                                    KeyboardGlyph { shortcut: "Enter"; keySize: 20; ink: "#0B0F1A"; Accessible.name: qsTr("ENTER") }
                                 }
                                 HoverHandler { id: startHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 0) }
                                 TapHandler { id: startTap; onTapped: root.startHero() }
@@ -371,13 +361,13 @@ FocusScope {
 
                             Rectangle {
                                 id: detailsButton
-                                width: 86
-                                height: 42
-                                radius: 12
-                                color: detailsHover.hovered ? "#30FFFFFF" : "#16FFFFFF"
+                                width: 81
+                                height: 38
+                                radius: 10
+                                color: detailsHover.hovered ? "#2EFFFFFF" : "#1FFFFFFF"
                                 border.width: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? 2 : 1
-                                border.color: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? Theme.mediaForeground : "#38FFFFFF"
-                                Text { anchors.centerIn: parent; text: qsTr("Details"); color: Theme.mediaForeground; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.Bold }
+                                border.color: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? "#FFFFFF" : "#33FFFFFF"
+                                Text { anchors.centerIn: parent; text: qsTr("Details"); color: "#FFFFFF"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.Bold }
                                 HoverHandler { id: detailsHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 1) }
                                 TapHandler { onTapped: root.openGame(root.heroGame) }
                                 Behavior on color { ColorAnimation { duration: AppController.reducedMotion ? 0 : 90 } }
@@ -385,16 +375,16 @@ FocusScope {
 
                             Rectangle {
                                 width: 182
-                                height: 42
-                                radius: 12
-                                color: "#66050A13"
+                                height: 38
+                                radius: 10
+                                color: "#59000000"
                                 border.width: 1
-                                border.color: "#2EFFFFFF"
+                                border.color: "#1FFFFFFF"
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 8
-                                    Rectangle { width: 6; height: 6; radius: 3; color: Theme.mediaAccent }
-                                    Text { text: root.streamChip(); color: Theme.mediaMuted; font.family: Theme.monoFont; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
+                                    Rectangle { width: 6; height: 6; radius: 3; color: "#1DB954" }
+                                    Text { text: root.streamChip(); color: "#CCFFFFFF"; font.family: Theme.monoFont; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
                                 }
                             }
                         }
@@ -408,7 +398,7 @@ FocusScope {
                 id: jumpRail
                 width: parent.width
                 height: 30 + root.homeTileHeight
-                Text { text: qsTr("Jump back in"); color: DesktopTokens.text; font.family: DesktopTokens.displayFont; font.pixelSize: 18; font.weight: Font.Black; font.letterSpacing: -0.35 }
+                Text { text: qsTr("Jump back in"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
                 Row {
                     objectName: "desktopHomeIconGuide"
                     anchors.right: seeJumpLabel.left; anchors.rightMargin: 16; y: 1
@@ -431,7 +421,7 @@ FocusScope {
                     id: seeJumpLabel
                     anchors.right: parent.right; y: 1
                     text: root.games.length > 0 ? qsTr("See all %1  ›").arg(root.games.length) : qsTr("See all  ›")
-                    color: seeJump.hovered ? Theme.focus : DesktopTokens.textMuted
+                    color: seeJump.hovered ? "#B8FFFFFF" : "#80FFFFFF"
                     font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
                     HoverHandler { id: seeJump; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.routeRequested("library") }
@@ -459,11 +449,11 @@ FocusScope {
                 id: playingRail
                 width: parent.width
                 height: 30 + root.homeTileHeight
-                Text { text: qsTr("Favourites"); color: DesktopTokens.text; font.family: DesktopTokens.displayFont; font.pixelSize: 18; font.weight: Font.Black; font.letterSpacing: -0.35 }
+                Text { text: qsTr("Favourites"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
                 Text {
                     anchors.right: parent.right; y: 1
                     text: qsTr("See all  ›")
-                    color: seeFriends.hovered ? Theme.focus : DesktopTokens.textMuted
+                    color: seeFriends.hovered ? "#B8FFFFFF" : "#80FFFFFF"
                     font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
                     HoverHandler { id: seeFriends; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.routeRequested("library") }
@@ -491,11 +481,11 @@ FocusScope {
                 id: newRail
                 width: parent.width
                 height: 30 + root.homeTileHeight
-                Text { text: qsTr("New in your library"); color: DesktopTokens.text; font.family: DesktopTokens.displayFont; font.pixelSize: 18; font.weight: Font.Black; font.letterSpacing: -0.35 }
+                Text { text: qsTr("New in your library"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
                 Text {
                     anchors.right: parent.right; y: 1
                     text: qsTr("See all  ›")
-                    color: seeNew.hovered ? Theme.focus : DesktopTokens.textMuted
+                    color: seeNew.hovered ? "#B8FFFFFF" : "#80FFFFFF"
                     font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
                     HoverHandler { id: seeNew; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.routeRequested("library") }

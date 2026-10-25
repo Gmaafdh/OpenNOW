@@ -17,6 +17,9 @@ FocusScope {
     property bool requeueAvailable: false
     property bool requeueInProgress: false
     property bool streamBusy: false
+    property bool artworkViewerOpen: false
+    property double queueVisibleSinceMs: 0
+    property double queueClockMs: Date.now()
 
     signal cancelRequested()
     signal refreshRequested()
@@ -24,17 +27,20 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 700
-    readonly property color cardInk: Theme.mediaForeground
-    readonly property color cardMuted: Theme.mediaMuted
-    readonly property color cardAccent: Theme.mediaAccent
-    readonly property color cardSoft: "#12FFFFFF"
-    readonly property color cardSurface: "#E60B1422"
+    readonly property bool stacked: width < 1000 || height < 650
+    readonly property int elapsedSeconds: queueVisibleSinceMs > 0
+        ? Math.max(0, Math.floor((queueClockMs - queueVisibleSinceMs) / 1000)) : 0
+    readonly property string coverSource: DesktopTokens.artworkUrl(root.game, false)
 
     Accessible.role: Accessible.Pane
     Accessible.name: root.statusText
+    clip: true
 
     function restoreFocus() {
-        cancelButton.forceActiveFocus()
+        if (root.artworkViewerOpen)
+            closeArtworkButton.forceActiveFocus()
+        else
+            cancelButton.forceActiveFocus()
     }
 
     function stepLabel(index) {
@@ -43,504 +49,521 @@ FocusScope {
         return qsTr("Connecting the stream")
     }
 
-    Item {
-        id: layout
+    function elapsedText() {
+        const total = root.elapsedSeconds
+        const hours = Math.floor(total / 3600)
+        const minutes = Math.floor(total / 60) % 60
+        const seconds = total % 60
+        return hours > 0
+            ? hours + ":" + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0")
+            : String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0")
+    }
+
+    function regionText() {
+        let value = String(root.session.regionName || root.session.region || root.session.serverRegionId
+            || (typeof root.session.serverLocation === "string" ? root.session.serverLocation : "")
+            || root.session.zone || ShellStore.selectedRegionName || "")
+        if (value.indexOf("http://") === 0 || value.indexOf("https://") === 0)
+            value = value.replace(/^https?:\/\//, "").split("/")[0]
+        return value === "" ? qsTr("Automatic") : value
+    }
+
+    function streamProfileText() {
+        const settings = ShellStore.settings || ({})
+        const profile = root.session.negotiatedStreamProfile || root.session.streamProfile || ({})
+        const measuredResolution = Number(profile.width || 0) > 0 && Number(profile.height || 0) > 0
+            ? String(profile.width) + "x" + String(profile.height) : ""
+        const resolution = String(profile.resolution || measuredResolution || settings.resolution || "")
+        const fps = Number(profile.fps || settings.fps || 0)
+        const codec = String(profile.codec || settings.codec || "auto").toUpperCase()
+        const parts = []
+        if (resolution.indexOf("x") > 0)
+            parts.push(resolution.split("x")[1] + "p")
+        else if (resolution !== "")
+            parts.push(resolution)
+        if (fps > 0)
+            parts.push(fps + " fps")
+        if (codec !== "")
+            parts.push(codec)
+        return parts.length ? parts.join(" · ") : qsTr("Automatic")
+    }
+
+    function bestPositionText() {
+        const best = Number(ShellStore.sessionProgressBestPosition || 0)
+        return best > 0 ? String(best) : "—"
+    }
+
+    function gameSubtitle() {
+        const publisher = String(root.game.publisherName || "")
+        const genres = root.game.genres || []
+        const genre = Array.isArray(genres) && genres.length ? String(genres[0]).replace(/_/g, " ") : ""
+        return [publisher, genre].filter(value => value !== "").join(" · ")
+    }
+
+    ArtworkSource {
+        id: coverArtwork
+        sourceUrl: root.coverSource
+        active: root.visible
+    }
+
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.visible
+        onTriggered: root.queueClockMs = Date.now()
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            root.queueVisibleSinceMs = Date.now()
+            root.queueClockMs = root.queueVisibleSinceMs
+        } else {
+            root.artworkViewerOpen = false
+        }
+    }
+    onArtworkViewerOpenChanged: if (root.visible) Qt.callLater(root.restoreFocus)
+    Component.onCompleted: {
+        root.queueVisibleSinceMs = Date.now()
+        root.queueClockMs = root.queueVisibleSinceMs
+    }
+
+    Flickable {
+        id: flick
         anchors.fill: parent
-        anchors.margins: DesktopTokens.px(root.veryCompact ? 22 : 38)
-        anchors.topMargin: DesktopTokens.px(root.veryCompact ? 72 : 96)
-        anchors.bottomMargin: DesktopTokens.px(root.veryCompact ? 20 : 36)
+        anchors.topMargin: 58
+        anchors.bottomMargin: 20
+        clip: true
+        contentWidth: width
+        contentHeight: Math.max(height, layoutGrid.implicitHeight + 48)
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
-        Column {
-            id: story
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            width: Math.max(DesktopTokens.px(250), parent.width - queuePass.width - DesktopTokens.px(54))
-            spacing: 0
+        Grid {
+            id: layoutGrid
+            x: root.stacked ? 20 : 40
+            y: root.stacked ? 20 : Math.max(20, (flick.height - implicitHeight) / 2)
+            width: Math.max(0, flick.width - 2 * x)
+            height: implicitHeight
+            columns: root.stacked ? 1 : 2
+            rows: root.stacked ? 2 : 1
+            columnSpacing: root.stacked ? 0 : 56
+            rowSpacing: root.stacked ? 30 : 0
 
-            Row {
-                spacing: DesktopTokens.px(10)
-                height: DesktopTokens.px(24)
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: DesktopTokens.px(7)
-                    height: width
-                    radius: width / 2
-                    color: Theme.mediaAccent
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("STARTING SESSION")
-                    color: Theme.mediaAccent
-                    font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.px(11)
-                    font.weight: Font.Bold
-                    font.letterSpacing: DesktopTokens.px(1.8)
-                }
-            }
-            Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 12 : 20) }
-            Text {
-                width: parent.width
-                text: String(root.game.title || qsTr("GeForce NOW"))
-                color: Theme.mediaForeground
-                font.family: DesktopTokens.displayFont
-                font.pixelSize: DesktopTokens.px(root.veryCompact ? 32 : root.compact ? 42 : 54)
-                font.weight: Font.Black
-                font.letterSpacing: -DesktopTokens.px(1.4)
-                lineHeight: 1.02
-                maximumLineCount: 2
-                wrapMode: Text.WordWrap
-                elide: Text.ElideRight
-                Accessible.role: Accessible.Heading
-                Accessible.name: text
-            }
-            Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 14 : 24) }
-            Text {
-                objectName: "sessionQueueStatus"
-                width: parent.width
-                text: root.statusText
-                color: Theme.mediaForeground
-                font.family: DesktopTokens.displayFont
-                font.pixelSize: DesktopTokens.px(root.veryCompact ? 19 : 26)
-                font.weight: Font.ExtraBold
-                font.letterSpacing: -DesktopTokens.px(0.35)
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
-                elide: Text.ElideRight
-            }
-            Item { width: 1; height: DesktopTokens.px(8) }
-            Text {
-                width: parent.width
-                text: root.detailText
-                color: Theme.mediaMuted
-                font.family: DesktopTokens.bodyFont
-                font.pixelSize: DesktopTokens.px(14)
-                lineHeight: 1.4
-                wrapMode: Text.WordWrap
-                maximumLineCount: root.veryCompact ? 3 : 4
-                elide: Text.ElideRight
-            }
-            Item { width: 1; height: DesktopTokens.px(root.veryCompact ? 16 : 24) }
-            Rectangle {
-                width: parent.width
-                height: DesktopTokens.px(78)
-                radius: DesktopTokens.px(16)
-                color: "#0DFFFFFF"
-                border.width: 1
-                border.color: "#1FFFFFFF"
-                visible: !root.veryCompact
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.margins: DesktopTokens.px(12)
-                    width: DesktopTokens.px(3)
-                    radius: width / 2
-                    color: Theme.mediaAccent
-                }
-                Row {
-                    anchors.fill: parent
-                    anchors.leftMargin: DesktopTokens.px(22)
-                    anchors.rightMargin: DesktopTokens.px(16)
-                    spacing: DesktopTokens.px(12)
+            Item {
+                id: artworkPanel
+                width: root.stacked ? layoutGrid.width
+                    : Math.floor((layoutGrid.width - layoutGrid.columnSpacing) * 0.46)
+                height: root.stacked ? artworkColumn.implicitHeight : coverPanelHeight
+                readonly property real coverPanelHeight: Math.min(620, Math.max(430, flick.height - 70))
+
+                Column {
+                    id: artworkColumn
+                    width: parent.width
+                    spacing: 10
+
                     Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: DesktopTokens.px(36)
-                        height: width
-                        radius: width / 2
-                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.14)
+                        id: artFrame
+                        width: parent.width
+                        height: root.stacked ? 270 : artworkPanel.coverPanelHeight - 132
+                        radius: 20
+                        color: Theme.lightMode ? "#E8EBF0" : "#101827"
                         border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.34)
+                        clip: true
+
+                        Image {
+                            id: coverImage
+                            anchors.fill: parent
+                            source: coverArtwork.resolvedUrl
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: true
+                            sourceSize: Qt.size(Math.max(1, Math.ceil(width * 2)), Math.max(1, Math.ceil(height * 2)))
+                            opacity: status === Image.Ready ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration } }
+                        }
                         Text {
                             anchors.centerIn: parent
-                            text: "✓"
-                            color: Theme.mediaAccent
+                            width: parent.width - 40
+                            visible: coverImage.status !== Image.Ready
+                            text: String(root.game.title || qsTr("GeForce NOW"))
+                            color: Theme.lightMode ? Theme.label : Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: DesktopTokens.px(18)
+                            font.pixelSize: 24
                             font.weight: Font.Black
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            color: "transparent"
+                            border.width: 1
+                            border.color: "#22FFFFFF"
+                            radius: parent.radius
+                        }
+                        TapHandler {
+                            enabled: coverImage.status === Image.Ready
+                            onTapped: root.artworkViewerOpen = true
                         }
                     }
+
                     Column {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - DesktopTokens.px(48)
-                        spacing: DesktopTokens.px(3)
+                        width: parent.width
+                        spacing: 3
                         Text {
-                            text: qsTr("You can relax")
+                            width: parent.width
+                            text: String(root.game.title || qsTr("GeForce NOW"))
                             color: Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: DesktopTokens.px(15)
-                            font.weight: Font.ExtraBold
+                            font.pixelSize: 23
+                            font.weight: Font.Black
+                            maximumLineCount: 2
+                            wrapMode: Text.WordWrap
+                            elide: Text.ElideRight
                         }
                         Text {
                             width: parent.width
-                            text: qsTr("We'll take it from here. Your game opens automatically when your rig is ready.")
+                            visible: text !== ""
+                            text: root.gameSubtitle()
                             color: Theme.mediaMuted
                             font.family: DesktopTokens.bodyFont
-                            font.pixelSize: DesktopTokens.px(12)
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            maximumLineCount: 1
                             elide: Text.ElideRight
                         }
                     }
-                }
-            }
-            Item {
-                width: 1
-                height: DesktopTokens.px(root.veryCompact ? 16 : 24)
-                visible: !root.veryCompact
-            }
-            Flow {
-                width: parent.width
-                spacing: DesktopTokens.px(10)
-                DesktopButton {
-                    id: requeueButton
-                    objectName: "desktopQueueRequeue"
-                    onMediaBackground: true
-                    visible: root.queueStalled && root.requeueAvailable
-                    enabled: !root.streamBusy && !root.requeueInProgress
-                    primary: true
-                    text: qsTr("Request a fresh rig")
-                    onClicked: root.requeueRequested()
-                }
-                DesktopButton {
-                    objectName: "desktopQueueRefresh"
-                    onMediaBackground: true
-                    enabled: !root.streamBusy && !root.requeueInProgress
-                    text: qsTr("Refresh status")
-                    onClicked: root.refreshRequested()
-                }
-                DesktopButton {
-                    id: cancelButton
-                    objectName: "desktopQueueCancel"
-                    onMediaBackground: true
-                    enabled: !root.requeueInProgress
-                    text: qsTr("Cancel session")
-                    shortcutText: qsTr("Esc")
-                    onClicked: root.cancelRequested()
-                }
-            }
-        }
 
-        Rectangle {
-            anchors.right: queuePass.right
-            anchors.verticalCenter: queuePass.verticalCenter
-            anchors.rightMargin: -DesktopTokens.px(30)
-            width: queuePass.width + DesktopTokens.px(60)
-            height: queuePass.height + DesktopTokens.px(60)
-            radius: DesktopTokens.px(44)
-            color: "transparent"
-            border.width: 1
-            border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.10)
-            visible: !root.veryCompact
-        }
-
-        Rectangle {
-            id: queuePass
-            objectName: "desktopQueuePass"
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(DesktopTokens.px(420), parent.width * 0.42)
-            height: Math.min(parent.height, DesktopTokens.px(root.veryCompact ? 430 : root.compact ? 500 : 560))
-            radius: DesktopTokens.px(32)
-            color: root.cardSurface
-            border.width: 1
-            border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
-            clip: true
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: DesktopTokens.px(3)
-                color: root.cardAccent
-            }
-            Rectangle {
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.rightMargin: -DesktopTokens.px(72)
-                anchors.topMargin: -DesktopTokens.px(84)
-                width: DesktopTokens.px(230)
-                height: width
-                radius: width / 2
-                color: "transparent"
-                border.width: DesktopTokens.px(26)
-                border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.045)
-            }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.bottom: parent.bottom
-                anchors.leftMargin: -DesktopTokens.px(110)
-                anchors.bottomMargin: -DesktopTokens.px(120)
-                width: DesktopTokens.px(260)
-                height: width
-                radius: width / 2
-                color: "transparent"
-                border.width: 1
-                border.color: "#0EFFFFFF"
+                    DesktopButton {
+                        id: viewArtworkButton
+                        visible: coverImage.status === Image.Ready
+                        onMediaBackground: true
+                        text: qsTr("View artwork")
+                        onClicked: root.artworkViewerOpen = true
+                    }
+                }
             }
 
             Column {
-                id: passContent
-                x: DesktopTokens.px(root.veryCompact ? 18 : root.compact ? 22 : 28)
-                y: DesktopTokens.px(root.veryCompact ? 18 : root.compact ? 22 : 28)
-                width: parent.width - 2 * x
-                spacing: DesktopTokens.px(root.veryCompact ? 8 : 11)
+                id: queuePass
+                objectName: "desktopQueuePass"
+                width: root.stacked ? layoutGrid.width
+                    : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
+                spacing: root.veryCompact ? 10 : 14
 
-                Item {
+                Row {
                     width: parent.width
-                    height: DesktopTokens.px(28)
+                    height: 24
+                    spacing: 10
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 28
+                        height: 2
+                        color: Theme.mediaAccent
+                    }
                     Text {
-                        anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("ALLOCATION CONSOLE")
-                        color: root.cardInk
+                        text: qsTr("STARTING SESSION")
+                        color: Theme.mediaAccent
                         font.family: DesktopTokens.monoFont
-                        font.pixelSize: DesktopTokens.px(10)
+                        font.pixelSize: 11
                         font.weight: Font.Bold
-                        font.letterSpacing: DesktopTokens.px(1.35)
-                    }
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: liveRow.implicitWidth + DesktopTokens.px(16)
-                        height: DesktopTokens.px(26)
-                        radius: height / 2
-                        color: root.cardSoft
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.20)
-                        Row {
-                            id: liveRow
-                            anchors.centerIn: parent
-                            spacing: DesktopTokens.px(6)
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: DesktopTokens.px(6)
-                                height: width
-                                radius: width / 2
-                                color: root.cardAccent
-                                SequentialAnimation on opacity {
-                                    loops: Animation.Infinite
-                                    running: root.visible && !AppController.reducedMotion
-                                    NumberAnimation { to: 0.3; duration: 700 }
-                                    NumberAnimation { to: 1; duration: 700 }
-                                }
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: qsTr("LIVE")
-                                color: root.cardAccent
-                                font.family: DesktopTokens.monoFont
-                                font.pixelSize: DesktopTokens.px(9)
-                                font.weight: Font.Bold
-                                font.letterSpacing: DesktopTokens.px(1)
-                            }
-                        }
+                        font.letterSpacing: 1.6
                     }
                 }
 
                 Text {
-                    text: qsTr("YOUR PLACE IN LINE")
-                    color: root.cardMuted
-                    font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.px(10)
-                    font.weight: Font.Bold
-                    font.letterSpacing: DesktopTokens.px(1.4)
-                }
-
-                Item {
-                    id: orbit
+                    objectName: "sessionQueueStatus"
                     width: parent.width
-                    height: DesktopTokens.px(root.veryCompact ? 118 : root.compact ? 154 : 190)
-                    readonly property real ringDiameter: Math.min(height - DesktopTokens.px(8), width - DesktopTokens.px(20))
-
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: orbit.ringDiameter
-                        height: width
-                        radius: width / 2
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.28)
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: orbit.ringDiameter * 0.78
-                        height: width
-                        radius: width / 2
-                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.035)
-                        border.width: 1
-                        border.color: "#16FFFFFF"
-                    }
-                    Item {
-                        anchors.centerIn: parent
-                        width: orbit.ringDiameter
-                        height: width
-                        RotationAnimation on rotation {
-                            from: 0
-                            to: 360
-                            duration: 18000
-                            loops: Animation.Infinite
-                            running: root.visible && !AppController.reducedMotion
-                        }
-                        Rectangle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: -DesktopTokens.px(4)
-                            width: DesktopTokens.px(8)
-                            height: width
-                            radius: width / 2
-                            color: root.cardAccent
-                            border.width: 1
-                            border.color: Theme.mediaForeground
-                        }
-                    }
-                    Column {
-                        anchors.centerIn: parent
-                        spacing: DesktopTokens.px(2)
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
-                            color: root.cardInk
-                            font.family: DesktopTokens.displayFont
-                            font.pixelSize: DesktopTokens.px(root.queuePosition > 999
-                                ? (root.veryCompact ? 54 : 76) : (root.veryCompact ? 68 : root.compact ? 88 : 108))
-                            font.weight: Font.Black
-                            font.letterSpacing: -DesktopTokens.px(4)
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: root.statusText
-                        }
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: qsTr("IN QUEUE")
-                            color: root.cardAccent
-                            font.family: DesktopTokens.monoFont
-                            font.pixelSize: DesktopTokens.px(9)
-                            font.weight: Font.Bold
-                            font.letterSpacing: DesktopTokens.px(1.6)
-                        }
-                    }
+                    text: root.statusText
+                    color: Theme.mediaForeground
+                    font.family: DesktopTokens.displayFont
+                    font.pixelSize: root.veryCompact ? 25 : 32
+                    font.weight: Font.Black
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
                 }
-
                 Text {
                     width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: qsTr("Your session starts automatically")
-                    color: root.cardMuted
+                    text: root.detailText
+                    color: Theme.mediaMuted
                     font.family: DesktopTokens.bodyFont
-                    font.pixelSize: DesktopTokens.px(12)
-                    font.weight: Font.DemiBold
+                    font.pixelSize: 14
+                    lineHeight: 1.35
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
                     elide: Text.ElideRight
                 }
 
-                Rectangle {
+                Item {
+                    id: positionBlock
                     width: parent.width
-                    height: 1
-                    color: "#18FFFFFF"
+                    height: 116
+                    Column {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 0
+                        Text {
+                            text: qsTr("YOUR PLACE IN LINE")
+                            color: Theme.mediaMuted
+                            font.family: DesktopTokens.monoFont
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.letterSpacing: 1.2
+                        }
+                        Text {
+                            text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
+                            color: Theme.mediaForeground
+                            font.family: DesktopTokens.displayFont
+                            font.pixelSize: root.queuePosition > 999 ? 58 : root.veryCompact ? 66 : 82
+                            font.weight: Font.Black
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: root.statusText
+                        }
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 24
+                        Column {
+                            spacing: 4
+                            Text {
+                                text: qsTr("ELAPSED")
+                                color: Theme.mediaMuted
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.letterSpacing: 1
+                            }
+                            Text {
+                                text: root.elapsedText()
+                                color: Theme.mediaForeground
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 20
+                                font.weight: Font.Bold
+                            }
+                        }
+                        Column {
+                            visible: positionBlock.width > 360
+                            spacing: 4
+                            Text {
+                                text: qsTr("BEST POSITION")
+                                color: Theme.mediaMuted
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.letterSpacing: 1
+                            }
+                            Text {
+                                text: root.bestPositionText()
+                                color: Theme.mediaAccent
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 20
+                                font.weight: Font.Bold
+                            }
+                        }
+                    }
                 }
 
-                Item {
+                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
+
+                Grid {
+                    id: detailGrid
                     width: parent.width
-                    height: stepColumn.implicitHeight
-                    Rectangle {
-                        x: DesktopTokens.px(10)
-                        y: DesktopTokens.px(16)
-                        width: 1
-                        height: Math.max(0, parent.height - DesktopTokens.px(32))
-                        color: "#24FFFFFF"
+                    columns: root.veryCompact ? 1 : 2
+                    columnSpacing: 20
+                    rowSpacing: 12
+                    height: implicitHeight
+
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("STREAM PROFILE"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.streamProfileText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
                     }
                     Column {
-                        id: stepColumn
-                        width: parent.width
-                        spacing: DesktopTokens.px(4)
-                        Repeater {
-                            model: 3
-                            delegate: Item {
-                                id: step
-                                required property int index
-                                width: parent.width
-                                height: DesktopTokens.px(root.veryCompact ? 28 : 34)
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("REGION"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.regionText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
+                    }
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("QUEUE UPDATES"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.activityText; color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                    }
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("SESSION DETAILS"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: qsTr("Your session starts automatically"); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
+
+                Text {
+                    text: qsTr("WHAT HAPPENS NEXT")
+                    color: Theme.mediaMuted
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                    font.letterSpacing: 1.2
+                }
+                Column {
+                    width: parent.width
+                    spacing: 7
+                    Repeater {
+                        model: 3
+                        delegate: Item {
+                            id: step
+                            required property int index
+                            width: parent.width
+                            height: 28
                             Rectangle {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: DesktopTokens.px(21)
-                                height: width
-                                radius: width / 2
-                                color: step.index === 1 ? Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.16) : "#0BFFFFFF"
+                                width: 20
+                                height: 20
+                                radius: 10
+                                color: step.index === 1 ? Theme.mediaAccent : "transparent"
                                 border.width: 1
-                                border.color: step.index === 1 ? root.cardAccent : "#38FFFFFF"
+                                border.color: step.index === 1 ? Theme.mediaAccent : "#55FFFFFF"
                                 Text {
                                     anchors.centerIn: parent
                                     text: step.index === 0 ? "✓" : String(step.index + 1)
-                                    color: step.index === 1 ? root.cardAccent : step.index === 0 ? root.cardInk : root.cardMuted
-                                    font.family: step.index === 0 ? DesktopTokens.bodyFont : DesktopTokens.monoFont
-                                    font.pixelSize: DesktopTokens.px(10)
+                                    color: step.index === 1 ? "#0A0D14" : Theme.mediaForeground
+                                    font.family: DesktopTokens.monoFont
+                                    font.pixelSize: 10
                                     font.weight: Font.Bold
                                 }
                             }
                             Text {
                                 anchors.left: parent.left
-                                anchors.leftMargin: DesktopTokens.px(36)
+                                anchors.leftMargin: 32
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.stepLabel(step.index)
-                                color: step.index === 2 ? root.cardMuted : root.cardInk
+                                color: step.index === 2 ? Theme.mediaMuted : Theme.mediaForeground
                                 font.family: DesktopTokens.bodyFont
-                                font.pixelSize: DesktopTokens.px(12)
+                                font.pixelSize: 13
                                 font.weight: step.index === 1 ? Font.ExtraBold : Font.DemiBold
                                 elide: Text.ElideRight
-                            }
-                            Text {
-                                visible: step.index === 1
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: qsTr("NOW")
-                                color: root.cardAccent
-                                font.family: DesktopTokens.monoFont
-                                font.pixelSize: DesktopTokens.px(9)
-                                font.weight: Font.Bold
-                                font.letterSpacing: DesktopTokens.px(1)
                             }
                         }
                     }
                 }
-                }
 
-            }
-
-            Rectangle {
-                x: passContent.x
-                width: parent.width - 2 * x
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: passContent.y
-                height: DesktopTokens.px(50)
-                radius: DesktopTokens.px(14)
-                color: root.cardSoft
-                border.width: 1
-                border.color: "#16FFFFFF"
                 Row {
-                    anchors.fill: parent
-                    anchors.leftMargin: DesktopTokens.px(14)
-                    anchors.rightMargin: DesktopTokens.px(14)
-                    spacing: DesktopTokens.px(10)
+                    width: parent.width
+                    height: 24
+                    spacing: 9
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: DesktopTokens.px(7)
-                        height: width
-                        radius: width / 2
-                        color: root.queueStalled ? DesktopTokens.amber : root.cardAccent
+                        width: 7
+                        height: 7
+                        radius: 3.5
+                        color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - DesktopTokens.px(17)
+                        width: parent.width - 16
                         text: root.activityText
-                        color: root.cardInk
+                        color: Theme.mediaMuted
                         font.family: DesktopTokens.bodyFont
-                        font.pixelSize: DesktopTokens.px(11)
-                        font.weight: Font.Bold
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
                 }
+
+                Flow {
+                    width: parent.width
+                    spacing: 10
+                    DesktopButton {
+                        id: requeueButton
+                        objectName: "desktopQueueRequeue"
+                        onMediaBackground: true
+                        visible: root.queueStalled && root.requeueAvailable
+                        enabled: !root.streamBusy && !root.requeueInProgress
+                        primary: true
+                        text: qsTr("Request a fresh rig")
+                        onClicked: root.requeueRequested()
+                    }
+                    DesktopButton {
+                        objectName: "desktopQueueRefresh"
+                        onMediaBackground: true
+                        enabled: !root.streamBusy && !root.requeueInProgress
+                        text: qsTr("Refresh status")
+                        onClicked: root.refreshRequested()
+                    }
+                    DesktopButton {
+                        id: cancelButton
+                        objectName: "desktopQueueCancel"
+                        onMediaBackground: true
+                        enabled: !root.requeueInProgress
+                        text: qsTr("Cancel session")
+                        shortcutText: qsTr("Esc")
+                        onClicked: root.cancelRequested()
+                    }
+                }
             }
+        }
+    }
+
+    Rectangle {
+        id: artworkViewer
+        anchors.fill: parent
+        z: 50
+        visible: root.artworkViewerOpen
+        color: "#F20B0F1A"
+        Accessible.role: Accessible.Dialog
+        Accessible.name: qsTr("View artwork")
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.artworkViewerOpen = false
+        }
+        Image {
+            anchors.centerIn: parent
+            width: parent.width * 0.86
+            height: parent.height * 0.80
+            source: coverArtwork.resolvedUrl
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            cache: true
+            sourceSize: Qt.size(1600, 1600)
+        }
+        Text {
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 32
+            width: parent.width - 64
+            text: String(root.game.title || qsTr("GeForce NOW"))
+            color: Theme.mediaForeground
+            font.family: DesktopTokens.displayFont
+            font.pixelSize: 22
+            font.weight: Font.Black
+            elide: Text.ElideRight
+        }
+        DesktopButton {
+            id: closeArtworkButton
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 24
+            onMediaBackground: true
+            text: qsTr("Close")
+            shortcutText: qsTr("Esc")
+            onClicked: root.artworkViewerOpen = false
+        }
+    }
+
+    Keys.onPressed: event => {
+        if (root.artworkViewerOpen && (event.key === Qt.Key_Escape || event.key === Qt.Key_Back)) {
+            root.artworkViewerOpen = false
+            event.accepted = true
         }
     }
 }

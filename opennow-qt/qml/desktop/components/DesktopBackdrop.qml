@@ -76,7 +76,7 @@ Item {
         z: String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 1 : 0
         gradient: Gradient {
             GradientStop { position: 0; color: Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,
-                String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.24 : 0.11) }
+                String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.22 : 0.07) }
             GradientStop { position: 0.4; color: "transparent" }
         }
     }
@@ -85,9 +85,9 @@ Item {
         anchors.fill: parent
         gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.82 : 0.96) }
-            GradientStop { position: 0.38; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.12 : 0.62) }
-            GradientStop { position: 1; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.24 : 0.80) }
+            GradientStop { position: 0; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.82 : 0.92) }
+            GradientStop { position: 0.34; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.12 : 0.78) }
+            GradientStop { position: 1; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.24 : 0.94) }
         }
     }
     Rectangle {

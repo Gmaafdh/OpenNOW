@@ -3,7 +3,7 @@ import QtQuick
 
 QtObject {
     readonly property var packs: [
-        {id:"nocturne", name:"Nocturne", author:"OPENNOW", category:"Dark", detail:"MINT NOIR", bg:"#080D17", lightBg:"#F1F5F0", mid:"#1C2A40", accent:"#8CF5C8", lightAccent:"#087A54"},
+        {id:"nocturne", name:"Nocturne", author:"OPENNOW", category:"Dark", detail:"SKY GLASS", bg:"#0B0F1A", lightBg:"#EEF3FA", mid:"#252A48", accent:"#7FD4FF", lightAccent:"#12638C"},
         {id:"aurora", name:"Aurora", author:"OPENNOW", category:"Dark", detail:"MINT AURORA", bg:"#071A20", lightBg:"#EAF5F2", mid:"#16434A", accent:"#6EE7B7", lightAccent:"#126B4E"},
         {id:"kraft", name:"Kraft", author:"OPENNOW", category:"Dark", detail:"WARM BRASS", bg:"#211D17", lightBg:"#F4ECDD", mid:"#756346", accent:"#D3A85C", lightAccent:"#796020"},
         {id:"phosphor", name:"Phosphor", author:"OPENNOW", category:"High contrast", detail:"CRT GLOW", bg:"#07120B", lightBg:"#EDF8EA", mid:"#12351D", accent:"#6BFF8A", lightAccent:"#216C31"},
@@ -28,12 +28,12 @@ QtObject {
     readonly property color faceText: lightMode ? "#FFFFFF" : "#111827"
     // Artwork scrims and dark store-color fallbacks always need a light foreground,
     // independently of the shell's light/dark mode.
-    readonly property color mediaForeground: "#F5F7F2"
-    readonly property color mediaMuted: Qt.rgba(mediaForeground.r, mediaForeground.g, mediaForeground.b, 0.68)
+    readonly property color mediaForeground: "#FFFFFF"
+    readonly property color mediaMuted: Qt.rgba(mediaForeground.r, mediaForeground.g, mediaForeground.b, 0.64)
     readonly property color mediaAccent: accentOverridden ? accentColor(accent, false) : (pack.darkAccent || pack.accent)
     readonly property color seam: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.14) : Qt.rgba(1, 1, 1, 0.14)
-    readonly property color label: lightMode ? "#111827" : "#F2F5F0"
-    readonly property color textMuted: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.64) : Qt.rgba(0.95, 0.97, 0.95, 0.68)
+    readonly property color label: lightMode ? "#111827" : "#FFFFFF"
+    readonly property color textMuted: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.64) : Qt.rgba(1, 1, 1, 0.64)
     readonly property var accentChoices: ["green", "blue", "violet", "rose", "coral", "amber", "white"]
     function accentColor(value, forLightMode = lightMode) {
         const dark = {green:"#6EE7B7", blue:"#7FD4FF", violet:"#A78BFA", rose:"#FF8A9A", coral:"#FF8A80", amber:"#FFD166", white:"#FFFFFF"}
@@ -61,10 +61,10 @@ QtObject {
     function contrastText(background) {
         const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
         const luminance = linear(background.r) * 0.2126 + linear(background.g) * 0.7152 + linear(background.b) * 0.0722
-        return (luminance + 0.05) / 0.0592 > 1.05 / (luminance + 0.05) ? "#0A0D14" : "#FFFFFF"
+        return (luminance + 0.05) / 0.0592 > 1.05 / (luminance + 0.05) ? "#111827" : "#FFFFFF"
     }
 
-    readonly property string displayFont: "Syne"
+    readonly property string displayFont: "Nunito"
     readonly property string bodyFont: "Nunito"
     readonly property string monoFont: "IBM Plex Mono"
 

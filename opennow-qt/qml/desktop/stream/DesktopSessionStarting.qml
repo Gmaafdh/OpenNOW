@@ -92,22 +92,22 @@ FocusScope {
         active: root.visible
     }
 
-    Rectangle { anchors.fill: parent; color: "#050A13" }
+    Rectangle { anchors.fill: parent; color: "#04060A" }
     Image {
         anchors.fill: parent
         source: artwork.resolvedUrl
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        opacity: status === Image.Ready ? (root.queueVisible ? 0.62 : 0.42) : 0
+        opacity: status === Image.Ready ? (root.queueVisible ? 0.52 : 0.36) : 0
         Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration; easing.type: Easing.OutCubic } }
     }
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: "#B8050A13" }
-            GradientStop { position: 0.5; color: "#A0050A13" }
-            GradientStop { position: 1; color: "#F2050A13" }
+            GradientStop { position: 0; color: "#C004060A" }
+            GradientStop { position: 0.5; color: "#AC04060A" }
+            GradientStop { position: 1; color: "#F204060A" }
         }
     }
 
@@ -131,9 +131,9 @@ FocusScope {
         visible: root.queueVisible
         gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: "#C0050A13" }
-            GradientStop { position: 0.55; color: "#50050A13" }
-            GradientStop { position: 1; color: "#16050A13" }
+            GradientStop { position: 0; color: "#B804060A" }
+            GradientStop { position: 0.55; color: "#5004060A" }
+            GradientStop { position: 1; color: "#1604060A" }
         }
     }
 
@@ -156,29 +156,7 @@ FocusScope {
         onRequeueRequested: ShellStore.requeueSession()
     }
 
-    Rectangle {
-        anchors.centerIn: parent
-        visible: !root.queueVisible
-        width: Math.min(640, root.width - 48)
-        height: Math.min(root.height - 48, launchColumn.implicitHeight + 64)
-        radius: 28
-        color: "#B80B1422"
-        border.width: 1
-        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.24)
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.leftMargin: 32
-            anchors.topMargin: 0
-            width: 72
-            height: 3
-            radius: 2
-            color: Theme.mediaAccent
-        }
-    }
-
     Column {
-        id: launchColumn
         anchors.centerIn: parent
         visible: !root.queueVisible
         width: Math.min(560, root.width - 64)
@@ -199,9 +177,9 @@ FocusScope {
             text: String(root.game.title || qsTr("GeForce NOW"))
             color: Theme.mediaForeground
             font.family: DesktopTokens.displayFont
-            font.pixelSize: root.width < 800 ? 36 : 50
+            font.pixelSize: root.width < 800 ? 34 : 44
             font.weight: Font.Black
-            font.letterSpacing: -1.4
+            font.letterSpacing: -1.2
             maximumLineCount: 2
             wrapMode: Text.WordWrap
             elide: Text.ElideRight

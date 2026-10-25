@@ -122,7 +122,6 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     qSetMessagePattern(u"%{time yyyy-MM-ddTHH:mm:ss.zzz} %{type} %{category}: %{message}"_s);
     const QStringList bundledFonts = {
         u":/qt/qml/OpenNOW/res/fonts/Nunito-Variable.ttf"_s,
-        u":/qt/qml/OpenNOW/res/fonts/Syne-Variable.ttf"_s,
         u":/qt/qml/OpenNOW/res/fonts/IBMPlexMono-Regular.ttf"_s,
         u":/qt/qml/OpenNOW/res/fonts/IBMPlexMono-Medium.ttf"_s,
         u":/qt/qml/OpenNOW/res/fonts/IBMPlexMono-Bold.ttf"_s,

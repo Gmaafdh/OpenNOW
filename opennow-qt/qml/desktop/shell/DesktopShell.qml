@@ -92,8 +92,8 @@ FocusScope {
                     width: Math.min(implicitWidth, parent.width)
                     text: root.title; elide: Text.ElideRight
                     color: DesktopTokens.text; font.family: DesktopTokens.displayFont
-                    font.pixelSize: root.settingsPage ? DesktopTokens.px(23) : DesktopTokens.titleSize
-                    font.weight: Font.Black; font.letterSpacing: -0.65
+                    font.pixelSize: root.settingsPage ? DesktopTokens.px(22) : DesktopTokens.titleSize
+                    font.weight: Font.Black; font.letterSpacing: -0.4
                 }
                 Text {
                     x: headerTitle.width + DesktopTokens.px(10)
@@ -121,14 +121,7 @@ FocusScope {
                 font.family: DesktopTokens.bodyFont; font.pixelSize: DesktopTokens.bodySize; font.weight: Font.DemiBold
                 text: root.searchText
                 selectByMouse: true
-                background: Rectangle {
-                    radius: DesktopTokens.px(12)
-                    color: search.activeFocus ? DesktopTokens.raisedStrong : DesktopTokens.raised
-                    border.width: 1
-                    border.color: search.activeFocus ? DesktopTokens.focus : DesktopTokens.seam
-                    Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
-                    Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
-                }
+                background: Rectangle { radius: DesktopTokens.px(10); color: Theme.lightMode ? DesktopTokens.raised : "#59000000"; border.width: 1; border.color: DesktopTokens.seam }
                 onTextChanged: root.searchText = text
                 DesktopGlyph { x: DesktopTokens.px(11); anchors.verticalCenter: parent.verticalCenter; width: DesktopTokens.px(14); height: DesktopTokens.px(14); icon: "desktop-search.svg" }
                 KeyboardGlyph { anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(8); anchors.verticalCenter: parent.verticalCenter; shortcut: "/"; keySize: DesktopTokens.px(20); ink: DesktopTokens.textBody }
@@ -162,7 +155,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         text: activeSessionButton.text
                         elide: Text.ElideRight
-                        color: activeSessionButton.primaryInk
+                        color: "#0A0D14"
                         font: activeSessionButton.font
                     }
                 }

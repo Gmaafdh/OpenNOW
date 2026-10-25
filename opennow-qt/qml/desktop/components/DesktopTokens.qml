@@ -29,8 +29,8 @@ QtObject {
     readonly property color topBar: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.66)
     readonly property color statusBar: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.78)
     readonly property color surface: Theme.glass
-    readonly property color raised: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.08) : "#12FFFFFF"
-    readonly property color raisedStrong: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.12) : "#20FFFFFF"
+    readonly property color raised: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.08) : "#14FFFFFF"
+    readonly property color raisedStrong: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.12) : "#1FFFFFFF"
     readonly property color seam: Theme.seam
     readonly property color seamSoft: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.06) : "#0FFFFFFF"
     readonly property color text: Theme.label
@@ -39,8 +39,8 @@ QtObject {
     readonly property color textMuted: Theme.textMuted
     readonly property color textFaint: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.32) : "#52FFFFFF"
     readonly property color focus: Theme.focus
-    readonly property color green: Theme.lightMode ? "#087A54" : "#8CF5C8"
-    readonly property color mint: "#8CF5C8"
+    readonly property color green: "#1DB954"
+    readonly property color mint: "#56E6A5"
     readonly property color amber: "#FFD166"
     readonly property color ledAmber: "#F5A623"
     readonly property color danger: "#FF8A80"
@@ -54,20 +54,20 @@ QtObject {
     property real uiScale: 1
     // Type ramp. Every desktop font size must come from here so text stays
     // proportionate on any display size; raw pixelSize literals drift.
-    readonly property int titleSize: px(30)
-    readonly property int headingSize: px(18)
+    readonly property int titleSize: px(26)
+    readonly property int headingSize: px(17)
     readonly property int bodySize: px(15)
     readonly property int captionSize: px(13)
     readonly property int monoSize: px(12)
     readonly property int smallSize: px(11)
     readonly property int microSize: px(10)
     readonly property int tinySize: px(9)
-    readonly property int railWidth: px(248)
-    readonly property int railCollapsedWidth: px(76)
-    readonly property int topBarHeight: px(72)
-    readonly property int statusBarHeight: px(48)
+    readonly property int railWidth: px(232)
+    readonly property int railCollapsedWidth: px(72)
+    readonly property int topBarHeight: px(64)
+    readonly property int statusBarHeight: px(52)
     readonly property int rowHeight: px(60)
-    readonly property int controlHeight: px(42)
+    readonly property int controlHeight: px(38)
     readonly property int settingsInset: px(20)
     readonly property int settingsLabelInset: px(76)
     readonly property int settingsControlWidth: px(300)

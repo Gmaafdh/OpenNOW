@@ -13,7 +13,6 @@ public slots:
     {
         const auto source = QStringLiteral(OPENNOW_QML_SOURCE_DIR);
         QFontDatabase::addApplicationFont(source + "/../res/fonts/Nunito-Variable.ttf");
-        QFontDatabase::addApplicationFont(source + "/../res/fonts/Syne-Variable.ttf");
         QFontDatabase::addApplicationFont(source + "/../res/fonts/IBMPlexMono-Medium.ttf");
         qmlRegisterSingletonType(QUrl::fromLocalFile(source + "/theme/Theme.qml"), "OpenNOW", 1, 0, "Theme");
         qmlRegisterSingletonType(QUrl::fromLocalFile(source + "/components/InputPromptIcons.qml"), "OpenNOW", 1, 0, "InputPromptIcons");

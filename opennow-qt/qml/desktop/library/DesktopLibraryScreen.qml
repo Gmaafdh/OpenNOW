@@ -138,10 +138,9 @@ FocusScope {
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
             color: DesktopTokens.text
-            font.family: DesktopTokens.displayFont
-            font.pixelSize: 21
-            font.weight: Font.Bold
-            font.letterSpacing: -0.35
+            font.family: DesktopTokens.bodyFont
+            font.pixelSize: 18
+            font.bold: true
         }
         Row {
             id: collectionActions
@@ -239,12 +238,9 @@ FocusScope {
                 clip: false
                 background: Rectangle {
                     radius: 11
-                    color: root.activeFilter === filterButton.modelData.key
-                        ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, Theme.lightMode ? 0.12 : 0.16)
-                        : (filterButton.hovered ? DesktopTokens.raised : "transparent")
+                    color: root.activeFilter === filterButton.modelData.key ? "#1AFFFFFF" : (filterButton.hovered ? "#0FFFFFFF" : "transparent")
                     border.width: 1
-                    border.color: root.activeFilter === filterButton.modelData.key
-                        ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.48) : DesktopTokens.seam
+                    border.color: root.activeFilter === filterButton.modelData.key ? "#3DFFFFFF" : DesktopTokens.seam
                 }
                 contentItem: Item {
                     implicitWidth: chipRow.implicitWidth
