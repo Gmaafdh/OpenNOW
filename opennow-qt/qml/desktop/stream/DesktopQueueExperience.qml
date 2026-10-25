@@ -145,7 +145,6 @@ FocusScope {
             width: Math.max(0, flick.width - 2 * x)
             height: implicitHeight
             columns: root.stacked ? 1 : 2
-            rows: root.stacked ? 2 : 1
             columnSpacing: root.stacked ? 0 : 56
             rowSpacing: root.stacked ? 30 : 0
 
