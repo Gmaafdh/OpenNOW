@@ -191,7 +191,7 @@ jobs:
           cd /o
           status=0
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|qml-account-picker-launch|qml-account-picker-many|qml-game-labels-1600|qml-collections-1440)$' --output-on-failure --verbose --no-tests=error \
+            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests)$' --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
           results=build/opennow-qt-release/opennow-theme-results.txt
           if [[ -f "$results" ]]; then
@@ -224,6 +224,16 @@ jobs:
             echo "::error::The session-launch acceptance did not create desktop-queue.png"
             exit 1
           fi
+          "$smoke" \
+            --smoke-test --allow-multiple-instances --desktop --route library \
+            --smoke-game-labels --smoke-width 1600 --smoke-height 900 --reduced-motion \
+            2>&1 | tee ci-logs/library-labels-acceptance.log || status=$?
+          if [[ $status -ne 0 ]]; then exit "$status"; fi
+          "$smoke" \
+            --smoke-test --allow-multiple-instances --desktop --route library \
+            --smoke-collections --smoke-width 1440 --reduced-motion \
+            2>&1 | tee ci-logs/library-collections-acceptance.log || status=$?
+          if [[ $status -ne 0 ]]; then exit "$status"; fi
           accountScreenshot=$(cygpath -w "$PWD/ci-logs/account-picker-motion.png")
           "$smoke" \
             --smoke-test --allow-multiple-instances --desktop --route accounts \
