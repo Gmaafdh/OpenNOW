@@ -8,7 +8,9 @@ import sys
 def report(directory):
     pattern = re.compile(
         r"error(?:\[|:)|error [CL]\d|FAILED:|panicked at|CMake Error|critical default:|"
-        r"test result: FAILED|^FAIL!?\s*:|AssertionError:|^Diff in "
+        r"test result: FAILED|^FAIL!?\s*:|AssertionError:|^Diff in |"
+        r"qrc:/\S*\.qml|file://\S*\.qml|Binding loop|ReferenceError:|TypeError:|"
+        r"Unable to assign|Cannot read property|Cannot set property|is not a function"
     )
     for log in sorted(Path(directory).glob("*.log")):
         lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
