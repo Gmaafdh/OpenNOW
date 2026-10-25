@@ -33,8 +33,39 @@ FocusScope {
     property string pinEntry: ""
     property var confirmTarget: null
     property string confirmKind: ""
+    // One entrance clock coordinates the composition without changing geometry.
+    property real entranceProgress: AppController.reducedMotion ? 1 : 0
+    property real exitProgress: 0
+    property bool closing: false
+    property int selectionIndex: -1
+    property real selectionProgress: 0
 
     function u(value) { return Math.round(value * root.unit) }
+    function tileReveal(index) {
+        if (AppController.reducedMotion)
+            return 1
+        const delay = Math.min(0.27, Math.max(0, index) * 0.045)
+        return Math.max(0, Math.min(1, (entranceProgress - delay) / (1 - delay)))
+    }
+    function playSelection(index) {
+        selectionIndex = index
+        selectionAnimation.stop()
+        selectionProgress = AppController.reducedMotion ? 1 : 0
+        if (!AppController.reducedMotion)
+            selectionAnimation.start()
+    }
+    function closePicker() {
+        if (closing)
+            return
+        closing = true
+        if (AppController.reducedMotion) {
+            exitProgress = 1
+            ShellStore.leaveAccountPicker()
+            return
+        }
+        exitAnimation.start()
+        closeTimer.start()
+    }
 
     function accountById(userId) {
         for (let index = 0; index < accounts.length; ++index)
@@ -60,9 +91,11 @@ FocusScope {
     }
 
     function activate(index) {
-        if (switching || index < 0 || index >= itemCount)
+        if (switching || closing || index < 0 || index >= itemCount)
             return
         currentIndex = index
+        if (!manageMode)
+            playSelection(index)
         if (index === accounts.length) {
             if (!manageMode)
                 ShellStore.beginAddAccount()
@@ -79,7 +112,7 @@ FocusScope {
             pinEntry = ""
             ShellStore.pinMessage = ""
         } else if (outcome === "active") {
-            ShellStore.leaveAccountPicker()
+            closePicker()
         }
     }
 
@@ -111,6 +144,8 @@ FocusScope {
     }
 
     function goBack() {
+        if (closing)
+            return
         if (pinAccount) {
             pinAccount = null
             pinEntry = ""
@@ -120,7 +155,7 @@ FocusScope {
         } else if (manageMode) {
             manageMode = false
         } else if (canLeave) {
-            ShellStore.leaveAccountPicker()
+            closePicker()
         } else if (consoleMode) {
             AppController.showOverlay("application-quit-confirm")
         }
@@ -133,7 +168,12 @@ FocusScope {
     }
 
     focus: true
-    Component.onCompleted: currentIndex = initialIndex()
+    opacity: 1 - exitProgress
+    Component.onCompleted: {
+        currentIndex = initialIndex()
+        if (!AppController.reducedMotion)
+            entranceAnimation.start()
+    }
     onItemCountChanged: currentIndex = Math.max(0, Math.min(currentIndex, itemCount - 1))
     Connections {
         target: ShellStore
@@ -142,8 +182,60 @@ FocusScope {
                 root.pinEntry = ""
         }
     }
+    Connections {
+        target: AppController
+        function onReducedMotionChanged() {
+            if (!AppController.reducedMotion)
+                return
+            entranceAnimation.stop()
+            selectionAnimation.stop()
+            root.entranceProgress = 1
+            root.selectionProgress = 1
+            if (root.closing) {
+                closeTimer.stop()
+                ShellStore.leaveAccountPicker()
+            }
+        }
+    }
+    NumberAnimation {
+        id: entranceAnimation
+        target: root
+        property: "entranceProgress"
+        from: 0
+        to: 1
+        duration: 560
+        easing.type: Easing.OutCubic
+    }
+    NumberAnimation {
+        id: exitAnimation
+        target: root
+        property: "exitProgress"
+        from: 0
+        to: 1
+        duration: 220
+        easing.type: Easing.InCubic
+    }
+    NumberAnimation {
+        id: selectionAnimation
+        target: root
+        property: "selectionProgress"
+        from: 0
+        to: 1
+        duration: 380
+        easing.type: Easing.OutCubic
+    }
+    Timer {
+        id: closeTimer
+        interval: 220
+        repeat: false
+        onTriggered: ShellStore.leaveAccountPicker()
+    }
 
     Keys.onPressed: event => {
+        if (root.closing) {
+            event.accepted = true
+            return
+        }
         const digit = digitOf(event)
         if (confirmKind !== "") {
             if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) acceptConfirm()
@@ -276,7 +368,11 @@ FocusScope {
         }
     }
 
-    DesktopOnboardingBackdrop { anchors.fill: parent }
+    DesktopOnboardingBackdrop {
+        anchors.fill: parent
+        scale: 1.035 - 0.035 * root.entranceProgress
+        transformOrigin: Item.Center
+    }
 
     MouseArea {
         anchors.fill: parent
@@ -288,6 +384,8 @@ FocusScope {
         id: topStrip
         width: parent.width
         height: root.u(root.consoleMode ? 110 : 80)
+        opacity: root.entranceProgress
+        transform: Translate { y: -root.u(12) * (1 - root.entranceProgress) }
 
         Rectangle {
             visible: root.consoleMode
@@ -374,13 +472,15 @@ FocusScope {
             spacing: 0
             opacity: root.pinAccount ? 0 : root.confirmKind !== "" ? 0.16 : 1
             visible: opacity > 0
-            enabled: root.confirmKind === "" && !root.pinAccount
+            enabled: root.confirmKind === "" && !root.pinAccount && !root.closing
             Behavior on opacity { NumberAnimation { duration: DesktopTokens.quickDuration } }
 
             Column {
                 id: headingBlock
                 objectName: "accountPickerHeading"
                 anchors.horizontalCenter: parent.horizontalCenter
+                opacity: root.entranceProgress
+                transform: Translate { y: root.u(14) * (1 - root.entranceProgress) }
                 spacing: root.u(10)
                 bottomPadding: stage.height < root.u(560) ? root.u(8) : root.u(root.compact ? 36 : 56)
                 Text {
@@ -439,6 +539,7 @@ FocusScope {
                 contentHeight: tiles.height + root.u(16)
                 interactive: contentHeight > height
                 clip: interactive
+                opacity: root.entranceProgress
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: grid.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
 
@@ -475,6 +576,9 @@ FocusScope {
                             tileSize: root.tileSize
                             compact: root.compact
                             current: index === root.currentIndex
+                            entranceProgress: root.tileReveal(index)
+                            selectionPulse: index === root.selectionIndex && !root.manageMode
+                            selectionProgress: root.selectionProgress
                             manageMode: root.manageMode
                             lastUsed: ShellStore.isActiveAccount(tileAccount)
                             liveTier: ShellStore.isActiveAccount(tileAccount) ? root.activeTier : ""
@@ -499,6 +603,7 @@ FocusScope {
 
             Item {
                 id: noticeBlock
+                opacity: root.entranceProgress
                 readonly property bool noticeShown: focusStrip.visible || root.switching || ShellStore.accountMessage !== ""
                     || root.currentAccount !== null && root.currentAccount.needsSignIn === true && !root.manageMode
                 width: parent.width
@@ -604,6 +709,7 @@ FocusScope {
             Column {
                 id: actionBlock
                 visible: !root.consoleMode
+                opacity: root.entranceProgress
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: root.u(18)
                 Row {
@@ -813,6 +919,7 @@ FocusScope {
     Rectangle {
         id: footer
         objectName: "accountPickerFooter"
+        opacity: root.entranceProgress
         visible: !root.consoleMode
         anchors.bottom: parent.bottom
         width: parent.width

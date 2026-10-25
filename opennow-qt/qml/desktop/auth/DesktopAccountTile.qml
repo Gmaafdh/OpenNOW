@@ -14,6 +14,9 @@ AbstractButton {
     property bool compact: false
     property bool avatarOnly: false
     property bool current: false
+    property real entranceProgress: 1
+    property bool selectionPulse: false
+    property real selectionProgress: 0
     property bool manageMode: false
     property bool lastUsed: false
     property bool switching: false
@@ -78,6 +81,8 @@ AbstractButton {
     contentItem: Column {
         id: column
         spacing: root.u(root.compact ? 8 : 14)
+        opacity: root.entranceProgress
+        transform: Translate { y: root.u(18) * (1 - root.entranceProgress) }
 
         Item {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -113,6 +118,17 @@ AbstractButton {
                 height: width
                 radius: root.cornerRadius + root.u(4)
                 color: Theme.shell
+            }
+            Rectangle {
+                anchors.centerIn: parent
+                visible: root.selectionPulse
+                width: parent.width + root.u(18) + root.u(22) * root.selectionProgress
+                height: width
+                radius: root.cornerRadius + root.u(12)
+                color: "transparent"
+                border.width: Math.max(1, root.u(2))
+                border.color: root.expired ? DesktopTokens.amber : DesktopTokens.focus
+                opacity: (1 - root.selectionProgress) * 0.9
             }
 
             Shape {

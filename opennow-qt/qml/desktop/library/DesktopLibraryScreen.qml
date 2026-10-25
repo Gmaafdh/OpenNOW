@@ -23,6 +23,27 @@ FocusScope {
     property point contextPoint: Qt.point(0, 0)
     signal detailsRequested(var game)
     signal playRequested(var game)
+    property real entranceProgress: AppController.reducedMotion ? 1 : 0
+
+    Component.onCompleted: if (!AppController.reducedMotion) entranceAnimation.start()
+    Connections {
+        target: AppController
+        function onReducedMotionChanged() {
+            if (AppController.reducedMotion) {
+                entranceAnimation.stop()
+                root.entranceProgress = 1
+            }
+        }
+    }
+    NumberAnimation {
+        id: entranceAnimation
+        target: root
+        property: "entranceProgress"
+        from: 0
+        to: 1
+        duration: 420
+        easing.type: Easing.OutCubic
+    }
 
     function storeBlob(game) {
         return (game.availableStores || []).join(" ").toLocaleLowerCase()
@@ -104,11 +125,11 @@ FocusScope {
     }
     readonly property var games: filteredGames()
     readonly property real tileScale: Math.max(0.75, Math.min(1.5, Number(ShellStore.settings.posterSizeScale || 1.05))) / 1.05
-    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (156 * tileScale)))
+    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (176 * tileScale)))
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
-    // The delegate's artwork keeps a 2:3 aspect inside a 6px gutter; derive the
-    // cell from that geometry so the outline and overlay never clip at scale.
-    readonly property int libraryCellH: Math.round((libraryCellW - 12) * 198 / 132) + 12
+    // Artwork, frame padding and the persistent information deck share one
+    // geometry contract with DesktopPoster; no title or focus ring is clipped.
+    readonly property int libraryCellH: Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + 24 + DesktopTokens.px(86)
 
     function editCollection(mode, game) {
         collectionDialog.mode = mode
@@ -124,26 +145,58 @@ FocusScope {
         onCollectionOpened: collectionId => ShellStore.activeCollectionId = collectionId
     }
 
-    Row {
+    Rectangle {
         id: collectionToolbar
-        x: 24; y: 16
+        x: 24
+        y: 16
         width: parent.width - 48
-        height: 36
-        spacing: 8
-        Text {
-            width: Math.max(80, parent.width - collectionActions.width - parent.spacing)
-            height: 36
-            text: root.collection ? root.collection.name : qsTr("All games")
-            textFormat: Text.PlainText
-            elide: Text.ElideRight
-            verticalAlignment: Text.AlignVCenter
-            color: DesktopTokens.text
-            font.family: DesktopTokens.bodyFont
-            font.pixelSize: 18
-            font.bold: true
+        height: 88
+        radius: 18
+        opacity: root.entranceProgress
+        color: DesktopTokens.surface
+        border.width: 1
+        border.color: DesktopTokens.seam
+        transform: Translate { y: 10 * (1 - root.entranceProgress) }
+
+        Rectangle {
+            x: 16
+            anchors.verticalCenter: parent.verticalCenter
+            width: 4
+            height: 42
+            radius: 2
+            color: DesktopTokens.focus
+        }
+        Column {
+            id: collectionHeading
+            x: 36
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(80, parent.width - collectionActions.width - 82)
+            spacing: 4
+            Text {
+                width: parent.width
+                text: root.collection ? root.collection.name : qsTr("Your library")
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                color: DesktopTokens.textHigh
+                font.family: DesktopTokens.displayFont
+                font.pixelSize: DesktopTokens.titleSize
+                font.weight: Font.Black
+            }
+            Text {
+                width: parent.width
+                text: qsTr("%1 games in view").arg(root.games.length)
+                color: DesktopTokens.textMuted
+                elide: Text.ElideRight
+                font.family: DesktopTokens.monoFont
+                font.pixelSize: DesktopTokens.smallSize
+                font.weight: Font.DemiBold
+            }
         }
         Row {
             id: collectionActions
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
             spacing: 8
             DesktopButton {
                 text: qsTr("All games")
@@ -179,7 +232,8 @@ FocusScope {
         width: parent.width - 48
         height: visible ? Math.max(58, noticeText.implicitHeight + 24) : 0
         visible: root.activeFilter === "cloud-favorites" || (ShellStore.catalogSource === "account-library" && ShellStore.catalogState !== "ready")
-        radius: 10
+        opacity: root.entranceProgress
+        radius: 12
         color: DesktopTokens.surface
         border.color: DesktopTokens.seam
         Text {
@@ -209,6 +263,7 @@ FocusScope {
         y: catalogNotice.y + catalogNotice.height + (catalogNotice.visible ? 12 : 0)
         width: parent.width - 48
         spacing: 8
+        opacity: root.entranceProgress
         Repeater {
             model: [
                 {key:"all", label:qsTr("All"), count:root.countWhere(function(game) { return !root.isHiddenGame(game) })},
@@ -237,10 +292,16 @@ FocusScope {
                 hoverEnabled: true
                 clip: false
                 background: Rectangle {
-                    radius: 11
-                    color: root.activeFilter === filterButton.modelData.key ? "#1AFFFFFF" : (filterButton.hovered ? "#0FFFFFFF" : "transparent")
+                    radius: 12
+                    color: root.activeFilter === filterButton.modelData.key
+                        ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.16)
+                        : (filterButton.hovered ? DesktopTokens.raised : "transparent")
                     border.width: 1
-                    border.color: root.activeFilter === filterButton.modelData.key ? "#3DFFFFFF" : DesktopTokens.seam
+                    border.color: root.activeFilter === filterButton.modelData.key
+                        ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.62)
+                        : DesktopTokens.seam
+                    Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                    Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
                 }
                 contentItem: Item {
                     implicitWidth: chipRow.implicitWidth
@@ -329,6 +390,7 @@ FocusScope {
         anchors.rightMargin: 24
         anchors.verticalCenter: filterRow.verticalCenter
         visible: filterRow.height <= 40 && root.width - 24 - libraryHint.implicitWidth > 40 + filterRow.childrenRect.width
+        opacity: root.entranceProgress
         text: qsTr("RIGHT-CLICK A GAME FOR ACTIONS")
         color: DesktopTokens.textFaint
         font.family: DesktopTokens.monoFont
@@ -346,6 +408,7 @@ FocusScope {
         width: parent.width - 36
         height: parent.height - y
         clip: true
+        opacity: root.entranceProgress
         cellWidth: root.libraryCellW
         cellHeight: root.libraryCellH
         model: root.games
@@ -354,7 +417,10 @@ FocusScope {
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         delegate: DesktopPoster {
             required property var modelData
+            required property int index
             game: modelData
+            revealIndex: index
+            showTitle: true
             tileWidth: root.libraryCellW
             tileHeight: root.libraryCellH
             onClicked: {
@@ -379,6 +445,7 @@ FocusScope {
         width: Math.min(grid.width - 48, 460)
         spacing: 12
         visible: root.games.length === 0
+        opacity: root.entranceProgress
         Text {
             width: parent.width
             text: root.collection ? qsTr("No games in this view") : qsTr("No games found")

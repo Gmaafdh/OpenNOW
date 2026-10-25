@@ -3487,6 +3487,7 @@
     "s_qt_runtime_303": "Loading the store…",
     "s_qt_runtime_304": "Store unavailable",
     "s_qt_runtime_305": "Computer mode",
+    "s_qt_runtime_306": "%1 games in view",
     "s_qt_region_ping_01": "The OpenNOW core is not ready. Try again shortly.",
     "s_qt_region_ping_02": "Sign in to measure region latency.",
     "s_qt_region_ping_03": "Loading regions before measuring latency…",
