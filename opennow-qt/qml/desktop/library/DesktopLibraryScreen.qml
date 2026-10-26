@@ -25,8 +25,8 @@ FocusScope {
     signal playRequested(var game)
     property real entranceProgress: AppController.reducedMotion ? 1 : 0
     readonly property bool compactCinema: height < 940
-    readonly property int heroHeight: compactCinema ? 168 : Math.max(210, Math.min(278, Math.round(height * 0.28)))
-    readonly property int marqueeHeight: compactCinema ? 68 : 112
+    readonly property int heroHeight: compactCinema ? 224 : Math.max(280, Math.min(360, Math.round(height * 0.36)))
+    readonly property int marqueeHeight: compactCinema ? 60 : 112
 
     function revealAt(delay) {
         if (AppController.reducedMotion)
@@ -191,7 +191,7 @@ FocusScope {
     DesktopLibraryMarquee {
         id: libraryMarquee
         x: 24
-        y: libraryHero.y + libraryHero.height + 28
+        y: libraryHero.y + libraryHero.height + (root.compactCinema ? 18 : 28)
         width: parent.width - 48
         height: root.marqueeHeight
         games: root.marqueeGames
@@ -218,9 +218,9 @@ FocusScope {
     Rectangle {
         id: collectionToolbar
         x: 24
-        y: libraryMarquee.y + libraryMarquee.height + 18
+        y: libraryMarquee.y + libraryMarquee.height + (root.compactCinema ? 12 : 18)
         width: parent.width - 48
-        height: root.compactCinema ? 60 : 76
+        height: root.compactCinema ? 52 : 76
         radius: 18
         opacity: root.revealAt(0.22)
         color: DesktopTokens.surface
@@ -298,7 +298,7 @@ FocusScope {
         id: catalogNotice
         objectName: "libraryCompletenessNotice"
         x: 24
-        y: collectionToolbar.y + collectionToolbar.height + 14
+        y: collectionToolbar.y + collectionToolbar.height + (root.compactCinema ? 10 : 14)
         width: parent.width - 48
         height: visible ? Math.max(58, noticeText.implicitHeight + 24) : 0
         visible: root.activeFilter === "cloud-favorites" || (ShellStore.catalogSource === "account-library" && ShellStore.catalogState !== "ready")
@@ -476,7 +476,7 @@ FocusScope {
         // The delegate keeps a six-pixel focus/scale gutter. Offset the view by
         // that gutter so the artwork remains on Paper's 24/64 alignment lane.
         x: 18
-        y: filterRow.y + filterRow.height + 14
+        y: filterRow.y + filterRow.height + (root.compactCinema ? 10 : 14)
         width: parent.width - 36
         height: parent.height - y
         clip: true

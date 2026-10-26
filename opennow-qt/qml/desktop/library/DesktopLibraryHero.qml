@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import OpenNOW
 
-// A cinematic, data-driven library banner. The artwork crossfades and drifts
-// while the accent objects continuously change shape, not just opacity.
+// A cinematic, data-driven library banner. Artwork crossfades and drifts
+// without decorative objects competing with the game image.
 Item {
     id: root
 
@@ -12,7 +12,6 @@ Item {
     property int currentIndex: 0
     property int previousIndex: 0
     property real transition: 1
-    property real morph: 0
 
     readonly property int slideCount: games ? games.length : 0
     readonly property var currentGame: slideCount > 0
@@ -84,7 +83,8 @@ Item {
                 RoundedArtwork {
                     anchors.fill: parent
                     artwork: DesktopTokens.artworkUrl(slide.modelData, true)
-                    cornerRadius: 0
+                    fallbackArtwork: DesktopTokens.artworkUrl(slide.modelData, false)
+                    cornerRadius: 24
                     scrimStart: 1
                     fallbackColor: "#111C2C"
                 }
@@ -95,10 +95,10 @@ Item {
             anchors.fill: parent
             gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: "#F20A0E18" }
-                GradientStop { position: 0.38; color: "#C80A0E18" }
-                GradientStop { position: 0.72; color: "#380A0E18" }
-                GradientStop { position: 1; color: "#080A0E18" }
+                GradientStop { position: 0; color: "#E60A0E18" }
+                GradientStop { position: 0.32; color: "#A00A0E18" }
+                GradientStop { position: 0.68; color: "#180A0E18" }
+                GradientStop { position: 1; color: "transparent" }
             }
         }
         Rectangle {
@@ -109,40 +109,8 @@ Item {
             }
         }
 
-        // These are deliberately large enough to read as morphing objects in
-        // motion: a ring becomes a rounded slab while a second pill breathes.
-        Rectangle {
-            width: 156 + 92 * root.morph
-            height: 156 + 42 * (1 - root.morph)
-            x: parent.width - width * 0.42
-            y: -height * 0.36
-            radius: Math.min(width, height) * (0.50 - 0.29 * root.morph)
-            rotation: 18 + 112 * root.morph
-            color: "#12FFFFFF"
-            border.width: 2
-            border.color: "#42FFFFFF"
-        }
-        Rectangle {
-            width: 74 + 132 * root.morph
-            height: 26 + 74 * (1 - root.morph)
-            anchors.right: parent.right
-            anchors.rightMargin: 34 + 32 * root.morph
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 30 + 24 * (1 - root.morph)
-            radius: Math.min(width, height) * (0.5 - 0.25 * root.morph)
-            rotation: -18 + 36 * root.morph
-            color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.26)
-            border.width: 1
-            border.color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.62)
-        }
     }
 
-    SequentialAnimation {
-        running: root.visible && root.active && !AppController.reducedMotion
-        loops: Animation.Infinite
-        NumberAnimation { target: root; property: "morph"; from: 0; to: 1; duration: 2600; easing.type: Easing.InOutSine }
-        NumberAnimation { target: root; property: "morph"; from: 1; to: 0; duration: 2600; easing.type: Easing.InOutSine }
-    }
     NumberAnimation {
         id: transitionAnimation
         target: root
@@ -205,16 +173,23 @@ Item {
             Button {
                 id: playButton
                 text: qsTr("Play now")
-                height: 40
+                height: 42
                 implicitWidth: 142
                 padding: 0
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true
                 onClicked: if (root.currentGame) root.playRequested(root.currentGame)
                 background: Rectangle {
-                    radius: playButton.hovered || playButton.activeFocus ? 18 : 12
-                    color: playButton.down ? "#D9FFFFFF" : "#F5FFFFFF"
-                    Behavior on radius { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                    radius: 12
+                    color: playButton.down ? "#42C893" : "#67E6B0"
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: playButton.down ? "#4BCB99" : "#8AF3C4" }
+                        GradientStop { position: 1; color: playButton.down ? "#35AE80" : "#4BD49D" }
+                    }
+                    border.width: playButton.activeFocus ? 2 : 1
+                    border.color: playButton.activeFocus ? "#FFFFFF" : "#80FFFFFF"
+                    scale: playButton.down && !AppController.reducedMotion ? 0.97 : 1
+                    Behavior on scale { NumberAnimation { duration: 100 } }
                 }
                 contentItem: Row {
                     spacing: 9
@@ -223,7 +198,7 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: playButton.text
-                        color: "#0B0F1A"
+                        color: "#071B16"
                         font.family: DesktopTokens.bodyFont
                         font.pixelSize: DesktopTokens.captionSize
                         font.weight: Font.Black
@@ -233,19 +208,19 @@ Item {
             Button {
                 id: detailsButton
                 text: qsTr("Details")
-                height: 40
+                height: 42
                 implicitWidth: 112
                 padding: 0
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true
                 onClicked: if (root.currentGame) root.detailsRequested(root.currentGame)
                 background: Rectangle {
-                    radius: detailsButton.hovered || detailsButton.activeFocus ? 18 : 12
-                    color: detailsButton.hovered ? "#35FFFFFF" : "#18FFFFFF"
-                    border.width: 1
-                    border.color: "#55FFFFFF"
-                    Behavior on radius { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                    radius: 12
+                    color: detailsButton.hovered ? "#2CFFFFFF" : "#14FFFFFF"
+                    border.width: detailsButton.activeFocus ? 2 : 1
+                    border.color: detailsButton.activeFocus ? DesktopTokens.mint : "#48FFFFFF"
                     Behavior on color { ColorAnimation { duration: 160 } }
+                    Behavior on border.color { ColorAnimation { duration: 160 } }
                 }
                 contentItem: Text {
                     text: detailsButton.text
@@ -301,7 +276,6 @@ Item {
             if (AppController.reducedMotion) {
                 transitionAnimation.stop()
                 root.transition = 1
-                root.morph = 0
             }
         }
     }

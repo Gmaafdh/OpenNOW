@@ -22,8 +22,10 @@ Column {
         objectName: "desktopPosterPlay"
         width: parent.width
         height: 32
-        radius: 8
-        color: "#F2FFFFFF"
+        radius: 9
+        color: "#67E6B0"
+        border.width: 1
+        border.color: "#80FFFFFF"
 
         Row {
             anchors.centerIn: parent

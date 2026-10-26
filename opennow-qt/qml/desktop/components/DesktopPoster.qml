@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import OpenNOW
 
-// Library artwork with a persistent information deck. The view supplies the
-// cell geometry; decoration stays inside the six-pixel interaction gutter.
+// A gallery card for the desktop library. The view supplies the cell geometry;
+// the label and focus contracts stay inside the same interaction gutter.
 ItemDelegate {
     id: root
     property var game: null
@@ -43,21 +43,19 @@ ItemDelegate {
     signal contextRequested(real sceneX, real sceneY)
     Accessible.name: root.title
     Accessible.description: labels.summary
-    // Keep focus geometry inside the delegate so GridView clipping never cuts
-    // off the top/left ring while the card scales up.
     width: tileWidth
     height: tileHeight
     padding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    // Keep pointer/focus bounds stationary while only the card zooms.
     z: cardLifted || contentItem.scale !== 1 ? 20 : 1
     background: Item {}
+
     contentItem: Item {
-        scale: AppController.reducedMotion ? 1 : root.down ? 0.97
-            : (0.93 + 0.07 * root.revealProgress) * (1 + 0.065 * root.hoverMorph)
+        scale: AppController.reducedMotion ? 1 : root.down ? 0.98
+            : (0.94 + 0.06 * root.revealProgress) * (1 + 0.035 * root.hoverMorph)
         opacity: root.revealProgress
-        transform: Translate { y: DesktopTokens.px(26) * (1 - root.revealProgress) - DesktopTokens.px(8) * root.hoverMorph }
+        transform: Translate { y: DesktopTokens.px(22) * (1 - root.revealProgress) - DesktopTokens.px(6) * root.hoverMorph }
         transformOrigin: Item.Center
         Behavior on scale { NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.OutCubic } }
 
@@ -67,14 +65,15 @@ ItemDelegate {
             y: root.artGutter
             width: root.tileWidth - root.artGutter * 2
             height: root.tileHeight - root.artGutter * 2
-            radius: DesktopTokens.px(16 + 12 * root.hoverMorph)
-            color: Theme.glassStrong
+            radius: DesktopTokens.px(18 + 4 * root.hoverMorph)
+            color: Theme.lightMode ? "#F0F3F8" : "#D9141D2B"
             border.width: 1
             border.color: root.cardLifted
-                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.48)
+                ? Qt.rgba(DesktopTokens.mint.r, DesktopTokens.mint.g, DesktopTokens.mint.b, 0.68)
                 : DesktopTokens.seamSoft
             Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
         }
+
         RoundedArtwork {
             id: art
             x: root.artGutter + root.framePadding
@@ -82,33 +81,87 @@ ItemDelegate {
             width: root.artWidth
             height: root.artHeight
             artwork: DesktopTokens.artworkUrl(root.game, false)
-            cornerRadius: DesktopTokens.px(12 + 16 * root.hoverMorph)
-            scrimStart: root.showPlay ? 0.3 : 0.82 - 0.52 * root.hoverMorph
+            cornerRadius: DesktopTokens.px(14 + 4 * root.hoverMorph)
+            scrimStart: root.showPlay ? 0.42 : 0.68 - 0.22 * root.hoverMorph
             fallbackColor: "#1A2232"
-            scale: 1 + 0.06 * root.hoverMorph
+            scale: 1 + 0.025 * root.hoverMorph
             transformOrigin: Item.Center
         }
+
+        // A quiet lower shade keeps the hover action readable without hiding
+        // the artwork or adding decorative objects on top of it.
+        Rectangle {
+            x: art.x
+            y: art.y
+            width: art.width
+            height: art.height
+            radius: art.cornerRadius
+            opacity: 0.42 + 0.28 * root.hoverMorph
+            gradient: Gradient {
+                GradientStop { position: 0.38; color: "transparent" }
+                GradientStop { position: 1; color: "#B80B1220" }
+            }
+        }
+        Rectangle {
+            x: art.x + 1
+            y: art.y + 1
+            width: art.width - 2
+            height: 1
+            color: "#44FFFFFF"
+            opacity: 0.65
+        }
+
+        Rectangle {
+            x: art.x + 10
+            y: art.y + 10
+            width: 40
+            height: 20
+            radius: 6
+            color: "#B80B1220"
+            border.width: 1
+            border.color: "#38FFFFFF"
+            Text {
+                anchors.centerIn: parent
+                text: "GFN"
+                color: DesktopTokens.mint
+                font.family: DesktopTokens.monoFont
+                font.pixelSize: DesktopTokens.tinySize
+                font.weight: Font.Black
+                font.letterSpacing: 1
+            }
+        }
+        Rectangle {
+            anchors.right: art.right
+            anchors.rightMargin: 10
+            y: art.y + 10
+            width: 24
+            height: 24
+            radius: 12
+            visible: root.game && ShellStore.isFavorite(root.game)
+                && !ShellStore.gameLockedByMembership(root.game)
+            color: "#D90B1220"
+            border.width: 1
+            border.color: "#48FFFFFF"
+            DesktopGlyph {
+                anchors.centerIn: parent
+                width: 13
+                height: 13
+                icon: "desktop-star.svg"
+            }
+        }
+
         Rectangle {
             x: art.x - DesktopTokens.cardOutlinePad
             y: art.y - DesktopTokens.cardOutlinePad
             width: art.width + DesktopTokens.cardOutlinePad * 2
             height: art.height + DesktopTokens.cardOutlinePad * 2
-            radius: DesktopTokens.px(14 + 16 * root.hoverMorph)
+            radius: DesktopTokens.px(16 + 4 * root.hoverMorph)
             color: "transparent"
             border.width: root.cardLifted ? 2 : 1
-            border.color: root.cardLifted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
+            border.color: root.cardLifted ? DesktopTokens.mint : DesktopTokens.cardOutlineIdle
             Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
         }
-        Rectangle {
-            x: art.x
-            y: art.y + art.height + 2
-            width: 34 + 86 * root.hoverMorph
-            height: 3 + 3 * root.hoverMorph
-            radius: height / 2
-            rotation: -4 * root.hoverMorph
-            color: DesktopTokens.focus
-            opacity: 0.35 + 0.65 * root.hoverMorph
-        }
+
         DesktopPosterOverlay {
             id: posterOverlay
             x: art.x + 9
@@ -127,13 +180,27 @@ ItemDelegate {
             game: root.game
             liftedBottom: posterOverlay.visible ? posterOverlay.height + 10 : 0
         }
+
+        Rectangle {
+            id: infoDeck
+            visible: root.showTitle
+            x: art.x
+            y: art.y + art.height + 6
+            width: art.width
+            height: Math.max(0, root.tileHeight - y - 12)
+            radius: 10
+            color: Theme.lightMode ? "#E8EDF4" : "#701F2A3A"
+            border.width: 1
+            border.color: root.cardLifted ? "#38FFFFFF" : DesktopTokens.seamSoft
+            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
+        }
         Column {
             id: titleColumn
             visible: root.showTitle
-            x: art.x
-            y: art.y + art.height + DesktopTokens.px(8)
-            width: art.width
-            height: Math.max(0, root.tileHeight - y - DesktopTokens.px(12))
+            x: art.x + 10
+            y: art.y + art.height + 12
+            width: art.width - 20
+            height: Math.max(0, root.tileHeight - y - 12)
             spacing: DesktopTokens.px(4)
 
             Text {
@@ -147,7 +214,7 @@ ItemDelegate {
                 maximumLineCount: 2
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: DesktopTokens.captionSize
-                font.weight: Font.DemiBold
+                font.weight: Font.Bold
                 verticalAlignment: Text.AlignTop
             }
             Text {
@@ -167,7 +234,7 @@ ItemDelegate {
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max(0, parent.width - DesktopTokens.px(22))
                     text: root.game && root.game.price ? String(root.game.price) : qsTr("Available")
-                    color: DesktopTokens.textMuted
+                    color: root.cardLifted ? DesktopTokens.mint : DesktopTokens.textMuted
                     elide: Text.ElideRight
                     font.family: DesktopTokens.monoFont
                     font.pixelSize: DesktopTokens.microSize
@@ -184,6 +251,7 @@ ItemDelegate {
             }
         }
     }
+
     DesktopGameLabelTip {
         x: root.artGutter + root.framePadding
         y: root.artGutter + root.framePadding

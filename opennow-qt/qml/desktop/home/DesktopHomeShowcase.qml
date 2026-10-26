@@ -13,7 +13,7 @@ Item {
     property int favoriteCount: 0
     property bool active: true
 
-    readonly property var nextGames: (recentGames || []).slice(1, 3)
+    readonly property var nextGames: (recentGames || []).slice(1, 4)
     readonly property bool deckVisible: width >= 980
 
     signal playRequested(var game)
@@ -183,7 +183,10 @@ Item {
             anchors.bottomMargin: 14
             width: parent.width - 32
             height: 36
-            primary: true
+            primary: false
+            cornerRadius: 12
+            glyph: "desktop-nav-library.svg"
+            glyphSize: 14
             text: qsTr("Open library")
             onClicked: root.libraryRequested()
         }

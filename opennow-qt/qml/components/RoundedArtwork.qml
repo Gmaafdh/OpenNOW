@@ -5,13 +5,16 @@ import OpenNOW
 Item {
     id: root
     property string artwork: ""
+    property string fallbackArtwork: ""
     property color fallbackColor: Theme.cartSteam
     property real cornerRadius: 34
     property real scrimStart: 0.28
 
     property bool loadStarted: false
     readonly property string normalizedArtwork: DesktopTokens.decodeArtworkUrl(root.artwork)
+    readonly property string normalizedFallback: DesktopTokens.decodeArtworkUrl(root.fallbackArtwork)
     onNormalizedArtworkChanged: if (!visible) loadStarted = false
+    onNormalizedFallbackChanged: if (!visible) loadStarted = false
     // Retained popups keep their resolved artwork between opens, avoiding a
     // fallback flash and another image fade every time visibility changes.
     onVisibleChanged: if (visible) loadStarted = true
@@ -22,6 +25,12 @@ Item {
         id: artworkSource
         sourceUrl: root.normalizedArtwork
         active: root.loadStarted
+        requestActive: root.visible
+    }
+    ArtworkSource {
+        id: fallbackSource
+        sourceUrl: root.normalizedFallback
+        active: root.loadStarted && root.normalizedFallback !== ""
         requestActive: root.visible
     }
 
@@ -47,6 +56,7 @@ Item {
 
         Rectangle { anchors.fill: parent; color: root.fallbackColor }
         Image {
+            id: artworkImage
             anchors.fill: parent
             source: artworkSource.resolvedUrl
             fillMode: Image.PreserveAspectCrop
@@ -54,6 +64,17 @@ Item {
             asynchronous: true
             cache: true
             opacity: status === Image.Ready ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.heroDuration } }
+        }
+        Image {
+            id: fallbackImage
+            anchors.fill: parent
+            source: fallbackSource.resolvedUrl
+            fillMode: Image.PreserveAspectCrop
+            sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
+            asynchronous: true
+            cache: true
+            opacity: status === Image.Ready && artworkImage.status !== Image.Ready ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.heroDuration } }
         }
         Rectangle {

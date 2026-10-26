@@ -56,6 +56,7 @@ Item {
                 RoundedArtwork {
                     anchors.fill: parent
                     artwork: DesktopTokens.artworkUrl(card.modelData, true)
+                    fallbackArtwork: DesktopTokens.artworkUrl(card.modelData, false)
                     cornerRadius: 14
                     scrimStart: 0.42
                     fallbackColor: "#152033"

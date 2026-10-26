@@ -227,7 +227,7 @@ FocusScope {
             Item {
                 id: heroRow
                 width: parent.width
-                height: 320
+                height: DesktopTokens.px(380)
 
                 DesktopHomeShowcase {
                     anchors.fill: parent
