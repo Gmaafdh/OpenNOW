@@ -296,6 +296,7 @@ qt_add_qml_module(opennow-qt
         qml/desktop/friends/DesktopFriendsScreen.qml
         qml/desktop/home/DesktopHomePoster.qml
         qml/desktop/home/DesktopHomeScreen.qml
+        qml/desktop/home/DesktopHomeShowcase.qml
         qml/desktop/library/DesktopLibraryScreen.qml
         qml/desktop/library/DesktopLibraryHero.qml
         qml/desktop/library/DesktopLibraryMarquee.qml

@@ -41,9 +41,16 @@ FocusScope {
         return list
     }
     readonly property var heroGame: root.sortedRecent.length ? root.sortedRecent[0] : null
-    readonly property string heroArtwork: DesktopTokens.decodeArtworkUrl(
-        DesktopTokens.artworkUrl(root.heroGame, true))
+    readonly property var showcaseGames: root.takeGames(root.sortedRecent, 0, 6)
     readonly property var jumpGames: root.takeGames(root.sortedRecent, 1, 12)
+    readonly property int favoriteCount: {
+        let count = 0
+        for (let i = 0; i < root.games.length; ++i) {
+            if (ShellStore.isFavorite(root.games[i]))
+                count += 1
+        }
+        return count
+    }
     readonly property var favoriteGames: {
         const list = []
         for (let i = 0; i < root.games.length; ++i) {
@@ -57,11 +64,11 @@ FocusScope {
     readonly property int railGap: 14
     readonly property int railInnerWidth: Math.max(200, contentFlick.width - 48)
     readonly property int homeTileCount: {
-        const fit = Math.max(5, Math.floor((root.railInnerWidth + root.railGap) / (112 + root.railGap)))
-        return Math.max(1, Math.min(fit, 10))
+        const fit = Math.max(1, Math.floor((root.railInnerWidth + root.railGap) / (132 + root.railGap)))
+        return Math.max(1, Math.min(fit, 8))
     }
     readonly property int homeTileWidth: Math.max(112, Math.floor((root.railInnerWidth - root.railGap * (root.homeTileCount - 1)) / root.homeTileCount))
-    readonly property int homeTileHeight: Math.round(root.homeTileWidth * 168 / 112)
+    readonly property int homeTileHeight: Math.round(root.homeTileWidth * 168 / 112) + DesktopTokens.px(46)
 
     function takeGames(source, start, limit) {
         const list = source || []
@@ -69,12 +76,6 @@ FocusScope {
         for (let index = start; index < list.length && result.length < limit; ++index)
             result.push(list[index])
         return result
-    }
-
-    ArtworkSource {
-        id: heroArtworkSource
-        sourceUrl: root.heroArtwork
-        active: root.active
     }
 
     function heroMeta() {
@@ -125,9 +126,8 @@ FocusScope {
                 contentFlick.contentY = 0
             return
         }
-        const zoneTop = root.focusZone === 2
-            ? (heroRow.height + 18 + jumpRail.height + 18)
-            : (heroRow.height + 18 + jumpRail.height + 18 + playingRail.height + 18)
+        const rail = root.focusZone === 1 ? jumpRail : root.focusZone === 2 ? playingRail : newRail
+        const zoneTop = homeColumn.y + rail.y
         const zoneBottom = zoneTop + 30 + root.homeTileHeight
         if (zoneBottom > contentFlick.contentY + contentFlick.height - 12)
             contentFlick.contentY = Math.min(contentFlick.contentHeight - contentFlick.height,
@@ -227,171 +227,55 @@ FocusScope {
             Item {
                 id: heroRow
                 width: parent.width
-                height: 262
+                height: 320
 
-                Item {
-                    id: heroCard
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    height: 262
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 16
-                        color: "#171B27"
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            shadowEnabled: true
-                            shadowColor: "#73000000"
-                            blurMax: 48
-                            shadowBlur: 1
-                            shadowVerticalOffset: 10
-                        }
-                    }
-
-                    Rectangle {
-                        id: heroMask
-                        anchors.fill: parent
-                        radius: 16
-                        color: "white"
-                        visible: false
-                        layer.enabled: true
-                    }
-
-                    Item {
-                        anchors.fill: parent
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            maskEnabled: true
-                            maskSource: heroMask
-                            maskThresholdMin: 0.25
-                            maskSpreadAtMin: 0.2
-                        }
-
-                        Image {
-                            anchors.fill: parent
-                            source: heroArtworkSource.resolvedUrl
-                            fillMode: Image.PreserveAspectCrop
-                            sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
-                            asynchronous: true
-                            cache: true
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0; color: "#EB060912" }
-                                GradientStop { position: 0.62; color: "#4D060912" }
-                                GradientStop { position: 1; color: "#1A060912" }
-                            }
-                        }
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        color: "transparent"
-                        border.width: 1
-                        border.color: "#29FFFFFF"
-                        radius: 16
-                    }
-
-                    Column {
-                        x: 22
-                        width: parent.width - 44
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 22
-                        spacing: 14
-
-                        Text {
-                            text: qsTr("CONTINUE PLAYING")
-                            color: DesktopTokens.focus
-                            font.family: Theme.monoFont
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 1
-                        }
-
-                        Column {
-                            width: parent.width
-                            spacing: 6
-                            Text {
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: root.heroGame ? String(root.heroGame.title || qsTr("Game")) : qsTr("No games yet")
-                                color: "#FFFFFF"
-                                font.family: Theme.displayFont
-                                font.pixelSize: 34
-                                font.weight: Font.Black
-                                font.letterSpacing: -1
-                            }
-                            Text {
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: root.heroMeta()
-                                color: "#B8FFFFFF"
-                                font.family: Theme.bodyFont
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
-                            }
-                        }
-
-                        Row {
-                            spacing: 9
-
-                            Rectangle {
-                                id: startButton
-                                width: 158
-                                height: 38
-                                radius: 10
-                                color: startTap.pressed ? "#D9FFFFFF" : "#F2FFFFFF"
-                                border.width: root.focusZone === 0 && root.focusIndex === 0 && AppController.inputMode !== "pointer" ? 2 : 0
-                                border.color: "#FFFFFF"
-
-                                Row {
-                                    anchors.centerIn: parent
-                                    spacing: 8
-                                    DesktopGlyph { anchors.verticalCenter: parent.verticalCenter; width: 11; height: 11; icon: "desktop-play.svg" }
-                                    Text { text: qsTr("Start"); color: "#0B0F1A"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.ExtraBold }
-                                    KeyboardGlyph { shortcut: "Enter"; keySize: 20; ink: "#0B0F1A"; Accessible.name: qsTr("ENTER") }
-                                }
-                                HoverHandler { id: startHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 0) }
-                                TapHandler { id: startTap; onTapped: root.startHero() }
-                            }
-
-                            Rectangle {
-                                id: detailsButton
-                                width: 81
-                                height: 38
-                                radius: 10
-                                color: detailsHover.hovered ? "#2EFFFFFF" : "#1FFFFFFF"
-                                border.width: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? 2 : 1
-                                border.color: root.focusZone === 0 && root.focusIndex === 1 && AppController.inputMode !== "pointer" ? "#FFFFFF" : "#33FFFFFF"
-                                Text { anchors.centerIn: parent; text: qsTr("Details"); color: "#FFFFFF"; font.family: Theme.bodyFont; font.pixelSize: 14; font.weight: Font.Bold }
-                                HoverHandler { id: detailsHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.setSelection(0, 1) }
-                                TapHandler { onTapped: root.openGame(root.heroGame) }
-                                Behavior on color { ColorAnimation { duration: AppController.reducedMotion ? 0 : 90 } }
-                            }
-
-                            Rectangle {
-                                width: 182
-                                height: 38
-                                radius: 10
-                                color: "#59000000"
-                                border.width: 1
-                                border.color: "#1FFFFFFF"
-                                Row {
-                                    anchors.centerIn: parent
-                                    spacing: 8
-                                    Rectangle { width: 6; height: 6; radius: 3; color: "#1DB954" }
-                                    Text { text: root.streamChip(); color: "#CCFFFFFF"; font.family: Theme.monoFont; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
-                                }
-                            }
-                        }
-                    }
+                DesktopHomeShowcase {
+                    anchors.fill: parent
+                    games: root.showcaseGames
+                    recentGames: root.sortedRecent
+                    totalGames: root.games.length
+                    favoriteCount: root.favoriteCount
+                    active: root.active
+                    onPlayRequested: game => root.playRequested(game)
+                    onDetailsRequested: game => root.openGame(game)
+                    onLibraryRequested: root.routeRequested("library")
                 }
+            }
 
+            Item {
+                id: discoveryRail
+                width: parent.width
+                height: 124
 
+                Text {
+                    text: qsTr("THE COLLECTION / IN MOTION")
+                    color: DesktopTokens.mint
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.microSize
+                    font.weight: Font.Bold
+                    font.letterSpacing: 1.2
+                }
+                Text {
+                    anchors.right: parent.right
+                    y: 1
+                    text: qsTr("OPEN LIBRARY  ›")
+                    color: openCollectionHover.hovered ? DesktopTokens.textHigh : DesktopTokens.textMuted
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.tinySize
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.8
+                    HoverHandler { id: openCollectionHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: root.routeRequested("library") }
+                }
+                DesktopLibraryMarquee {
+                    x: 0
+                    y: 30
+                    width: parent.width
+                    height: 94
+                    games: root.takeGames(root.games, 0, 10)
+                    active: root.active
+                    onGameRequested: game => root.openGame(game)
+                }
             }
 
             Item {
