@@ -5,6 +5,7 @@ import OpenNOW
 // the control deck give the two most common actions different visual weights.
 Item {
     id: root
+    objectName: "desktopHomeShowcase"
 
     property var games: []
     property var recentGames: []

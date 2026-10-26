@@ -215,6 +215,17 @@ jobs:
           editbin //SUBSYSTEM:CONSOLE "$(cygpath -w "$smoke")" 2>&1 | tee ci-logs/smoke-console.log
           screenshot=$(cygpath -w "$PWD/ci-logs/desktop-queue.png")
           status=0
+          homeScreenshot=$(cygpath -w "$PWD/ci-logs/home-dashboard.png")
+          "$smoke" \
+            --smoke-test --allow-multiple-instances --desktop --route home \
+            --smoke-paper-design --smoke-width 1600 --smoke-height 900 \
+            --screenshot "$homeScreenshot" \
+            2>&1 | tee ci-logs/home-dashboard.log || status=$?
+          if [[ $status -ne 0 ]]; then exit "$status"; fi
+          if [[ ! -s ci-logs/home-dashboard.png ]]; then
+            echo "::error::The Home dashboard acceptance did not create home-dashboard.png"
+            exit 1
+          fi
           "$smoke" \
             --smoke-test --allow-multiple-instances --desktop --route library \
             --smoke-session-launch --reduced-motion --screenshot "$screenshot" \
