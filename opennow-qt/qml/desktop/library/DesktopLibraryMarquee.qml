@@ -136,10 +136,12 @@ Item {
     HoverHandler {
         id: railHover
         onHoveredChanged: {
-            if (hovered)
-                scrollAnimation.pause()
-            else if (scrollAnimation.running)
+            if (hovered) {
+                if (scrollAnimation.running)
+                    scrollAnimation.pause()
+            } else if (scrollAnimation.running) {
                 scrollAnimation.resume()
+            }
         }
     }
 
