@@ -47,7 +47,8 @@ TestCase {
         compare(fallback.fillMode, Image.PreserveAspectFit)
         compare(primary.horizontalAlignment, Image.AlignRight)
         compare(fallback.horizontalAlignment, Image.AlignRight)
-        compare(primary.sourceSize.width, -1)
+        // QML exposes an unspecified sourceSize dimension as zero.
+        compare(primary.sourceSize.width, 0)
         compare(primary.sourceSize.height, 400)
         compare(backdrop.visible, true)
         compare(backdrop.fillMode, Image.PreserveAspectCrop)
