@@ -941,6 +941,8 @@ QtObject {
     // flight. If polling ever stops without an error the queue screen would sit
     // on a stale position forever, so this watchdog restarts it a bounded
     // number of times instead of leaving the player stranded in the queue.
+    // ChangedAt is also the last accepted provider contact, including an
+    // unchanged queue position; GainedAt separately tracks real improvement.
     property double sessionProgressChangedAtMs: 0
     property double sessionProgressGainedAtMs: 0
     property string sessionProgressKey: ""
@@ -4427,6 +4429,10 @@ QtObject {
                         qsTr("We couldn't check whether your game is still running. Check your connection, then try again."))
                     return
                 }
+                // A successful poll is provider contact even when every visible
+                // field is unchanged. Keep this separate from queue improvement
+                // so a slow provider queue is not presented as a frozen poll.
+                root.sessionProgressChangedAtMs = Date.now()
                 root.coreSessionRestoreId = ""
                 root.sessionRecoveryAwaitingAuth = false
                 root.streamPollFailureAttempts = 0

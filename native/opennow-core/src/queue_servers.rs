@@ -59,23 +59,22 @@ pub(super) fn zone_url(zone: &str) -> Option<String> {
 
 fn client(url: &str) -> Result<Client, ServiceError> {
     let parsed = url::Url::parse(url).map_err(|_| error("Queue endpoint is invalid"))?;
-    let host = parsed
+    parsed
         .host_str()
         .ok_or_else(|| error("Queue endpoint has no host"))?;
-    let port = parsed
+    parsed
         .port_or_known_default()
         .ok_or_else(|| error("Queue endpoint has no port"))?;
-    let addresses = crate::network::resolve_bounded(host.to_owned(), port)
-        .filter(|addresses| !addresses.is_empty())
-        .ok_or_else(|| error("Queue endpoint could not be resolved"))?;
     crate::requests::check()?;
+    // Public feed downloads use the same ordinary OS DNS and proxy path as the
+    // reference and the rest of the core. The short bounded resolver belongs
+    // to best-effort latency probes only: applying its 750 ms deadline here can
+    // reject an otherwise healthy feed on a slow first DNS lookup.
     Client::builder()
         .timeout(Duration::from_secs(5))
         .connect_timeout(Duration::from_secs(5))
-        .resolve_to_addrs(host, &addresses)
         .redirect(reqwest::redirect::Policy::none())
         .pool_max_idle_per_host(0)
-        .no_proxy()
         .user_agent("opennow-core")
         .build()
         .map_err(|_| error("Could not create the queue HTTP client"))
@@ -462,6 +461,15 @@ mod tests {
             result["recommendedZoneId"],
             result["locations"][0]["zoneId"]
         );
+    }
+
+    #[test]
+    fn feed_client_validates_without_eager_probe_dns_resolution() {
+        // Construction must not run the 750 ms probe resolver. Reqwest resolves
+        // through its ordinary HTTP path only if a request is actually sent.
+        assert!(client("https://unresolvable.invalid/").is_ok());
+        assert!(client("not a URL").is_err());
+        assert!(client("file:///tmp/queue").is_err());
     }
 
     fn fetch_response(response: Vec<u8>) -> Result<Value, ServiceError> {

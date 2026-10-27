@@ -795,17 +795,20 @@ rows, invalid queue payloads, and HTTP failures return `queue_servers_failed`;
 cancellation returns `cancelled`.
 
 The core requests PrintedWaste's public queue and mapping endpoints without
-credentials, account identifiers, cookies, proxies, or redirects. Each fetch has
-a five-second deadline and a 256 KiB streamed body limit, with at most 256 input
-entries and 128 usable zones. Only strict `NP-<3–8 uppercase alphanumeric
+credentials, account identifiers, cookies, or redirects. Feed downloads use the
+ordinary operating-system DNS and proxy configuration, consistent with the
+reference and the core's other public HTTP reads; the short bounded resolver is
+reserved for latency probes and cannot reject an otherwise healthy feed after a
+slow first DNS lookup. Each fetch has a five-second deadline and a 256 KiB
+streamed body limit, with at most 256 input entries and 128 usable zones. Only strict `NP-<3–8 uppercase alphanumeric
 location beginning with a letter>-<2 digits>` identifiers generate a probe or
 launch URL: `https://<lowercase-zone>.cloudmatchbeta.nvidiagrid.net/`. Neither
 provider payload can supply an arbitrary host. Latency uses a TCP warm-up and two
 TCP connection samples, each bounded to 750 ms across all resolved addresses,
 with 50 ms between samples. Probes run in batches of at most 32 and check
-cancellation between samples and batches. DNS resolution has a 750 ms caller
-deadline, uses at most 32 resolver workers and 32 queued jobs, and returns at most
-eight addresses per host. Stalled system DNS calls cannot block the caller or
+cancellation between samples and batches. Probe DNS resolution has a 750 ms
+caller deadline, uses at most 32 resolver workers and 32 queued jobs, and returns
+at most eight addresses per host. Stalled system DNS calls cannot block the caller or
 spawn additional workers; expired/cancelled jobs are skipped before resolution.
 `pingMs` is the rounded-up mean of successful TCP samples, excluding DNS, TLS,
 and server processing. All-failed probes produce null latency, not fabricated

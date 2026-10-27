@@ -31,16 +31,21 @@ FocusScope {
     property double clockMs: Date.now()
     readonly property int queueStallSeconds: ShellStore.sessionProgressGainedAtMs > 0
         ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressGainedAtMs) / 1000)) : 0
+    readonly property int queueContactSeconds: ShellStore.sessionProgressChangedAtMs > 0
+        ? Math.max(0, Math.floor((root.clockMs - ShellStore.sessionProgressChangedAtMs) / 1000)) : 0
+    readonly property bool queueContactActive: root.queueContactSeconds < 30
     readonly property bool queueStalled: root.queued && !root.stopping && root.queueStallSeconds >= 180
     // Show the latest server snapshot, not a historical best. In particular,
     // clearing position 1 must be allowed to leave the queue presentation.
     readonly property int queuePositionShown: root.progress.queuePosition
     readonly property string queueActivityText: {
+        if (root.queueContactSeconds >= 30)
+            return qsTr("No queue status update for %1s").arg(root.queueContactSeconds)
         if (root.queueStallSeconds < 10)
-            return qsTr("Updates when GeForce NOW reports it")
+            return qsTr("GeForce NOW queue updates are active")
         if (root.queueStallSeconds < 60)
-            return qsTr("Position unchanged for %1s").arg(root.queueStallSeconds)
-        return qsTr("No queue movement for %1 min").arg(Math.max(1, Math.floor(root.queueStallSeconds / 60)))
+            return qsTr("Position unchanged for %1s · updates active").arg(root.queueStallSeconds)
+        return qsTr("No position change for %1 min · updates active").arg(Math.max(1, Math.floor(root.queueStallSeconds / 60)))
     }
     Timer {
         interval: 1000
@@ -117,7 +122,9 @@ FocusScope {
             : qsTr("Checking for running games")
         detail: root.failed || root.stopping || root.resuming || !root.session
             ? I18n.source(ShellStore.streamMessage, I18n.revision)
-            : root.queueStalled ? qsTr("GeForce NOW is still holding your slot in this region. You can keep waiting, or leave this queue and request a fresh rig.")
+            : root.queueStalled ? (root.queueContactActive
+                ? qsTr("GeForce NOW is still updating your session, but your position has not improved. You can keep waiting, or leave this queue and request a fresh rig.")
+                : qsTr("OpenNOW has not received a fresh queue status. You can refresh, keep waiting, or leave this queue and request a fresh rig."))
             : root.queued ? qsTr("Waiting for an available rig. Your session starts by itself, so you can put the controller down.")
             : root.progress.detail
         railVisible: !root.failed && !root.stopping

@@ -35,11 +35,17 @@ FocusScope {
     property double queueClockMs: Date.now()
     readonly property int queueStallSeconds: ShellStore.sessionProgressGainedAtMs > 0
         ? Math.max(0, Math.floor((root.queueClockMs - ShellStore.sessionProgressGainedAtMs) / 1000)) : 0
+    readonly property int queueContactSeconds: ShellStore.sessionProgressChangedAtMs > 0
+        ? Math.max(0, Math.floor((root.queueClockMs - ShellStore.sessionProgressChangedAtMs) / 1000)) : 0
+    readonly property bool queueContactActive: queueContactSeconds < 30
     readonly property bool queueStalled: queueVisible && queueStallSeconds >= 180
     readonly property string queueActivityText: {
-        if (queueStallSeconds < 10) return qsTr("Updates when GeForce NOW reports it")
-        if (queueStallSeconds < 60) return qsTr("Position unchanged for %1s").arg(queueStallSeconds)
-        return qsTr("No queue movement for %1 min").arg(Math.max(1, Math.floor(queueStallSeconds / 60)))
+        if (queueContactSeconds >= 30)
+            return qsTr("No queue status update for %1s").arg(queueContactSeconds)
+        if (queueStallSeconds < 10) return qsTr("GeForce NOW queue updates are active")
+        if (queueStallSeconds < 60)
+            return qsTr("Position unchanged for %1s · updates active").arg(queueStallSeconds)
+        return qsTr("No position change for %1 min · updates active").arg(Math.max(1, Math.floor(queueStallSeconds / 60)))
     }
     Timer {
         interval: 1000
@@ -72,7 +78,9 @@ FocusScope {
             return qsTr("Your game will appear here as soon as the video is ready.")
         }
         if (root.queueStalled)
-            return qsTr("GeForce NOW is still holding your slot in this region. You can keep waiting, or leave this queue and request a fresh rig.")
+            return root.queueContactActive
+                ? qsTr("GeForce NOW is still updating your session, but your position has not improved. You can keep waiting, or leave this queue and request a fresh rig.")
+                : qsTr("OpenNOW has not received a fresh queue status. You can refresh, keep waiting, or leave this queue and request a fresh rig.")
         return setupProgress.detail
     }
 

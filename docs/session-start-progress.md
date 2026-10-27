@@ -33,6 +33,14 @@ redacted server counters (top-level, seat setup, session progress, and progress
 info). They contain no credential, token, cookie, or session ID, and allow a
 genuine allocation plateau to be distinguished from switching counters.
 
+The shell also records the last accepted provider poll separately from the last
+new best queue position. A position that has not improved for three minutes can
+still be a slow, healthy provider queue; the desktop and controller layouts say
+that status updates remain active. If no fresh provider snapshot arrives, the
+activity text identifies that separate condition instead. This presentation
+change does not alter polling, automatic recovery, or the existing option to
+leave a plateaued queue and request a fresh rig.
+
 These numbers are **not** the native bridge's `NVB_SESSION_SETUP_STATE` enum.
 That separate enum uses `3` for starting the streamer and `4` for seat ready.
 Do not apply those meanings directly to `seatSetupStep`. The supplied SDK maps
@@ -78,7 +86,8 @@ The Qt core normalization is in `native/opennow-core/src/cloudmatch.rs`,
 
 `opennow-qt/tests/theme/tst_sessionprogress.qml` covers every known raw step,
 missing/invalid/future values, bounded queue positions, cleanup/storage precedence,
-backward transitions, lifecycle overrides, and the native first-frame wait.
+backward transitions, active-versus-silent queue contact, lifecycle overrides, and
+the native first-frame wait.
 
 ```sh
 cmake --build build/opennow-qt --target opennow-theme-tests

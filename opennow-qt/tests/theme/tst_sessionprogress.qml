@@ -24,6 +24,9 @@ TestCase {
         ShellStore.streamState = "preparing"
         ShellStore.streamerRestartAttempts = 0
         ShellStore.sessionReconnectAttempts = 0
+        ShellStore.sessionProgressGainedAtMs = 0
+        ShellStore.sessionProgressChangedAtMs = 0
+        ShellStore.sessionProgressBestPosition = 0
         ShellStore.streamMessage = ""
         AppController.route = "inserting"
         AppController.overlay = ""
@@ -99,6 +102,33 @@ TestCase {
         compare(screen.queuePosition, 0)
         compare(screen.statusText, "Waiting for an available rig")
         ShellStore.sessionProgressBestPosition = 0
+    }
+
+    function test_slowQueueStillReceivingProviderUpdates() {
+        const now = Date.now()
+        ShellStore.activeSession = {sessionId: "slow-active-queue", seatSetupStep: 1, queuePosition: 8}
+        ShellStore.sessionProgressGainedAtMs = now - 240000
+        ShellStore.sessionProgressChangedAtMs = now - 2000
+        screen.queueClockMs = now
+        compare(screen.queueVisible, true)
+        compare(screen.queueStalled, true)
+        compare(screen.queueContactActive, true)
+        compare(screen.queueActivityText, "No position change for 4 min · updates active")
+        verify(screen.detailText.indexOf("still updating your session") >= 0)
+        verify(screen.detailText.indexOf("request a fresh rig") >= 0)
+    }
+
+    function test_queueWithoutRecentProviderUpdates() {
+        const now = Date.now()
+        ShellStore.activeSession = {sessionId: "silent-queue", seatSetupStep: 1, queuePosition: 8}
+        ShellStore.sessionProgressGainedAtMs = now - 240000
+        ShellStore.sessionProgressChangedAtMs = now - 45000
+        screen.queueClockMs = now
+        compare(screen.queueVisible, true)
+        compare(screen.queueStalled, true)
+        compare(screen.queueContactActive, false)
+        compare(screen.queueActivityText, "No queue status update for 45s")
+        verify(screen.detailText.indexOf("has not received a fresh queue status") >= 0)
     }
 
     function test_lifecyclePrecedence() {

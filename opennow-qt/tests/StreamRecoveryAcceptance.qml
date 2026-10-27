@@ -580,7 +580,10 @@ QtObject {
             }
             ShellStore.streamPollTimer.stop()
             ShellStore.pollStreamingSession()
+            ShellStore.sessionProgressChangedAtMs = 1
             client.responseReceived(ShellStore.streamPollRequestId, {session:queued})
+            check(ShellStore.sessionProgressChangedAtMs > 1,
+                "an unchanged queue snapshot still records successful provider contact")
             check(ShellStore.streamPollFailureAttempts === 0 && ShellStore.streamState === "queued"
                 && ShellStore.activeSession.queuePosition === 21 && ShellStore.streamPollTimer.running,
                 "successful queue poll resets only the consecutive failure budget")

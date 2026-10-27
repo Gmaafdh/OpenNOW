@@ -76,6 +76,7 @@ public slots:
         m_shell.insert("streamerRestartAttempts", 0);
         m_shell.insert("sessionReconnectAttempts", 0);
         m_shell.insert("sessionProgressGainedAtMs", 0.0);
+        m_shell.insert("sessionProgressChangedAtMs", 0.0);
         m_shell.insert("sessionProgressBestPosition", 0);
         m_shell.insert("requeueRequested", false);
         m_shell.insert("launchConflictDetected", false);

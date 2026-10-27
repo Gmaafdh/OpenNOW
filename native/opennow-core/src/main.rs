@@ -741,7 +741,10 @@ fn dispatch(
             .map_err(|message| ("region_ping_failed".to_owned(), message)),
         "queue.servers.list" => queue_servers::list()
             .map(|value| (value, None))
-            .map_err(gfn_error),
+            .map_err(gfn_error)
+            .inspect_err(|(code, message)| {
+                eprintln!("queue: location request failed code={code} message={message}")
+            }),
         "account.subscription.get" => {
             let settings = core.settings.lock().expect("settings poisoned").all();
             core.gfn
