@@ -747,7 +747,7 @@ void NativeStreamRuntime::handleExternalExit()
     if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->stop();
     updateExternalWindowActive();
     emit runningChanged();
-    if (!d->streamSessionActive && !d->streaming()) return;
+    if (!d->streamSessionActive && !streaming()) return;
     QJsonObject event{
         {u"type"_s, u"error"_s},
         {u"code"_s, u"streamer_exited"_s},
