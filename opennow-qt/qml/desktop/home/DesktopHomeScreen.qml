@@ -113,34 +113,34 @@ FocusScope {
         return root.newGames
     }
 
-    function setSelection(zone, index) {
+    function setSelection(zone, index, revealSelection) {
         root.focusZone = Math.max(0, Math.min(3, zone))
         const count = root.focusZone === 0 ? 2 : root.zoneGames(root.focusZone).length
         root.focusIndex = Math.max(0, Math.min(Math.max(0, count - 1), index))
-        root.ensureSelectionVisible()
+        // Pointer hover can be retriggered when a hero crossfades beneath the
+        // cursor. Only explicit keyboard/controller navigation may scroll.
+        if (revealSelection === true)
+            root.ensureSelectionVisible()
     }
 
     function ensureSelectionVisible() {
-        if (root.focusZone <= 1) {
-            if (contentFlick.contentY > 32)
-                contentFlick.contentY = 0
-            return
-        }
         const rail = root.focusZone === 1 ? jumpRail : root.focusZone === 2 ? playingRail : newRail
-        const zoneTop = homeColumn.y + rail.y
-        const zoneBottom = zoneTop + 30 + root.homeTileHeight
-        if (zoneBottom > contentFlick.contentY + contentFlick.height - 12)
-            contentFlick.contentY = Math.min(contentFlick.contentHeight - contentFlick.height,
-                                             zoneBottom - contentFlick.height + 12)
-        else if (zoneTop < contentFlick.contentY + 12)
+        const zoneTop = root.focusZone === 0 ? homeColumn.y + heroRow.y : homeColumn.y + rail.y
+        const zoneBottom = root.focusZone === 0 ? zoneTop + heroRow.height : zoneTop + 30 + root.homeTileHeight
+        // Explicit keyboard/controller navigation still reveals its target.
+        // Unlike the old upper-zone shortcut, this has no unconditional top jump.
+        if (zoneTop < contentFlick.contentY + 12)
             contentFlick.contentY = Math.max(0, zoneTop - 12)
+        else if (zoneBottom > contentFlick.contentY + contentFlick.height - 12)
+            contentFlick.contentY = Math.min(Math.max(0, contentFlick.contentHeight - contentFlick.height),
+                                             zoneBottom - contentFlick.height + 12)
     }
 
     function moveHorizontal(delta) {
         const count = root.focusZone === 0 ? 2 : root.zoneGames(root.focusZone).length
         if (count <= 0)
             return
-        root.setSelection(root.focusZone, Math.max(0, Math.min(count - 1, root.focusIndex + delta)))
+        root.setSelection(root.focusZone, Math.max(0, Math.min(count - 1, root.focusIndex + delta)), true)
     }
 
     function moveVertical(delta) {
@@ -152,7 +152,7 @@ FocusScope {
             nextIndex = Math.min(1, Math.round(root.focusIndex / 4))
         else if (root.focusZone === 0)
             nextIndex = Math.min(8, root.focusIndex * 2)
-        root.setSelection(nextZone, nextIndex)
+        root.setSelection(nextZone, nextIndex, true)
     }
 
     function openGame(game) {
@@ -227,7 +227,7 @@ FocusScope {
             Item {
                 id: heroRow
                 width: parent.width
-                height: DesktopTokens.px(380)
+                height: Math.max(DesktopTokens.px(400), Math.min(DesktopTokens.px(440), Math.round(width * 0.38)))
 
                 DesktopHomeShowcase {
                     anchors.fill: parent
@@ -236,9 +236,11 @@ FocusScope {
                     totalGames: root.games.length
                     favoriteCount: root.favoriteCount
                     active: root.active
+                    selectedAction: root.focusZone === 0 && AppController.inputMode !== "pointer" ? root.focusIndex : -1
                     onPlayRequested: game => root.playRequested(game)
                     onDetailsRequested: game => root.openGame(game)
                     onLibraryRequested: root.routeRequested("library")
+                    onActionPointed: index => root.setSelection(0, index)
                 }
             }
 

@@ -25,7 +25,7 @@ FocusScope {
     signal playRequested(var game)
     property real entranceProgress: AppController.reducedMotion ? 1 : 0
     readonly property bool compactCinema: height < 940
-    readonly property int heroHeight: compactCinema ? 224 : Math.max(280, Math.min(360, Math.round(height * 0.36)))
+    readonly property int heroHeight: compactCinema ? 280 : Math.max(320, Math.min(400, Math.round(height * 0.40)))
     readonly property int marqueeHeight: compactCinema ? 60 : 112
 
     function revealAt(delay) {
@@ -152,7 +152,7 @@ FocusScope {
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
     // Artwork, frame padding and the persistent information deck share one
     // geometry contract with DesktopPoster; no title or focus ring is clipped.
-    readonly property int libraryCellH: Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + 24 + DesktopTokens.px(86)
+    readonly property int libraryCellH: Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(126)
 
     function editCollection(mode, game) {
         collectionDialog.mode = mode

@@ -39,16 +39,25 @@ Item {
     Accessible.description: labels.summary
 
     Behavior on hoverMorph {
-        NumberAnimation { duration: 320; easing.type: Easing.OutBack }
+        NumberAnimation { duration: AppController.reducedMotion ? 0 : 260; easing.type: Easing.OutCubic }
     }
 
     Item {
         id: visual
         anchors.fill: parent
-        scale: 1 + 0.045 * root.hoverMorph
+        scale: 1 + 0.03 * root.hoverMorph
+        transform: Translate { y: -DesktopTokens.px(4) * root.hoverMorph }
         transformOrigin: Item.Center
-        Behavior on scale { NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.OutCubic } }
 
+        Rectangle {
+            x: 1
+            y: DesktopTokens.px(6)
+            width: parent.width - 2
+            height: parent.height - DesktopTokens.px(4)
+            radius: DesktopTokens.px(16)
+            color: Theme.lightMode ? "#28445A78" : "#80000000"
+            opacity: 0.55 + 0.25 * root.hoverMorph
+        }
         RoundedArtwork {
             id: artworkView
             x: 0
@@ -57,10 +66,8 @@ Item {
             height: root.artHeight
             artwork: root.artwork
             fallbackColor: "#171B27"
-            cornerRadius: 12 + 8 * root.hoverMorph
-            scrimStart: root.highlighted ? 0.3 : 0.86
-            scale: 1 + 0.045 * root.hoverMorph
-            transformOrigin: Item.Center
+            cornerRadius: 12 + 4 * root.hoverMorph
+            scrimStart: root.highlighted ? 0.38 : 0.86
         }
 
         Rectangle {
@@ -69,7 +76,7 @@ Item {
             y: root.artHeight - 1
             width: root.tileWidth
             height: root.infoHeight + 1
-            radius: 12 + 8 * root.hoverMorph
+            radius: 12 + 4 * root.hoverMorph
             color: Theme.lightMode ? "#F0F3F8" : "#E617202D"
             border.width: 1
             border.color: root.highlighted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
@@ -122,7 +129,7 @@ Item {
             y: -DesktopTokens.cardOutlinePad
             width: root.tileWidth + DesktopTokens.cardOutlinePad * 2
             height: root.tileHeight + DesktopTokens.cardOutlinePad * 2
-            radius: 14 + 8 * root.hoverMorph
+            radius: 14 + 4 * root.hoverMorph
             color: "transparent"
             border.width: root.highlighted ? 2 : 1
             border.color: root.highlighted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle

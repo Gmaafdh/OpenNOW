@@ -9,6 +9,7 @@ Item {
 
     property var games: []
     property bool active: true
+    property int selectedAction: -1
     property int currentIndex: 0
     property int previousIndex: 0
     property real transition: 1
@@ -19,6 +20,7 @@ Item {
 
     signal playRequested(var game)
     signal detailsRequested(var game)
+    signal actionPointed(int index)
 
     function showSlide(index) {
         if (slideCount < 1)
@@ -73,17 +75,18 @@ Item {
                 visible: opacity > 0
                 opacity: index === root.currentIndex ? root.transition
                     : index === root.previousIndex ? 1 - root.transition : 0
-                scale: index === root.currentIndex ? 1.08 - 0.08 * root.transition
-                    : 1 + 0.035 * root.transition
-                transformOrigin: Item.Center
+                // Keep the slide at its natural size. Scaling the whole slide
+                // used to crop the top and bottom of every piece of key art.
                 transform: Translate {
-                    x: index === root.currentIndex ? 26 * (1 - root.transition) : -20 * root.transition
+                    x: index === root.currentIndex ? 10 * (1 - root.transition) : -8 * root.transition
                 }
 
                 RoundedArtwork {
                     anchors.fill: parent
                     artwork: DesktopTokens.artworkUrl(slide.modelData, true)
                     fallbackArtwork: DesktopTokens.artworkUrl(slide.modelData, false)
+                    cinematicFit: true
+                    alignArtworkRight: true
                     cornerRadius: 24
                     scrimStart: 1
                     fallbackColor: "#111C2C"
@@ -117,8 +120,8 @@ Item {
         property: "transition"
         from: 0
         to: 1
-        duration: 820
-        easing.type: Easing.InOutCubic
+        duration: 520
+        easing.type: Easing.OutCubic
     }
     Timer {
         interval: 6200
@@ -128,6 +131,83 @@ Item {
         onTriggered: root.nextSlide()
     }
     HoverHandler { id: heroHover; cursorShape: Qt.PointingHandCursor }
+
+    component HeroAction: Button {
+        id: action
+        property bool primary: false
+        property bool navigationFocus: false
+        property int actionIndex: -1
+        property string glyph: ""
+        height: DesktopTokens.px(44)
+        padding: 0
+        focusPolicy: Qt.StrongFocus
+        hoverEnabled: true
+        onHoveredChanged: if (hovered && actionIndex >= 0) root.actionPointed(actionIndex)
+        opacity: enabled ? 1 : 0.45
+        scale: AppController.reducedMotion ? 1 : down ? 0.965 : hovered ? 1.015 : 1
+        transformOrigin: Item.Center
+        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+
+        background: Item {
+            Rectangle {
+                anchors.fill: parent
+                anchors.topMargin: DesktopTokens.px(4)
+                radius: DesktopTokens.px(13)
+                color: action.primary ? "#64000000" : "#40000000"
+            }
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -3
+                visible: action.activeFocus || action.navigationFocus
+                radius: DesktopTokens.px(16)
+                color: "transparent"
+                border.width: 2
+                border.color: DesktopTokens.focus
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: DesktopTokens.px(13)
+                border.width: 1
+                border.color: action.activeFocus || action.navigationFocus ? "#FFFFFF"
+                    : action.primary ? "#99FFFFFF" : action.hovered ? "#80FFFFFF" : "#48FFFFFF"
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0
+                        color: action.primary ? (action.down ? "#63DDA9" : action.hovered ? "#A4F8D3" : "#8AF3C4")
+                            : (action.down ? "#24FFFFFF" : action.hovered ? "#32FFFFFF" : "#20FFFFFF")
+                    }
+                    GradientStop {
+                        position: 1
+                        color: action.primary ? (action.down ? "#38B886" : action.hovered ? "#5FE3AA" : "#4BD49D")
+                            : (action.down ? "#141B2B" : action.hovered ? "#243247" : "#D9141D2B")
+                    }
+                }
+                Behavior on border.color { ColorAnimation { duration: 120 } }
+            }
+        }
+        contentItem: Item {
+            Row {
+                anchors.centerIn: parent
+                spacing: DesktopTokens.px(9)
+                DesktopGlyph {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: DesktopTokens.px(15)
+                    height: width
+                    visible: action.glyph !== ""
+                    icon: action.glyph
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: action.text
+                    color: action.primary ? "#071B16" : "#FFFFFF"
+                    font.family: DesktopTokens.bodyFont
+                    font.pixelSize: DesktopTokens.captionSize
+                    font.weight: Font.Black
+                }
+            }
+        }
+    }
 
     Column {
         x: 30
@@ -170,67 +250,24 @@ Item {
             spacing: 10
             visible: root.currentGame !== null
 
-            Button {
-                id: playButton
+            HeroAction {
+                objectName: "desktopHeroPlay"
                 text: qsTr("Play now")
-                height: 42
-                implicitWidth: 142
-                padding: 0
-                focusPolicy: Qt.StrongFocus
-                hoverEnabled: true
+                primary: true
+                actionIndex: 0
+                navigationFocus: root.selectedAction === 0
+                glyph: "desktop-play-filled.svg"
+                implicitWidth: DesktopTokens.px(148)
                 onClicked: if (root.currentGame) root.playRequested(root.currentGame)
-                background: Rectangle {
-                    radius: 12
-                    color: playButton.down ? "#42C893" : "#67E6B0"
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: playButton.down ? "#4BCB99" : "#8AF3C4" }
-                        GradientStop { position: 1; color: playButton.down ? "#35AE80" : "#4BD49D" }
-                    }
-                    border.width: playButton.activeFocus ? 2 : 1
-                    border.color: playButton.activeFocus ? "#FFFFFF" : "#80FFFFFF"
-                    scale: playButton.down && !AppController.reducedMotion ? 0.97 : 1
-                    Behavior on scale { NumberAnimation { duration: 100 } }
-                }
-                contentItem: Row {
-                    spacing: 9
-                    anchors.centerIn: parent
-                    DesktopGlyph { anchors.verticalCenter: parent.verticalCenter; width: 13; height: 13; icon: "desktop-play.svg" }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: playButton.text
-                        color: "#071B16"
-                        font.family: DesktopTokens.bodyFont
-                        font.pixelSize: DesktopTokens.captionSize
-                        font.weight: Font.Black
-                    }
-                }
             }
-            Button {
-                id: detailsButton
+            HeroAction {
+                objectName: "desktopHeroDetails"
                 text: qsTr("Details")
-                height: 42
-                implicitWidth: 112
-                padding: 0
-                focusPolicy: Qt.StrongFocus
-                hoverEnabled: true
+                actionIndex: 1
+                navigationFocus: root.selectedAction === 1
+                glyph: "desktop-info.svg"
+                implicitWidth: DesktopTokens.px(124)
                 onClicked: if (root.currentGame) root.detailsRequested(root.currentGame)
-                background: Rectangle {
-                    radius: 12
-                    color: detailsButton.hovered ? "#2CFFFFFF" : "#14FFFFFF"
-                    border.width: detailsButton.activeFocus ? 2 : 1
-                    border.color: detailsButton.activeFocus ? DesktopTokens.mint : "#48FFFFFF"
-                    Behavior on color { ColorAnimation { duration: 160 } }
-                    Behavior on border.color { ColorAnimation { duration: 160 } }
-                }
-                contentItem: Text {
-                    text: detailsButton.text
-                    color: "#FFFFFF"
-                    font.family: DesktopTokens.bodyFont
-                    font.pixelSize: DesktopTokens.captionSize
-                    font.weight: Font.Bold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
             }
         }
     }
@@ -249,8 +286,8 @@ Item {
                 height: 6
                 radius: 3
                 color: index === root.currentIndex ? DesktopTokens.mint : "#66FFFFFF"
-                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
-                Behavior on color { ColorAnimation { duration: 180 } }
+                Behavior on width { NumberAnimation { duration: AppController.reducedMotion ? 0 : 220; easing.type: Easing.OutCubic } }
+                Behavior on color { ColorAnimation { duration: AppController.reducedMotion ? 0 : 160 } }
                 TapHandler { onTapped: root.showSlide(index) }
             }
         }

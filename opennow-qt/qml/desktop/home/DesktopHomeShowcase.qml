@@ -12,6 +12,7 @@ Item {
     property int totalGames: 0
     property int favoriteCount: 0
     property bool active: true
+    property int selectedAction: -1
 
     readonly property var nextGames: (recentGames || []).slice(1, 4)
     readonly property bool deckVisible: width >= 980
@@ -19,6 +20,7 @@ Item {
     signal playRequested(var game)
     signal detailsRequested(var game)
     signal libraryRequested()
+    signal actionPointed(int index)
 
     DesktopLibraryHero {
         id: spotlight
@@ -28,8 +30,10 @@ Item {
         width: root.deckVisible ? parent.width - controlDeck.width - 16 : parent.width
         games: root.games
         active: root.active
+        selectedAction: root.selectedAction
         onPlayRequested: game => root.playRequested(game)
         onDetailsRequested: game => root.detailsRequested(game)
+        onActionPointed: index => root.actionPointed(index)
     }
 
     Rectangle {
