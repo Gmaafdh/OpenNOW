@@ -1487,6 +1487,156 @@ private slots:
         QVERIFY(runtime.shutdown());
     }
 
+    void externalSidecarPreservesProtocolWithoutQtPresentation()
+    {
+        QTemporaryDir data;
+        QVERIFY(data.isValid());
+        qputenv("OPENNOW_DATA_DIR", data.path().toUtf8());
+        qputenv("OPENNOW_STREAMER_EXECUTABLE", OPENNOW_FAKE_STREAMER_PATH);
+        qputenv("OPENNOW_FAKE_STREAMER_LOG",
+                data.filePath(QStringLiteral("commands.jsonl")).toUtf8());
+        qunsetenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN");
+        const auto restore = qScopeGuard([] {
+            qunsetenv("OPENNOW_DATA_DIR");
+            qunsetenv("OPENNOW_STREAMER_EXECUTABLE");
+            qunsetenv("OPENNOW_FAKE_STREAMER_LOG");
+            qunsetenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN");
+        });
+
+        NativeStreamRuntime runtime(fakeApi(), nullptr, nullptr, 0, true);
+        QSignalSpy responses(&runtime, &NativeStreamRuntime::responseReceived);
+        QSignalSpy events(&runtime, &NativeStreamRuntime::eventReceived);
+        QVERIFY(runtime.usesExternalWindow());
+        QVERIFY(!runtime.externalWindowActive());
+        QVERIFY2(runtime.start(), qPrintable(runtime.lastError()));
+        QVERIFY(runtime.running());
+        QVERIFY(!runtime.externalWindowActive());
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("sidecar-hello")},
+                              {QStringLiteral("type"), QStringLiteral("hello")}}));
+        QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 1, 2'000);
+        QCOMPARE(responses.at(0).at(0).toJsonObject().value(QStringLiteral("type")).toString(),
+                 QStringLiteral("ready"));
+
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("sidecar-start")},
+                              {QStringLiteral("type"), QStringLiteral("start")}}));
+        QTRY_VERIFY_WITH_TIMEOUT(runtime.streaming(), 2'000);
+        QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 2, 2'000);
+        QTRY_VERIFY_WITH_TIMEOUT(runtime.upstreamProgress().hasDecodeTimings, 2'000);
+        QCOMPARE(runtime.upstreamProgress().decodedOutputsTotal, quint64(42));
+        QVERIFY(!runtime.presentationAllowed());
+        QVERIFY(!runtime.inputAllowed());
+        OpenNowStreamerGraphicsContext context{};
+        QCOMPARE(runtime.setGraphicsContext(context), OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE);
+        QCOMPARE(runtime.sceneGraphShutdown(), OPENNOW_STREAMER_OK);
+        QCOMPARE(runtime.submitKey(0x57, 0, true), OPENNOW_STREAMER_CLOSED);
+
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("sidecar-stop")},
+                              {QStringLiteral("type"), QStringLiteral("stop")}}));
+        QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 3, 2'000);
+        QTRY_COMPARE_WITH_TIMEOUT(events.size(), 4, 2'000);
+        QVERIFY(!runtime.streaming());
+        QVERIFY2(runtime.shutdown(), qPrintable(runtime.lastError()));
+        QVERIFY(!runtime.running());
+
+        QFile log(data.filePath(QStringLiteral("commands.jsonl")));
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        QStringList commands;
+        QJsonObject first;
+        const auto lines = log.readAll().split('\n');
+        for (const auto &line : lines) {
+            if (line.isEmpty()) continue;
+            const auto record = QJsonDocument::fromJson(line).object();
+            if (first.isEmpty()) first = record;
+            commands.append(record.value(QStringLiteral("command")).toObject()
+                                .value(QStringLiteral("type")).toString());
+        }
+        QCOMPARE(commands, QStringList({QStringLiteral("hello"), QStringLiteral("start"),
+                                        QStringLiteral("stop"), QStringLiteral("shutdown")}));
+        QCOMPARE(first.value(QStringLiteral("externalRenderer")).toString(), QStringLiteral("1"));
+        QCOMPARE(first.value(QStringLiteral("inputOwner")).toString(), QStringLiteral("native"));
+        QCOMPARE(first.value(QStringLiteral("standalone")).toString(), QStringLiteral("1"));
+        QCOMPARE(first.value(QStringLiteral("windowsApi")).toString(), QStringLiteral("d3d11"));
+        QCOMPARE(first.value(QStringLiteral("videoBackend")).toString(), QStringLiteral("auto"));
+    }
+
+    void externalSidecarCrashIsScopedAndRestartable()
+    {
+        QTemporaryDir data;
+        QVERIFY(data.isValid());
+        qputenv("OPENNOW_DATA_DIR", data.path().toUtf8());
+        qputenv("OPENNOW_STREAMER_EXECUTABLE", OPENNOW_FAKE_STREAMER_PATH);
+        qputenv("OPENNOW_FAKE_STREAMER_LOG",
+                data.filePath(QStringLiteral("crash.jsonl")).toUtf8());
+        qunsetenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN");
+        const auto restore = qScopeGuard([] {
+            qunsetenv("OPENNOW_DATA_DIR");
+            qunsetenv("OPENNOW_STREAMER_EXECUTABLE");
+            qunsetenv("OPENNOW_FAKE_STREAMER_LOG");
+            qunsetenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN");
+        });
+
+        NativeStreamRuntime runtime(fakeApi(), nullptr, nullptr, 0, true);
+        QSignalSpy responses(&runtime, &NativeStreamRuntime::responseReceived);
+        QSignalSpy events(&runtime, &NativeStreamRuntime::eventReceived);
+        QVERIFY(runtime.start());
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("before-crash")},
+                              {QStringLiteral("type"), QStringLiteral("start")}}));
+        QTRY_VERIFY_WITH_TIMEOUT(runtime.streaming(), 2'000);
+        events.clear();
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("crash")},
+                              {QStringLiteral("type"), QStringLiteral("crash")}}));
+        QTRY_VERIFY_WITH_TIMEOUT(!runtime.running(), 2'000);
+        QTRY_VERIFY_WITH_TIMEOUT(!runtime.streaming(), 2'000);
+        QVERIFY(runtime.lastError().contains(QStringLiteral("17")));
+        bool receivedExit = false;
+        for (const auto &arguments : events) {
+            const auto event = arguments.at(0).toJsonObject();
+            receivedExit = receivedExit
+                || event.value(QStringLiteral("code")).toString() == QStringLiteral("streamer_exited");
+        }
+        QVERIFY(receivedExit);
+
+        responses.clear();
+        QVERIFY2(runtime.start(), qPrintable(runtime.lastError()));
+        QVERIFY(runtime.running());
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("after-restart")},
+                              {QStringLiteral("type"), QStringLiteral("hello")}}));
+        QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 1, 2'000);
+        QCOMPARE(responses.at(0).at(0).toJsonObject().value(QStringLiteral("id")).toString(),
+                 QStringLiteral("after-restart"));
+        QVERIFY2(runtime.shutdown(), qPrintable(runtime.lastError()));
+    }
+
+    void externalSidecarShutdownIsBounded()
+    {
+        QTemporaryDir data;
+        QVERIFY(data.isValid());
+        qputenv("OPENNOW_DATA_DIR", data.path().toUtf8());
+        qputenv("OPENNOW_STREAMER_EXECUTABLE", OPENNOW_FAKE_STREAMER_PATH);
+        qputenv("OPENNOW_FAKE_STREAMER_LOG",
+                data.filePath(QStringLiteral("hang.jsonl")).toUtf8());
+        qputenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN", "1");
+        const auto restore = qScopeGuard([] {
+            qunsetenv("OPENNOW_DATA_DIR");
+            qunsetenv("OPENNOW_STREAMER_EXECUTABLE");
+            qunsetenv("OPENNOW_FAKE_STREAMER_LOG");
+            qunsetenv("OPENNOW_FAKE_STREAMER_HANG_SHUTDOWN");
+        });
+
+        NativeStreamRuntime runtime(fakeApi(), nullptr, nullptr, 0, true);
+        QSignalSpy responses(&runtime, &NativeStreamRuntime::responseReceived);
+        QVERIFY(runtime.start());
+        QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("hang-hello")},
+                              {QStringLiteral("type"), QStringLiteral("hello")}}));
+        QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 1, 2'000);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QVERIFY(!runtime.shutdown(50));
+        QVERIFY(elapsed.elapsed() < 2'000);
+        QVERIFY(!runtime.running());
+        QVERIFY(runtime.lastError().contains(QStringLiteral("terminated")));
+    }
+
     void roundTripsThroughTheLinkedRustFfi()
     {
         QTemporaryDir data;

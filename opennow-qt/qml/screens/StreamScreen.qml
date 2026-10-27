@@ -97,6 +97,7 @@ FocusScope {
     function resynchronizeStreamInput() {
         root.publishCaptureRect()
         if (!root.visible || !root.videoReady
+                || NativeStreamRuntime.usesExternalWindow
                 || ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay))
             return
         streamVideo.forceActiveFocus()
@@ -128,7 +129,7 @@ FocusScope {
         id: streamVideo
         objectName: "streamSurfaceHost"
         anchors.fill: parent
-        visible: root.visible && root.videoSurfaceActive
+        visible: root.visible && root.videoSurfaceActive && !NativeStreamRuntime.usesExternalWindow
         enabled: root.videoReady
         focus: root.videoReady && visible
         inputEnabled: root.videoReady && visible

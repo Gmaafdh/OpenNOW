@@ -21,7 +21,10 @@ use sdl2::render::{Texture, WindowCanvas};
 use crate::linux_frame_pacing::{FrameSelectionPolicy, LinuxFramePacer};
 #[cfg(target_os = "linux")]
 use crate::linux_xinput::LinuxXInputController;
-use crate::media::{CapturedInput, CapturedInputQueue, MediaStreamConfig, StreamShortcutBindings};
+use crate::media::{
+    CapturedInput, CapturedInputQueue, MediaStreamConfig, StreamShortcutAction,
+    StreamShortcutBindings,
+};
 use crate::native_surface::NativeSurface;
 #[cfg(target_os = "windows")]
 use crate::windows_raw_input::WindowsRawInputController;
@@ -1213,6 +1216,19 @@ impl SdlInputCapture {
                     self.captured.push(CapturedInput::Guide);
                     return;
                 }
+                // Alt+Enter is the universal game-fullscreen chord; honor it
+                // alongside the configurable fullscreen binding.
+                if matches!(
+                    scancode,
+                    sdl2::keyboard::Scancode::Return | sdl2::keyboard::Scancode::KpEnter
+                ) && sdl_modifiers(scancode, keymod) & 0x04 != 0
+                {
+                    self.pressed_shortcuts.insert(scancode);
+                    self.captured.push(CapturedInput::Shortcut(
+                        StreamShortcutAction::ToggleFullscreen,
+                    ));
+                    return;
+                }
                 if let Some(virtual_key) = sdl_virtual_key(scancode)
                     && let Some(action) = self
                         .shortcuts
@@ -1540,6 +1556,9 @@ pub(crate) struct SoftwareOutput {
     audio: AudioDevice<StreamAudioCallback>,
     output: Arc<OutputBuffers>,
     external_renderer: bool,
+    standalone_window: bool,
+    standalone_closed: bool,
+    fullscreen: bool,
     #[cfg(target_os = "linux")]
     presented_linux_frame: bool,
     visible: bool,
@@ -1563,6 +1582,7 @@ impl SoftwareOutput {
             .audio()
             .map_err(|error| format!("SDL audio initialization failed: {error}"))?;
         let external_renderer = external_renderer_enabled();
+        let standalone_window = external_renderer && standalone_window_enabled();
         let mut window_builder = video.window("OpenNOW Stream", 1280, 720);
         window_builder
             .position_centered()
@@ -1572,7 +1592,7 @@ impl SoftwareOutput {
         if external_renderer && cfg!(target_os = "linux") {
             window_builder.allow_highdpi();
         }
-        if !external_renderer {
+        if !external_renderer || standalone_window {
             window_builder.borderless();
         }
         let window = window_builder
@@ -1644,6 +1664,9 @@ impl SoftwareOutput {
             audio,
             output,
             external_renderer,
+            standalone_window,
+            standalone_closed: false,
+            fullscreen: false,
             #[cfg(target_os = "linux")]
             presented_linux_frame: false,
             visible: false,
@@ -1654,6 +1677,7 @@ impl SoftwareOutput {
 
     fn start(&mut self, surface: Option<&RenderSurface>) -> Result<(), String> {
         self.paused = false;
+        self.standalone_closed = false;
         #[cfg(target_os = "linux")]
         {
             self.presented_linux_frame = false;
@@ -1712,6 +1736,9 @@ impl SoftwareOutput {
     }
 
     fn update_surface(&mut self, surface: &RenderSurface) -> Result<(), String> {
+        if self.standalone_window {
+            return Ok(());
+        }
         let Some(rect) = surface.rect.filter(|_| surface.visible) else {
             #[cfg(target_os = "linux")]
             if let Some(raw_input) = self.raw_input.as_ref() {
@@ -1766,6 +1793,9 @@ impl SoftwareOutput {
         let events = self.event_pump.poll_iter().collect::<Vec<_>>();
         for event in events {
             if matches!(event, sdl2::event::Event::Quit { .. }) {
+                if self.standalone_window {
+                    self.standalone_closed = true;
+                }
                 self.input_capture
                     .release(&self._sdl, self.canvas.window_mut());
                 if let Ok(surface) = self.native_surface.as_mut() {
@@ -1794,7 +1824,10 @@ impl SoftwareOutput {
                     && self.input_capture.relative_mouse_enabled(),
             );
         }
-        if self.paused || !self.visible {
+        // Standalone mode presents the first frame to the hidden SDL window,
+        // then shows it. Other external/embedded modes retain their existing
+        // shell-driven visibility gate.
+        if self.paused || (!self.visible && !self.standalone_window) {
             self.output.take_video();
             #[cfg(target_os = "linux")]
             self.output.clear_linux_video();
@@ -1833,6 +1866,7 @@ impl SoftwareOutput {
         self.canvas.clear();
         self.canvas.copy(texture, None, target)?;
         self.canvas.present();
+        self.show_standalone();
         Ok(true)
     }
 
@@ -1896,6 +1930,7 @@ impl SoftwareOutput {
         )?;
         self.canvas.present();
         self.presented_linux_frame = true;
+        self.show_standalone();
         Ok(true)
     }
 
@@ -1907,8 +1942,53 @@ impl SoftwareOutput {
         "OpenH264/SDL"
     }
 
+    fn show_standalone(&mut self) {
+        if !self.standalone_window || self.visible || self.standalone_closed {
+            return;
+        }
+        eprintln!("SDL stream window: showing standalone maximized window after first frame");
+        let window = self.canvas.window_mut();
+        window.show();
+        window.maximize();
+        window.raise();
+        self._sdl.mouse().show_cursor(true);
+        self.visible = true;
+        self.input_capture
+            .set_input_paused(self.paused, &self._sdl, self.canvas.window_mut());
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        self.fullscreen = !self.fullscreen;
+        let kind = if self.fullscreen {
+            sdl2::video::FullscreenType::Desktop
+        } else {
+            sdl2::video::FullscreenType::Off
+        };
+        if let Err(error) = self.canvas.window_mut().set_fullscreen(kind) {
+            eprintln!("SDL fullscreen toggle failed: {error}");
+            self.fullscreen = !self.fullscreen;
+        } else if self.fullscreen {
+            self.canvas.window_mut().raise();
+        }
+    }
+
     fn take_captured_input(&mut self) -> Vec<CapturedInput> {
-        self.input_capture.take()
+        let captured = self.input_capture.take();
+        if !self.standalone_window {
+            return captured;
+        }
+        let mut forwarded = Vec::with_capacity(captured.len());
+        for input in captured {
+            if matches!(
+                &input,
+                CapturedInput::Shortcut(action) if standalone_owns_shortcut(*action)
+            ) {
+                self.toggle_fullscreen();
+            } else {
+                forwarded.push(input);
+            }
+        }
+        forwarded
     }
 
     fn update_cursor(&mut self, bytes: &[u8]) {
@@ -2300,6 +2380,22 @@ fn native_input_capture_enabled_value(owner: Option<&str>) -> bool {
     owner.is_some_and(|owner| owner.trim().eq_ignore_ascii_case("native"))
 }
 
+fn standalone_window_enabled() -> bool {
+    std::env::var("OPENNOW_NATIVE_STANDALONE_WINDOW")
+        .ok()
+        .as_deref()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
+fn standalone_owns_shortcut(action: StreamShortcutAction) -> bool {
+    matches!(action, StreamShortcutAction::ToggleFullscreen)
+}
+
 pub(crate) enum ActiveOutput {
     Software(Box<SoftwareOutput>),
     #[cfg(target_os = "windows")]
@@ -2313,6 +2409,7 @@ pub(crate) enum ActiveOutput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputControl {
     PointerLock,
+    Fullscreen,
 }
 
 impl ActiveOutput {
@@ -2491,6 +2588,14 @@ impl ActiveOutput {
                         .toggle_pointer_lock(&output._sdl, output.canvas.window_mut());
                     Ok(())
                 }
+                OutputControl::Fullscreen => {
+                    if output.standalone_window {
+                        output.toggle_fullscreen();
+                        Ok(())
+                    } else {
+                        Err("Standalone fullscreen requires the independent SDL window".to_owned())
+                    }
+                }
             },
             #[cfg(target_os = "windows")]
             Self::Windows(output) => {
@@ -2505,6 +2610,15 @@ impl ActiveOutput {
                         surface.sync_raw_input();
                         Ok(())
                     }
+                    OutputControl::Fullscreen => {
+                        if surface.standalone {
+                            surface.toggle_fullscreen();
+                            Ok(())
+                        } else {
+                            Err("Standalone fullscreen requires the independent SDL window"
+                                .to_owned())
+                        }
+                    }
                 }
             }
             #[cfg(target_os = "linux")]
@@ -2514,6 +2628,9 @@ impl ActiveOutput {
                         .input_capture
                         .toggle_pointer_lock(&output._sdl, &mut output.window);
                     Ok(())
+                }
+                OutputControl::Fullscreen => {
+                    Err("Standalone fullscreen is unavailable for Linux hardware output".to_owned())
                 }
             },
             #[cfg(target_os = "macos")]
@@ -2581,6 +2698,8 @@ struct WindowsExternalSdlSurface {
     input_capture: SdlInputCapture,
     raw_input: Option<WindowsRawInputController>,
     stream_size: (u32, u32),
+    standalone: bool,
+    fullscreen: bool,
     visible: bool,
     session_paused: bool,
     input_suspended: bool,
@@ -2653,6 +2772,8 @@ impl WindowsExternalSdlSurface {
             input_capture,
             raw_input,
             stream_size: (stream.width, stream.height),
+            standalone: standalone_window_enabled(),
+            fullscreen: false,
             visible: false,
             session_paused: false,
             input_suspended: true,
@@ -2665,7 +2786,47 @@ impl WindowsExternalSdlSurface {
         Ok(SurfaceTarget::Existing(ExistingWindow { hwnd: handle }))
     }
 
+    fn show_standalone(&mut self) {
+        if !self.standalone || self.visible {
+            return;
+        }
+        eprintln!(
+            "External SDL stream window: showing standalone maximized window after first frame"
+        );
+        self.window.show();
+        self.window.maximize();
+        self.sdl.mouse().show_cursor(true);
+        self.window.raise();
+        if let Some(raw_input) = self.raw_input.as_ref() {
+            raw_input.set_foreground_owner(self.native_surface.window_handle());
+        }
+        self.visible = true;
+        self.sync_input_ownership();
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        self.fullscreen = !self.fullscreen;
+        let kind = if self.fullscreen {
+            sdl2::video::FullscreenType::Desktop
+        } else {
+            sdl2::video::FullscreenType::Off
+        };
+        if let Err(error) = self.window.set_fullscreen(kind) {
+            eprintln!("Windows SDL fullscreen toggle failed: {error}");
+            self.fullscreen = !self.fullscreen;
+            return;
+        }
+        if self.fullscreen {
+            self.window.raise();
+        }
+    }
+
     fn update(&mut self, surface: &RenderSurface) -> Result<(), String> {
+        // Standalone playback deliberately has no Qt parent or Qt placement.
+        // The first presented frame owns showing the independent SDL window.
+        if self.standalone {
+            return Ok(());
+        }
         let Some(rect) = surface.rect.filter(|_| surface.visible) else {
             self.visible = false;
             self.sync_input_ownership();
@@ -2741,7 +2902,22 @@ impl WindowsExternalSdlSurface {
     }
 
     fn take_captured_input(&mut self) -> Vec<CapturedInput> {
-        self.input_capture.take()
+        let captured = self.input_capture.take();
+        if !self.standalone {
+            return captured;
+        }
+        let mut forwarded = Vec::with_capacity(captured.len());
+        for input in captured {
+            if matches!(
+                &input,
+                CapturedInput::Shortcut(action) if standalone_owns_shortcut(*action)
+            ) {
+                self.toggle_fullscreen();
+            } else {
+                forwarded.push(input);
+            }
+        }
+        forwarded
     }
 
     fn update_cursor(&mut self, bytes: &[u8]) {
@@ -2914,6 +3090,9 @@ impl WindowsOutput {
         };
         Ok(match event {
             BackendEvent::FirstFramePresented => {
+                if let Some(surface) = self.external_surface.as_mut() {
+                    surface.show_standalone();
+                }
                 OutputEvent::Presented(match (self.graphics_api, self.decoder_mode) {
                     (WindowsGraphicsApi::D3d12, WindowsDecoderMode::Hardware) => {
                         "Media Foundation hardware/D3D11-on-12/D3D12/WASAPI"
@@ -2984,7 +3163,15 @@ impl WindowsOutput {
 }
 
 #[cfg(target_os = "windows")]
+fn windows_d3d11_requested(value: Option<&str>) -> bool {
+    value.is_some_and(|value| value.trim().eq_ignore_ascii_case("d3d11"))
+}
+
+#[cfg(target_os = "windows")]
 fn selected_windows_graphics_api(codec: crate::media::MediaVideoCodec) -> WindowsGraphicsApi {
+    if windows_d3d11_requested(std::env::var("OPENNOW_NATIVE_WINDOWS_API").ok().as_deref()) {
+        return WindowsGraphicsApi::D3d11;
+    }
     let d3d12_allowed = crate::runtime::backend_preference_allows("d3d12");
     let d3d11_allowed = crate::runtime::backend_preference_allows("d3d11");
     select_windows_graphics_api(
@@ -3199,6 +3386,21 @@ mod tests {
             select_windows_graphics_api(MediaVideoCodec::H265, true, true, true),
             WindowsGraphicsApi::D3d12
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn compatibility_window_explicitly_uses_d3d11_and_owns_fullscreen() {
+        assert!(windows_d3d11_requested(Some(" D3D11 ")));
+        assert!(!windows_d3d11_requested(Some("d3d12")));
+        assert!(!windows_d3d11_requested(None));
+        assert!(standalone_owns_shortcut(
+            StreamShortcutAction::ToggleFullscreen
+        ));
+        assert!(!standalone_owns_shortcut(
+            StreamShortcutAction::TogglePointerLock
+        ));
+        assert!(!standalone_owns_shortcut(StreamShortcutAction::StopStream));
     }
 
     #[test]

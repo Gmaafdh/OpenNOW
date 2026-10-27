@@ -19,6 +19,8 @@ class NativeStreamRuntime final : public QObject
     Q_OBJECT
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
     Q_PROPERTY(bool streaming READ streaming NOTIFY streamingChanged)
+    Q_PROPERTY(bool usesExternalWindow READ usesExternalWindow CONSTANT)
+    Q_PROPERTY(bool externalWindowActive READ externalWindowActive NOTIFY externalWindowActiveChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:
@@ -104,14 +106,18 @@ public:
 
     explicit NativeStreamRuntime(QObject *parent = nullptr,
                                  const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr,
-                                 quint64 windowsAdapterLuid = 0);
+                                 quint64 windowsAdapterLuid = 0,
+                                 bool useExternalWindow = false);
     explicit NativeStreamRuntime(Api api, QObject *parent = nullptr,
                                  const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr,
-                                 quint64 windowsAdapterLuid = 0);
+                                 quint64 windowsAdapterLuid = 0,
+                                 bool useExternalWindow = false);
     ~NativeStreamRuntime() override;
 
     [[nodiscard]] bool running() const;
     [[nodiscard]] bool streaming() const;
+    [[nodiscard]] bool usesExternalWindow() const;
+    [[nodiscard]] bool externalWindowActive() const;
     [[nodiscard]] QString lastError() const;
     [[nodiscard]] quint64 presentationGeneration() const;
     [[nodiscard]] bool presentationAllowed() const;
@@ -177,6 +183,7 @@ signals:
     void presentationError(const QString &message, const QString &errorCode);
     void runningChanged();
     void streamingChanged();
+    void externalWindowActiveChanged();
     void lastErrorChanged();
     void responseReceived(const QJsonObject &response);
     void eventReceived(const QJsonObject &event);
@@ -216,6 +223,12 @@ private:
     void invalidatePresentation();
     void publishDecodedDisplaySize(const QSize &size, quint64 generation);
     void resetInputCapture();
+    bool startExternalProcess();
+    bool shutdownExternalProcess(int timeoutMs);
+    void readExternalStdout();
+    void readExternalStderr();
+    void handleExternalExit();
+    void updateExternalWindowActive();
     void updateGenericHidOutputPolling();
     void pollGenericHidAdmissions();
     void setStreaming(bool streaming);

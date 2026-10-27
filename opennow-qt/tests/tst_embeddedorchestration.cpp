@@ -2700,6 +2700,37 @@ private slots:
         }
     }
 
+    void compatibilityWindowIsWarpOnlyAndHasNoDuplicateQtVideoOwner()
+    {
+        const auto startup = source(QStringLiteral("src/app/ApplicationStartup.cpp"));
+        const auto runtime = source(QStringLiteral("src/streaming/NativeStreamRuntime.cpp"));
+        const auto rendering = source(QStringLiteral(
+            "src/streaming/rendering/NativeStreamRenderCallback.cpp"));
+        const auto shell = source(QStringLiteral("qml/state/ShellStore.qml"));
+        QVERIFY(startup.contains(QStringLiteral(
+            "useExternalStreamWindow = graphicsDevices.usesCompatibilityRenderer()")));
+        QVERIFY(runtime.contains(QStringLiteral("OPENNOW_NATIVE_STANDALONE_WINDOW")));
+        QVERIFY(runtime.contains(QStringLiteral("OPENNOW_NATIVE_INPUT_OWNER")));
+        QVERIFY(runtime.contains(QStringLiteral("!d->externalWindow\n"
+            "        && d->presentationAllowed.load")));
+        QVERIFY(rendering.contains(QStringLiteral("m_runtime->usesExternalWindow()")));
+        QVERIFY(runtime.contains(QStringLiteral("GetWindowThreadProcessId")));
+        QVERIFY(shell.contains(QStringLiteral("NativeStreamRuntime.externalWindowActive")));
+        QVERIFY(shell.contains(QStringLiteral("standalone-fullscreen-toggle")));
+        const QStringList screens{
+            QStringLiteral("qml/screens/StreamScreen.qml"),
+            QStringLiteral("qml/desktop/stream/DesktopStreamScreen.qml"),
+        };
+        for (const auto &path : screens) {
+            const auto qml = source(path);
+            QVERIFY2(qml.contains(QStringLiteral(
+                "visible: root.visible && root.videoSurfaceActive "
+                "&& !NativeStreamRuntime.usesExternalWindow")), qPrintable(path));
+            QVERIFY(qml.contains(QStringLiteral(
+                "|| NativeStreamRuntime.usesExternalWindow")));
+        }
+    }
+
     void passiveStatsKeepGameplayInputWhileModalOverlaysTakeOwnership()
     {
         const auto main = source(QStringLiteral("qml/Main.qml"));

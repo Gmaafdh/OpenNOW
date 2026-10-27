@@ -16,6 +16,8 @@ QtObject {
     property BackgroundStreamState backgroundStreamState: BackgroundStreamState {
         settings: root.settings
         applicationActive: Qt.application.state === Qt.ApplicationActive
+            || (NativeStreamRuntime.usesExternalWindow === true
+                && NativeStreamRuntime.externalWindowActive === true)
         streaming: root.activeSession !== null && root.streamerStatus === "streaming"
         nativeRuntimeReady: root.nativeRuntimeReady
         onAudioMuteRequested: muted => root.sendNativeCommand("setAudioMuted", {muted: muted})
@@ -2747,7 +2749,9 @@ QtObject {
             "toggle-fullscreen": "fullscreen-toggle",
             "anti-afk-pulse": "anti-afk-pulse"
         }
-        const commandType = commandTypes[action]
+        const commandType = action === "toggle-fullscreen"
+                && NativeStreamRuntime.usesExternalWindow === true
+            ? "standalone-fullscreen-toggle" : commandTypes[action]
         if (!commandType) {
             streamControlAction = ""
             streamControlMessage = qsTr("This stream control is unavailable")

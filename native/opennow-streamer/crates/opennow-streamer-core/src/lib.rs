@@ -444,6 +444,7 @@ impl Engine {
                     json!({"action":"toggle-fullscreen", "source":"command"}),
                 ),
             ]),
+            "standalone-fullscreen-toggle" => self.standalone_fullscreen(command),
             "anti-afk-pulse" => self.anti_afk_pulse(command),
             "recording-start" => self.start_recording(command),
             "recording-stop" => self.stop_recording(command),
@@ -1237,6 +1238,20 @@ impl Engine {
             )
         })?;
         runtime.set_audio_muted(muted);
+        Ok(vec![response(command.id, "ok")])
+    }
+
+    fn standalone_fullscreen(&self, command: Command) -> Result<Vec<Value>, Value> {
+        let runtime = self.media_runtime.as_ref().ok_or_else(|| {
+            error(
+                Some(&command.id),
+                "unsupported-command",
+                "Native streamer has no standalone output window",
+            )
+        })?;
+        runtime
+            .control(MediaRuntimeControl::Fullscreen)
+            .map_err(|message| error(Some(&command.id), "fullscreen-unavailable", message))?;
         Ok(vec![response(command.id, "ok")])
     }
 
@@ -3759,6 +3774,22 @@ mod tests {
         assert_eq!(responses[1]["type"], "shortcut-action");
         assert_eq!(responses[1]["action"], "toggle-fullscreen");
         assert_eq!(responses[1]["source"], "command");
+    }
+
+    #[test]
+    fn standalone_fullscreen_uses_native_output_without_a_shell_shortcut() {
+        let (_host, runtime) = opennow_streamer_platform::create_test_runtime();
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let mut engine = Engine::with_media_runtime(sender, runtime);
+        let (responses, keep_running) = engine.handle(command(json!({
+            "id": "standalone-fullscreen",
+            "type": "standalone-fullscreen-toggle"
+        })));
+
+        assert!(keep_running);
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0]["type"], "ok");
+        assert_eq!(responses[0]["id"], "standalone-fullscreen");
     }
 
     fn unused_udp_port() -> u16 {

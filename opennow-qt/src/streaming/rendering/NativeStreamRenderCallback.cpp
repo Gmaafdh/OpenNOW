@@ -52,6 +52,10 @@ public:
     void initialize(QRhi *rhi, QRhiCommandBuffer *commandBuffer,
                     QRhiRenderTarget *renderTarget) override
     {
+        if (m_runtime && m_runtime->usesExternalWindow()) {
+            m_graphicsReady = false;
+            return;
+        }
         const bool ownRearm = std::exchange(m_resourceRearmPending, false);
         const bool deviceChanged = m_rhi != rhi;
         const bool generationChanged = m_runtime

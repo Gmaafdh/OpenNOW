@@ -5,7 +5,10 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QDateTime>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QSysInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -15,6 +18,13 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QThread>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -51,6 +61,15 @@ void handshakeLog(const QString &detail)
     if (file.open(QIODevice::WriteOnly | QIODevice::Append))
         file.write((QString::number(QDateTime::currentMSecsSinceEpoch())
                     + u" qt-native "_s + detail + u"\n"_s).toUtf8());
+}
+
+QString nativeStreamerLogPath()
+{
+    const auto dataRoot = coreDiagnosticsDataRoot();
+    if (dataRoot.isEmpty()) return {};
+    QDir directory(dataRoot);
+    if (!directory.mkpath(u"diagnostics"_s) || !directory.cd(u"diagnostics"_s)) return {};
+    return directory.filePath(u"native-streamer.log"_s);
 }
 
 QString handshakeSummary(const QJsonObject &object)
@@ -187,6 +206,14 @@ struct NativeStreamRuntime::Private {
     Api api;
     const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr;
     quint64 windowsAdapterLuid = 0;
+    bool externalWindow = false;
+    QProcess *externalProcess = nullptr;
+    bool externalStopping = false;
+    bool externalExitNotified = false;
+    bool externalWindowActive = false;
+    QTimer *externalWindowActivityTimer = nullptr;
+    QByteArray externalStdoutBuffer;
+    QByteArray externalStderrBuffer;
     // FFI input queues and render-thread graphics state are independent and thread-safe. An
     // exclusive mutex here made every GUI input/overlay call wait behind Media Foundation and
     // D3D work performed by the render thread. Keep lifetime/scene-graph transitions exclusive,
@@ -225,7 +252,8 @@ struct NativeStreamRuntime::Private {
 
 NativeStreamRuntime::NativeStreamRuntime(QObject *parent,
                                          const OpenNowStreamerVulkanDevice *vulkanDevice,
-                                         quint64 windowsAdapterLuid)
+                                         quint64 windowsAdapterLuid,
+                                         bool useExternalWindow)
     : NativeStreamRuntime(Api{&opennow_streamer_create,
                               &opennow_streamer_send,
                               &opennow_streamer_destroy,
@@ -249,18 +277,28 @@ NativeStreamRuntime::NativeStreamRuntime(QObject *parent,
                               &opennow_streamer_replace_generic_hid_inventory,
                               &opennow_streamer_submit_generic_hid_report,
                               &opennow_streamer_take_generic_hid_output,
-                              &opennow_streamer_get_generic_hid_admissions}, parent, vulkanDevice, windowsAdapterLuid)
+                              &opennow_streamer_get_generic_hid_admissions}, parent, vulkanDevice,
+                              windowsAdapterLuid, useExternalWindow)
 {
 }
 
 NativeStreamRuntime::NativeStreamRuntime(Api api, QObject *parent,
                                          const OpenNowStreamerVulkanDevice *vulkanDevice,
-                                         quint64 windowsAdapterLuid)
+                                         quint64 windowsAdapterLuid,
+                                         bool useExternalWindow)
     : QObject(parent)
     , d(std::make_unique<Private>(api))
 {
     d->vulkanDevice = vulkanDevice;
     d->windowsAdapterLuid = windowsAdapterLuid;
+    d->externalWindow = useExternalWindow;
+    if (d->externalWindow) {
+        auto *timer = new QTimer(this);
+        timer->setInterval(100);
+        connect(timer, &QTimer::timeout,
+                this, &NativeStreamRuntime::updateExternalWindowActive);
+        d->externalWindowActivityTimer = timer;
+    }
     if (d->api.takeGenericHidOutput || d->api.getGenericHidAdmissions) {
         auto *timer = new QTimer(this);
         d->genericHidOutputTimer = timer;
@@ -376,11 +414,25 @@ NativeStreamRuntime::~NativeStreamRuntime()
 
 bool NativeStreamRuntime::running() const
 {
+    if (d->externalWindow) {
+        return d->externalProcess
+            && d->externalProcess->state() != QProcess::NotRunning;
+    }
     const std::shared_lock lock(d->handleMutex);
     return d->handle != nullptr;
 }
 
 bool NativeStreamRuntime::streaming() const { return d->streaming; }
+
+bool NativeStreamRuntime::usesExternalWindow() const
+{
+    return d->externalWindow;
+}
+
+bool NativeStreamRuntime::externalWindowActive() const
+{
+    return d->externalWindowActive;
+}
 
 void NativeStreamRuntime::setStreaming(bool streaming)
 {
@@ -410,7 +462,8 @@ NativeStreamRuntime::UpstreamProgress NativeStreamRuntime::upstreamProgress() co
 
 bool NativeStreamRuntime::presentationAllowed() const
 {
-    return d->presentationAllowed.load(std::memory_order_acquire);
+    return !d->externalWindow
+        && d->presentationAllowed.load(std::memory_order_acquire);
 }
 
 bool NativeStreamRuntime::inputAllowed() const
@@ -502,12 +555,230 @@ void NativeStreamRuntime::reportPresentationError(const QString &message, quint6
 void NativeStreamRuntime::initializeDiagnostics(Api::SetLogFile setLogFile)
 {
     if (!setLogFile) return;
-    const auto dataRoot = coreDiagnosticsDataRoot();
-    if (dataRoot.isEmpty()) return;
-    QDir directory(dataRoot);
-    if (!directory.mkpath(u"diagnostics"_s) || !directory.cd(u"diagnostics"_s)) return;
-    const auto logPath = directory.filePath(u"native-streamer.log"_s).toUtf8();
+    const auto logPath = nativeStreamerLogPath().toUtf8();
+    if (logPath.isEmpty()) return;
     setLogFile(logPath.constData());
+}
+
+bool NativeStreamRuntime::startExternalProcess()
+{
+    if (d->externalProcess) {
+        if (running()) return true;
+        if (!shutdownExternalProcess(0)) return false;
+    }
+
+    auto program = qEnvironmentVariable("OPENNOW_STREAMER_EXECUTABLE");
+    if (program.isEmpty()) {
+        program = QDir(QCoreApplication::applicationDirPath()).filePath(
+#ifdef Q_OS_WIN
+            u"opennow-streamer.exe"_s
+#else
+            u"opennow-streamer"_s
+#endif
+        );
+    }
+    const QFileInfo programInfo(program);
+    if (!programInfo.isFile()) {
+        setLastError(u"The packaged native stream window executable is missing: %1"_s.arg(program));
+        return false;
+    }
+
+    auto callbacks = std::make_shared<CallbackState>();
+    callbacks->target = this;
+    auto *process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::SeparateChannels);
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(u"OPENNOW_NATIVE_EXTERNAL_RENDERER"_s, u"1"_s);
+    environment.insert(u"OPENNOW_NATIVE_INPUT_OWNER"_s, u"native"_s);
+    environment.insert(u"OPENNOW_NATIVE_STANDALONE_WINDOW"_s, u"1"_s);
+    environment.insert(u"OPENNOW_NATIVE_WINDOWS_API"_s, u"d3d11"_s);
+    environment.insert(u"OPENNOW_NATIVE_VIDEO_BACKEND"_s, u"auto"_s);
+    const auto nativeLog = nativeStreamerLogPath();
+    if (!nativeLog.isEmpty())
+        environment.insert(u"OPENNOW_STREAMER_LOG_FILE"_s, nativeLog);
+    process->setProcessEnvironment(environment);
+
+    d->externalProcess = process;
+    d->callbackState = std::move(callbacks);
+    d->externalStopping = false;
+    d->externalExitNotified = false;
+    d->externalStdoutBuffer.clear();
+    d->externalStderrBuffer.clear();
+    d->genericHidInventoryPresent.store(false);
+    d->genericHidCaptureActive.store(false);
+
+    connect(process, &QProcess::readyReadStandardOutput,
+            this, &NativeStreamRuntime::readExternalStdout);
+    connect(process, &QProcess::readyReadStandardError,
+            this, &NativeStreamRuntime::readExternalStderr);
+    connect(process, &QProcess::finished, this,
+            [this](int, QProcess::ExitStatus) { handleExternalExit(); });
+    connect(process, &QProcess::errorOccurred, this,
+            [this](QProcess::ProcessError error) {
+                if (error == QProcess::FailedToStart) handleExternalExit();
+            });
+    handshakeLog(u"runtime.sidecar.start standalone=1 input=native adapter=default api=d3d11"_s);
+    process->start(program, {}, QIODevice::ReadWrite | QIODevice::Unbuffered);
+    if (d->externalExitNotified) return false;
+    setLastError({});
+    emit runningChanged();
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->start();
+    updateExternalWindowActive();
+    return true;
+}
+
+bool NativeStreamRuntime::shutdownExternalProcess(int timeoutMs)
+{
+    auto *process = d->externalProcess;
+    auto callbacks = std::exchange(d->callbackState, {});
+    if (callbacks) {
+        const std::lock_guard lock(callbacks->mutex);
+        callbacks->accepting = false;
+        callbacks->target.clear();
+        callbacks->pending.clear();
+        callbacks->dropped = 0;
+        callbacks->framePending = false;
+    }
+    if (!process) return true;
+
+    d->externalStopping = true;
+    bool forced = false;
+    if (process->state() != QProcess::NotRunning) {
+        const QByteArray shutdown =
+            R"({"id":"qt-shutdown","type":"shutdown"})" + QByteArray("\n");
+        process->write(shutdown);
+        process->closeWriteChannel();
+        const auto boundedTimeout = std::clamp(timeoutMs, 0, 30'000);
+        if (!process->waitForFinished(boundedTimeout)) {
+            forced = true;
+            process->kill();
+            process->waitForFinished(500);
+        }
+    }
+    process->disconnect(this);
+    d->externalProcess = nullptr;
+    delete process;
+    d->externalStopping = false;
+    d->externalExitNotified = false;
+    d->externalStdoutBuffer.clear();
+    d->externalStderrBuffer.clear();
+    d->genericHidInventoryPresent.store(false);
+    d->genericHidCaptureActive.store(false);
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->stop();
+    updateExternalWindowActive();
+    emit runningChanged();
+    if (forced) {
+        setLastError(u"The native stream window did not stop cleanly and was terminated."_s);
+        return false;
+    }
+    setLastError({});
+    return true;
+}
+
+void NativeStreamRuntime::readExternalStdout()
+{
+    if (d->externalStopping || !d->externalProcess) return;
+    d->externalStdoutBuffer.append(d->externalProcess->readAllStandardOutput());
+    while (true) {
+        const auto newline = d->externalStdoutBuffer.indexOf('\n');
+        if (newline < 0) break;
+        QByteArray line = d->externalStdoutBuffer.left(newline);
+        d->externalStdoutBuffer.remove(0, newline + 1);
+        if (line.endsWith('\r')) line.chop(1);
+        if (line.isEmpty()) continue;
+        if (line.size() > MaximumCallbackBytes) {
+            handshakeLog(u"sidecar.stdout oversized_line=%1"_s.arg(line.size()));
+            continue;
+        }
+        QJsonParseError parseError{};
+        const auto document = QJsonDocument::fromJson(line, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            handshakeLog(u"sidecar.stdout invalid_json=%1"_s.arg(parseError.errorString()));
+            continue;
+        }
+        const auto object = document.object();
+        handshakeLog(u"delivered %1 source=sidecar"_s.arg(handshakeSummary(object)));
+        const auto callbacks = d->callbackState;
+        if (!callbacks) continue;
+        // Protocol responses carry their command id. Session/status/telemetry
+        // events do not; errors use the same rule in both directions.
+        const bool event = !object.contains(u"id"_s);
+        enqueueCallback(callbacks.get(),
+                        reinterpret_cast<const std::uint8_t *>(line.constData()),
+                        static_cast<std::size_t>(line.size()), event);
+    }
+    if (d->externalStdoutBuffer.size() > MaximumCallbackBytes) {
+        d->externalStdoutBuffer.clear();
+        setLastError(u"The native stream window sent an oversized protocol message."_s);
+        d->externalProcess->kill();
+    }
+}
+
+void NativeStreamRuntime::readExternalStderr()
+{
+    if (d->externalStopping || !d->externalProcess) return;
+    d->externalStderrBuffer.append(d->externalProcess->readAllStandardError());
+    while (true) {
+        const auto newline = d->externalStderrBuffer.indexOf('\n');
+        if (newline < 0) break;
+        QByteArray line = d->externalStderrBuffer.left(newline);
+        d->externalStderrBuffer.remove(0, newline + 1);
+        if (line.endsWith('\r')) line.chop(1);
+        if (!line.isEmpty())
+            handshakeLog(u"sidecar.stderr %1"_s.arg(QString::fromUtf8(line).left(512)));
+    }
+    if (d->externalStderrBuffer.size() > 64 * 1024)
+        d->externalStderrBuffer.clear();
+}
+
+void NativeStreamRuntime::handleExternalExit()
+{
+    if (d->externalStopping || d->externalExitNotified || !d->externalProcess) return;
+    readExternalStdout();
+    readExternalStderr();
+    d->externalExitNotified = true;
+    const auto *process = d->externalProcess;
+    const bool failedToStart = process->error() == QProcess::FailedToStart;
+    const QString message = failedToStart
+        ? u"The native stream window could not start: %1"_s.arg(process->errorString())
+        : u"The native stream window stopped unexpectedly (exit code %1)."_s
+              .arg(process->exitCode());
+    setLastError(message);
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->stop();
+    updateExternalWindowActive();
+    emit runningChanged();
+    if (!d->streamSessionActive && !d->streaming()) return;
+    QJsonObject event{
+        {u"type"_s, u"error"_s},
+        {u"code"_s, u"streamer_exited"_s},
+        {u"message"_s, message},
+    };
+    if (!d->sessionStartId.isEmpty())
+        event.insert(u"startId"_s, d->sessionStartId);
+    const auto bytes = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    const auto callbacks = d->callbackState;
+    if (callbacks) {
+        enqueueCallback(callbacks.get(),
+                        reinterpret_cast<const std::uint8_t *>(bytes.constData()),
+                        static_cast<std::size_t>(bytes.size()), true);
+    }
+}
+
+void NativeStreamRuntime::updateExternalWindowActive()
+{
+    bool active = false;
+#ifdef Q_OS_WIN
+    if (d->externalWindow && d->externalProcess
+            && d->externalProcess->state() != QProcess::NotRunning) {
+        DWORD foregroundProcess = 0;
+        if (const HWND foreground = GetForegroundWindow())
+            GetWindowThreadProcessId(foreground, &foregroundProcess);
+        active = foregroundProcess != 0
+            && foregroundProcess == static_cast<DWORD>(d->externalProcess->processId());
+    }
+#endif
+    if (std::exchange(d->externalWindowActive, active) != active)
+        emit externalWindowActiveChanged();
 }
 
 bool NativeStreamRuntime::start()
@@ -515,6 +786,7 @@ bool NativeStreamRuntime::start()
     handshakeLog(u"runtime.start build=diagnostics-v2 app=%1 qt=%2 arch=%3 abi=%4"_s
         .arg(QCoreApplication::applicationVersion(), QString::fromLatin1(qVersion()),
              QSysInfo::currentCpuArchitecture()).arg(OPENNOW_STREAMER_FFI_ABI_VERSION));
+    if (d->externalWindow) return startExternalProcess();
     if (!d->api.create || !d->api.send || !d->api.destroy) {
         setLastError(u"The embedded streamer FFI is incomplete."_s);
         return false;
@@ -597,7 +869,15 @@ bool NativeStreamRuntime::sendBytes(const QByteArray &command)
     OpenNowStreamerStatus status = OPENNOW_STREAMER_CLOSED;
     {
         const std::shared_lock lock(d->handleMutex);
-        if (d->handle) {
+        if (d->externalWindow) {
+            if (d->externalProcess
+                && d->externalProcess->state() != QProcess::NotRunning) {
+                QByteArray framed = command;
+                framed.append('\n');
+                status = d->externalProcess->write(framed) == framed.size()
+                    ? OPENNOW_STREAMER_OK : OPENNOW_STREAMER_CLOSED;
+            }
+        } else if (d->handle) {
             status = d->api.send(
                 d->handle, reinterpret_cast<const std::uint8_t *>(command.constData()),
                 static_cast<std::size_t>(command.size()));
@@ -646,6 +926,10 @@ bool NativeStreamRuntime::shutdown(int timeoutMs)
     setStreaming(false);
     resetInputCapture();
     invalidatePresentation();
+    if (d->externalWindow) {
+        d->sessionStartId.clear();
+        return shutdownExternalProcess(timeoutMs);
+    }
     OpenNowStreamer *handle = nullptr;
     std::shared_ptr<CallbackState> callbacks;
     bool graphicsActive = false;
@@ -720,6 +1004,7 @@ bool NativeStreamRuntime::shutdown(int timeoutMs)
 OpenNowStreamerStatus NativeStreamRuntime::setGraphicsContext(
     const OpenNowStreamerGraphicsContext &context)
 {
+    if (d->externalWindow) return OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE;
     const std::unique_lock lock(d->handleMutex);
     if (!d->handle || !d->api.setGraphicsContext) return OPENNOW_STREAMER_CLOSED;
     const auto status = d->api.setGraphicsContext(d->handle, &context);
@@ -737,6 +1022,7 @@ OpenNowStreamerStatus NativeStreamRuntime::recordLatestFrame(
     *info = {};
     *recorded = {};
     *frame = nullptr;
+    if (d->externalWindow) return OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE;
     const std::shared_lock lock(d->handleMutex);
     if (!d->handle || !d->api.acquireLatestFrame || !d->api.recordFrame
         || !d->api.releaseFrame) {
@@ -775,6 +1061,7 @@ OpenNowStreamerStatus NativeStreamRuntime::releaseFrame(OpenNowStreamerFrame *fr
 
 OpenNowStreamerStatus NativeStreamRuntime::sceneGraphShutdown()
 {
+    if (d->externalWindow) return OPENNOW_STREAMER_OK;
     const std::unique_lock lock(d->handleMutex);
     if (!d->handle || !d->api.sceneGraphShutdown) return OPENNOW_STREAMER_CLOSED;
     const auto status = d->api.sceneGraphShutdown(d->handle);
@@ -1154,7 +1441,12 @@ void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &s
         if (message.event && kind == u"telemetry"_s) {
             const auto object = document.object();
             const auto startId = object.value(u"startId"_s).toString();
-            if (!presentationAllowed() || startId.isEmpty()
+            // Sidecar telemetry describes native SDL presentation, so it must
+            // not depend on permission to acquire a Qt render frame. Keep the
+            // same accepted-start and active-session staleness boundaries.
+            const bool telemetryAuthorized = d->externalWindow
+                ? d->streamSessionActive : presentationAllowed();
+            if (!telemetryAuthorized || startId.isEmpty()
                 || startId != d->acceptedSessionStartId) continue;
             const auto stage = object.value(u"decodeProgressStage"_s).toString();
             const bool stalled =
@@ -1230,19 +1522,21 @@ void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &s
                 if (!current()) return;
             }
             d->upstreamProgressSamples.publish(false, false, 0, 0);
-            d->presentationAllowed.store(kind == u"ok"_s, std::memory_order_release);
-            const bool defaultRelativeMouse = kind == u"ok"_s
+            const bool embeddedStartAccepted = kind == u"ok"_s && !d->externalWindow;
+            d->presentationAllowed.store(embeddedStartAccepted, std::memory_order_release);
+            const bool defaultRelativeMouse = embeddedStartAccepted
                 && document.object().value(u"transport"_s).toString() == u"webrtc"_s;
             if (std::exchange(d->defaultRelativeMouse, defaultRelativeMouse) != defaultRelativeMouse) {
                 emit cursorStateReset();
                 if (!current()) return;
             }
-            const bool allowed = std::exchange(d->inputAuthorizationPending, false) && kind == u"ok"_s;
+            const bool allowed = std::exchange(d->inputAuthorizationPending, false)
+                && embeddedStartAccepted;
             if (d->inputAllowed.exchange(allowed, std::memory_order_acq_rel) != allowed) {
                 emit inputAllowedChanged();
                 if (!current()) return;
             }
-            emit frameAvailable();
+            if (!d->externalWindow) emit frameAvailable();
             if (!current()) return;
         }
         if (kind != u"telemetry"_s && kind != u"stats"_s && kind != u"log"_s)

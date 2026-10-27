@@ -312,6 +312,9 @@ impl MacOutput {
                     .toggle_pointer_lock(&surface.sdl, &mut surface.window);
                 Ok(())
             }
+            OutputControl::Fullscreen => {
+                Err("Standalone fullscreen is unavailable for macOS hardware output".to_owned())
+            }
         }
     }
 }

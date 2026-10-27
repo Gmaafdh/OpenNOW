@@ -179,13 +179,21 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
                  qUtf8Printable(vulkanDevice.lastError()));
 #endif
 #ifdef OPENNOW_EMBEDDED_STREAMER
+#ifdef Q_OS_WIN
+    // Qt's WARP compositor must not determine the game's decode/presentation
+    // adapter. Only this compatibility case uses the packaged native window.
+    const bool useExternalStreamWindow = graphicsDevices.usesCompatibilityRenderer();
+#else
+    const bool useExternalStreamWindow = false;
+#endif
     NativeStreamRuntime nativeStreamRuntime(nullptr,
 #if defined(Q_OS_LINUX) && QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
                                            vulkanDevice.handle(),
 #else
                                            nullptr,
 #endif
-                                           graphicsDevices.presentationAdapterLuid()
+                                           graphicsDevices.presentationAdapterLuid(),
+                                           useExternalStreamWindow
     );
     if (!nativeStreamRuntime.start())
         qWarning("Could not start the embedded streamer runtime: %s",

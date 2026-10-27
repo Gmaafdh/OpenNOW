@@ -1061,6 +1061,9 @@ if(BUILD_TESTING)
             ENVIRONMENT "QT_QPA_PLATFORM=cocoa" RUN_SERIAL TRUE TIMEOUT 30 LABELS "interactive-desktop")
     endif()
 
+    qt_add_executable(opennow-fake-streamer tests/fake_streamer_main.cpp)
+    target_link_libraries(opennow-fake-streamer PRIVATE Qt6::Core)
+
     qt_add_executable(opennow-nativestreamruntime-tests
         tests/tst_nativestreamruntime.cpp
         ${OPENNOW_STREAM_RUNTIME_SOURCES}
@@ -1068,10 +1071,16 @@ if(BUILD_TESTING)
     target_include_directories(opennow-nativestreamruntime-tests PRIVATE src)
     target_link_libraries(opennow-nativestreamruntime-tests PRIVATE
         Qt6::Test Qt6::Core opennow-streamer-ffi)
-    add_dependencies(opennow-nativestreamruntime-tests opennow-streamer-ffi-build)
+    if(WIN32)
+        target_link_libraries(opennow-nativestreamruntime-tests PRIVATE user32)
+    endif()
+    target_compile_definitions(opennow-nativestreamruntime-tests PRIVATE
+        OPENNOW_FAKE_STREAMER_PATH="$<TARGET_FILE:opennow-fake-streamer>")
+    add_dependencies(opennow-nativestreamruntime-tests
+        opennow-streamer-ffi-build opennow-fake-streamer)
     add_test(NAME opennow-nativestreamruntime-tests
              COMMAND opennow-nativestreamruntime-tests -o -,txt)
-    set_tests_properties(opennow-nativestreamruntime-tests PROPERTIES TIMEOUT 8)
+    set_tests_properties(opennow-nativestreamruntime-tests PROPERTIES TIMEOUT 30)
 
     if(UNIX AND NOT APPLE)
         qt_add_executable(opennow-sonychain-tests
