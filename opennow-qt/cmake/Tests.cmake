@@ -1336,6 +1336,7 @@ if(BUILD_TESTING)
             opennow-coreclient-tests
             opennow-streamvideo-tests
             opennow-waylandpointer-tests
+            opennow-fake-streamer
             opennow-nativestreamruntime-tests
             opennow-nativeframegeneration-tests
             opennow-embedded-orchestration-tests
