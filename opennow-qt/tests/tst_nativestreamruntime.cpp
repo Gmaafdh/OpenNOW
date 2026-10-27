@@ -1533,7 +1533,9 @@ private slots:
         QVERIFY(runtime.send({{QStringLiteral("id"), QStringLiteral("sidecar-stop")},
                               {QStringLiteral("type"), QStringLiteral("stop")}}));
         QTRY_COMPARE_WITH_TIMEOUT(responses.size(), 3, 2'000);
-        QTRY_COMPARE_WITH_TIMEOUT(events.size(), 4, 2'000);
+        // stop clears the accepted session immediately. Its later scoped
+        // stopped event is stale, leaving connecting/streaming/telemetry.
+        QTRY_COMPARE_WITH_TIMEOUT(events.size(), 3, 2'000);
         QVERIFY(!runtime.streaming());
         QVERIFY2(runtime.shutdown(), qPrintable(runtime.lastError()));
         QVERIFY(!runtime.running());

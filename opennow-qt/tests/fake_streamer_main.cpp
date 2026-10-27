@@ -89,13 +89,15 @@ int main(int argc, char **argv)
             continue;
         }
 
-        writeMessage(QJsonObject{{u"id"_s, id}, {u"type"_s, u"ok"_s}});
         if (type == u"stop"_s) {
+            // The real engine queues its terminal event before the correlated
+            // stop response. Preserve that ordering in this asynchronous fake.
             writeMessage(QJsonObject{
                 {u"type"_s, u"status"_s}, {u"status"_s, u"stopped"_s},
                 {u"startId"_s, sessionStartId}});
             sessionStartId.clear();
         }
+        writeMessage(QJsonObject{{u"id"_s, id}, {u"type"_s, u"ok"_s}});
     }
     return 0;
 }
