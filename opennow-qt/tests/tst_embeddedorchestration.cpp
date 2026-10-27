@@ -2933,6 +2933,7 @@ private:
             var streamerStartRequestId = '', streamerPrepareRequestId = '', streamerStopRequestId = '';
             var pendingLaunchParams = null, pendingDirectLaunch = null, streamState = 'idle', streamerStatus = 'stopped';
             var updaterCheckRequestId = '', updaterDownloadRequestId = '', updaterInstallRequestId = '', updaterStateRequestId = '';
+            var updateChannel = 'arena', updaterUpdateNowActive = false;
             var updaterError = '', accessibilityMessage = '', updaterInstallConfirmed = false, updaterExitScheduled = false, updaterReconciling = false;
             var updaterFailureMessage = '';
             var lastAutoUpdateCheckMs = 0, autoDownloadAttempt = '';
