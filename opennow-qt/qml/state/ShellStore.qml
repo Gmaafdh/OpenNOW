@@ -2007,7 +2007,10 @@ QtObject {
         if (!launchIntentCurrent() || remoteSessionsRequestId !== "") return
         pendingLaunchParams = Object.assign({}, pendingLaunchParams, {queueSelectorHandled: true})
         streamState = "checking"
-        remoteSessionsRequestId = CoreClient.request("session.remote.list", pendingLaunchParams, 30000)
+        // Only new launches may use partial discovery; create remains NVIDIA's conflict guard.
+        remoteSessionsRequestId = CoreClient.request("session.remote.list", Object.assign({}, pendingLaunchParams, {
+            allowPartialDiscovery: true
+        }), 30000)
         AppController.navigate("inserting")
     }
 

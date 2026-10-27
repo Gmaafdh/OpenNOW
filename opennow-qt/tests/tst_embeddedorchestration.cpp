@@ -975,6 +975,29 @@ private slots:
         QCOMPARE(engine.evaluate(QStringLiteral("streamMessage")).toString(), QStringLiteral("Sign in again"));
     }
 
+    void launchDiscoveryOptsIntoServerSideConflictFallback()
+    {
+        QJSEngine engine;
+        QVERIFY(prepareLaunchGuards(engine));
+        QVERIFY(!engine.evaluate(QStringLiteral(R"JS(
+            var ready = true, requests = [], streamState = 'idle';
+            var pendingLaunchParams = {appId:123,selectionIdentity:'selection',authGeneration:0,
+                actionGeneration:0,requestContextKey:''};
+            var CoreClient = {request:function(method,params) {
+                requests.push({method:method,params:params}); return 'discovery';
+            }};
+            var AppController = {navigate:function(){}};
+            discoverPendingLaunch();
+        )JS")).isError());
+        QCOMPARE(engine.evaluate(QStringLiteral("requests.length")).toInt(), 1);
+        QCOMPARE(engine.evaluate(QStringLiteral("requests[0].method")).toString(),
+                 QStringLiteral("session.remote.list"));
+        QCOMPARE(engine.evaluate(QStringLiteral("requests[0].params.appId")).toInt(), 123);
+        QVERIFY(engine.evaluate(QStringLiteral("requests[0].params.allowPartialDiscovery")).toBool());
+        QVERIFY(engine.evaluate(QStringLiteral("pendingLaunchParams.allowPartialDiscovery")).isUndefined());
+        QCOMPARE(engine.evaluate(QStringLiteral("streamState")).toString(), QStringLiteral("checking"));
+    }
+
     void cancelledLaunchDiscoveryCannotCreateASession()
     {
         const auto shell = source(QStringLiteral("qml/state/ShellStore.qml"));

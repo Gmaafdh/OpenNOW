@@ -998,16 +998,19 @@ impl CloudMatchService {
         #[cfg(test)]
         let server_info_url = self.fixture_url(server_info_url);
         let mut log = DiscoveryLog::default();
-        let sessions = self.discover_remote_sessions(
+        let discovery = self.discover_remote_sessions(
             &client,
             &headers,
             requested,
             server_info_url,
             deadline,
+            params["allowPartialDiscovery"] == true,
             &mut log,
         );
         self.push_discovery_summary(log.summary());
-        let mut sessions = sessions?;
+        let discovery = discovery?;
+        let incomplete = discovery.incomplete;
+        let mut sessions = discovery.sessions;
         if let Some(pending) = self.pending_cleanup(auth)
             && !sessions
                 .iter()
@@ -1016,7 +1019,11 @@ impl CloudMatchService {
             sessions.push(pending);
         }
         self.store_discovered(&sessions);
-        Ok(json!({"sessions":sessions}))
+        let mut response = json!({"sessions":sessions});
+        if incomplete {
+            response["discoveryIncomplete"] = json!(true);
+        }
+        Ok(response)
     }
 
     fn store_discovered(&self, sessions: &[Value]) {
@@ -1063,8 +1070,9 @@ impl CloudMatchService {
         requested: Url,
         server_info_url: Url,
         deadline: Instant,
+        allow_partial_absence: bool,
         log: &mut DiscoveryLog,
-    ) -> Result<Vec<Value>, ServiceError> {
+    ) -> Result<DiscoveryOutcome, ServiceError> {
         let mut server_info = fetch_server_info(
             client,
             server_info_url.clone(),
@@ -1104,21 +1112,27 @@ impl CloudMatchService {
         log.attempts = Mutex::new(vec![Vec::new(); names.len()]);
         log.regions = names;
         let log = &*log;
-        discover_sessions(&bases, deadline, incomplete, |base, timeout| {
-            let url = base.join("v2/session").map_err(|_| {
-                (
-                    invalid("Invalid active-session URL"),
-                    FailureKind::Unchecked,
-                )
-            })?;
-            #[cfg(test)]
-            let url = self.fixture_url(url);
-            let result = fetch_region_sessions(client, url, headers, base, timeout);
-            if let Some(index) = bases.iter().position(|known| known == base) {
-                log.record(index, attempt_outcome(&result));
-            }
-            result
-        })
+        discover_sessions_with_policy(
+            &bases,
+            deadline,
+            incomplete,
+            allow_partial_absence,
+            |base, timeout| {
+                let url = base.join("v2/session").map_err(|_| {
+                    (
+                        invalid("Invalid active-session URL"),
+                        FailureKind::Unchecked,
+                    )
+                })?;
+                #[cfg(test)]
+                let url = self.fixture_url(url);
+                let result = fetch_region_sessions(client, url, headers, base, timeout);
+                if let Some(index) = bases.iter().position(|known| known == base) {
+                    log.record(index, attempt_outcome(&result));
+                }
+                result
+            },
+        )
     }
 
     pub fn claim(
@@ -2625,12 +2639,34 @@ fn unix_seconds() -> i64 {
         .as_secs() as i64
 }
 
+struct DiscoveryOutcome {
+    sessions: Vec<Value>,
+    incomplete: bool,
+}
+
+#[cfg(test)]
 fn discover_sessions(
     bases: &[Url],
     deadline: Instant,
-    mut incomplete: bool,
+    incomplete: bool,
     fetch: impl Fn(&Url, Duration) -> Result<Vec<Value>, RegionFailure> + Sync,
 ) -> Result<Vec<Value>, ServiceError> {
+    discover_sessions_with_policy(bases, deadline, incomplete, false, fetch)
+        .map(|discovery| discovery.sessions)
+}
+
+fn discover_sessions_with_policy(
+    bases: &[Url],
+    deadline: Instant,
+    mut incomplete: bool,
+    allow_partial_absence: bool,
+    fetch: impl Fn(&Url, Duration) -> Result<Vec<Value>, RegionFailure> + Sync,
+) -> Result<DiscoveryOutcome, ServiceError> {
+    // Only an explicit new-launch probe may use partial absence. Region discovery must be
+    // complete and bounded, the selected endpoint must answer, and every unchecked region must
+    // be an unrelated transient failure. The ordinary create request remains the final
+    // server-side existing-session check; background and recovery discovery stay fail-closed.
+    let mut permit_partial_absence = allow_partial_absence && !incomplete && !bases.is_empty();
     let cancellation = crate::requests::current();
     let all = (0..bases.len()).collect::<Vec<_>>();
     let mut results = fetch_regions(
@@ -2646,8 +2682,8 @@ fn discover_sessions(
     // found and no region rejected the credentials, retry the transiently failed regions once,
     // if the budget still leaves room for a useful attempt. Fast failures wait a short delay
     // first; timeouts are retried at once. The retry has a shorter timeout, so a region that
-    // keeps timing out adds at most DISCOVERY_RETRY_REQUEST_TIMEOUT. Other failures stay final,
-    // so an incomplete sweep still fails closed below.
+    // keeps timing out adds at most DISCOVERY_RETRY_REQUEST_TIMEOUT. Other failures stay final
+    // and also block the launch-only partial-absence fallback below.
     let transient = all
         .into_iter()
         .filter(|index| {
@@ -2687,7 +2723,7 @@ fn discover_sessions(
         }
     }
     let mut sessions = Vec::new();
-    for result in results {
+    for (index, result) in results.into_iter().enumerate() {
         match result {
             Ok(found) => {
                 for session in found {
@@ -2700,13 +2736,21 @@ fn discover_sessions(
                 }
             }
             Err((error, _)) if is_auth_failure(&error) => return Err(error),
-            Err(_) => incomplete = true,
+            Err((_, kind)) => {
+                if index == 0 || !kind.is_transient() {
+                    permit_partial_absence = false;
+                }
+                incomplete = true;
+            }
         }
     }
-    if sessions.is_empty() && (incomplete || bases.is_empty()) {
+    if sessions.is_empty() && (incomplete || bases.is_empty()) && !permit_partial_absence {
         return Err(discovery_failed());
     }
-    Ok(sessions)
+    Ok(DiscoveryOutcome {
+        sessions,
+        incomplete: incomplete || bases.is_empty(),
+    })
 }
 
 /// Fetches `bases[index]` for each of `indices` with bounded concurrency, each request limited
@@ -5546,16 +5590,32 @@ mod tests {
         deadline: Instant,
         fetch: impl Fn(usize, usize) -> Result<Vec<Value>, RegionFailure> + Sync,
     ) -> (Result<Vec<Value>, ServiceError>, Vec<usize>) {
+        let (result, calls) = discover_counting_outcome(bases, deadline, false, fetch);
+        (result.map(|discovery| discovery.sessions), calls)
+    }
+
+    fn discover_counting_outcome(
+        bases: &[Url],
+        deadline: Instant,
+        allow_partial_absence: bool,
+        fetch: impl Fn(usize, usize) -> Result<Vec<Value>, RegionFailure> + Sync,
+    ) -> (Result<DiscoveryOutcome, ServiceError>, Vec<usize>) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let calls = bases
             .iter()
             .map(|_| AtomicUsize::new(0))
             .collect::<Vec<_>>();
-        let result = discover_sessions(bases, deadline, false, |base, timeout| {
-            assert!(timeout <= DISCOVERY_REQUEST_TIMEOUT);
-            let index = bases.iter().position(|known| known == base).unwrap();
-            fetch(index, calls[index].fetch_add(1, Ordering::SeqCst))
-        });
+        let result = discover_sessions_with_policy(
+            bases,
+            deadline,
+            false,
+            allow_partial_absence,
+            |base, timeout| {
+                assert!(timeout <= DISCOVERY_REQUEST_TIMEOUT);
+                let index = bases.iter().position(|known| known == base).unwrap();
+                fetch(index, calls[index].fetch_add(1, Ordering::SeqCst))
+            },
+        );
         let calls = calls.iter().map(|calls| calls.load(Ordering::SeqCst));
         (result, calls.collect())
     }
@@ -5630,6 +5690,81 @@ mod tests {
         );
         assert_eq!(result.unwrap_err().code, "session_discovery_failed");
         assert_eq!(calls, [2, 1, 1]);
+    }
+
+    #[test]
+    fn launch_discovery_allows_an_unavailable_unrelated_region() {
+        let (result, calls) = discover_counting_outcome(
+            &retry_bases(),
+            Instant::now() + DISCOVERY_TIMEOUT,
+            true,
+            |index, _| {
+                if index == 1 {
+                    Err(failure(FailureKind::Http(503)))
+                } else {
+                    Ok(vec![])
+                }
+            },
+        );
+        let discovery = result.unwrap();
+        assert!(discovery.incomplete);
+        assert!(discovery.sessions.is_empty());
+        assert_eq!(calls, [1, 2, 1]);
+
+        // The same partial absence remains fail-closed without the explicit launch opt-in.
+        let (result, _) = discover_counting(
+            &retry_bases(),
+            Instant::now() + DISCOVERY_TIMEOUT,
+            |index, _| {
+                if index == 1 {
+                    Err(failure(FailureKind::Timeout))
+                } else {
+                    Ok(vec![])
+                }
+            },
+        );
+        assert_eq!(result.unwrap_err().code, "session_discovery_failed");
+    }
+
+    #[test]
+    fn launch_discovery_rejects_selected_final_and_unbounded_failures() {
+        for (failed_index, kind, expected_calls) in [
+            (0, FailureKind::Timeout, [2, 1, 1]),
+            (1, FailureKind::Http(404), [1, 1, 1]),
+            (1, FailureKind::Body, [1, 1, 1]),
+        ] {
+            let (result, calls) = discover_counting_outcome(
+                &retry_bases(),
+                Instant::now() + DISCOVERY_TIMEOUT,
+                true,
+                |index, _| {
+                    if index == failed_index {
+                        Err(failure(kind))
+                    } else {
+                        Ok(vec![])
+                    }
+                },
+            );
+            assert_eq!(result.unwrap_err().code, "session_discovery_failed");
+            assert_eq!(calls, expected_calls);
+        }
+
+        let bases = retry_bases();
+        let error = discover_sessions_with_policy(
+            &bases,
+            Instant::now() + DISCOVERY_TIMEOUT,
+            true,
+            true,
+            |base, _| {
+                if base == &bases[1] {
+                    Err(failure(FailureKind::Timeout))
+                } else {
+                    Ok(vec![])
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "session_discovery_failed");
     }
 
     #[test]

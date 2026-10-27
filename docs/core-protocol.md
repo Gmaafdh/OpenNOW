@@ -710,6 +710,28 @@ sweep records one bounded `[session] discovery:` diagnostics line with each fail
 request's kind and attempt number, naming regions by CloudMatch metadata key, never
 by URL.
 
+A new-launch probe may explicitly set `allowPartialDiscovery: true`. This opt-in is
+not used by background refresh, recovery, or exact-session reconciliation. It
+permits an empty partial result only when server-info succeeded, the advertised
+region list was complete within the bound, the selected endpoint returned a valid
+session list, and every failed request belonged to another region and remained
+transient after the permitted retry. The result then contains `sessions` and
+`discoveryIncomplete: true`; it must not be represented as a complete absence.
+Selected-endpoint failures, server-info failures, truncated region lists,
+authentication failures, rejected or malformed responses, and unchecked regions
+still return `session_discovery_failed`, and the caller must not create after
+those failures. Any discovered session is still returned and takes precedence
+over partial absence.
+
+After an allowed partial result, Qt uses the ordinary `session.create` path rather
+than starting media or synthesizing a session locally. NVIDIA's create-time
+existing-session limit remains the final guard: `session_conflict` follows the
+same resume/end handoff as any other create conflict, and an empty partial result
+after that conflict cannot trigger another create. Creation is never automatically
+replayed. Thus an unrelated regional maintenance outage need not block every
+launch, while the server remains authoritative about whether another session
+already exists.
+
 ### Provider routing and account scope
 
 `auth.providers.list` returns `providers`, `defaultProviderIdpId`, `generation`, and
