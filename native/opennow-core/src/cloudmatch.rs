@@ -2639,6 +2639,7 @@ fn unix_seconds() -> i64 {
         .as_secs() as i64
 }
 
+#[derive(Debug)]
 struct DiscoveryOutcome {
     sessions: Vec<Value>,
     incomplete: bool,
