@@ -207,6 +207,16 @@ jobs:
             -R '^opennow-embedded-orchestration-tests$' \
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/embedded-orchestration-tests.log || status=$?
+          nativeResults=build/opennow-qt-release/opennow-nativestreamruntime-results.txt
+          if [[ -f "$nativeResults" ]]; then
+            cp "$nativeResults" ci-logs/nativestreamruntime-results.log
+            cat "$nativeResults"
+          fi
+          orchestrationResults=build/opennow-qt-release/opennow-embedded-orchestration-results.txt
+          if [[ -f "$orchestrationResults" ]]; then
+            cp "$orchestrationResults" ci-logs/embedded-orchestration-results.log
+            cat "$orchestrationResults"
+          fi
           results=build/opennow-qt-release/opennow-theme-results.txt
           if [[ -f "$results" ]]; then
             cp "$results" ci-logs/theme-results.log

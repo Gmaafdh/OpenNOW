@@ -1079,7 +1079,8 @@ if(BUILD_TESTING)
     add_dependencies(opennow-nativestreamruntime-tests
         opennow-streamer-ffi-build opennow-fake-streamer)
     add_test(NAME opennow-nativestreamruntime-tests
-             COMMAND opennow-nativestreamruntime-tests -o -,txt)
+             COMMAND opennow-nativestreamruntime-tests
+                 -o "${CMAKE_CURRENT_BINARY_DIR}/opennow-nativestreamruntime-results.txt,txt")
     set_tests_properties(opennow-nativestreamruntime-tests PROPERTIES TIMEOUT 30)
 
     if(UNIX AND NOT APPLE)
@@ -1143,7 +1144,8 @@ if(BUILD_TESTING)
     target_compile_definitions(opennow-embedded-orchestration-tests PRIVATE
         OPENNOW_QT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME opennow-embedded-orchestration-tests
-             COMMAND opennow-embedded-orchestration-tests -o -,txt)
+             COMMAND opennow-embedded-orchestration-tests
+                 -o "${CMAKE_CURRENT_BINARY_DIR}/opennow-embedded-orchestration-results.txt,txt")
 
     qt_add_executable(opennow-singleinstance-tests
         tests/tst_singleinstance.cpp
