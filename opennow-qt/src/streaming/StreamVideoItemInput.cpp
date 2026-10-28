@@ -1050,16 +1050,8 @@ void StreamVideoItem::updateCursorConfinement()
         releaseCursorConfinement();
         return;
     }
-    const auto handle = reinterpret_cast<HWND>(window()->winId());
-    RECT client{};
-    POINT topLeft{};
-    if (!handle || !GetClientRect(handle, &client)
-        || !ClientToScreen(handle, &topLeft)) {
-        releaseCursorConfinement();
-        return;
-    }
-    POINT bottomRight{client.right, client.bottom};
-    if (!ClientToScreen(handle, &bottomRight)) {
+    const auto clientScreenRect = windowsClientScreenRect(window());
+    if (clientScreenRect.isEmpty()) {
         releaseCursorConfinement();
         return;
     }
@@ -1077,9 +1069,7 @@ void StreamVideoItem::updateCursorConfinement()
                           QPointF(std::max(first.x(), second.x()),
                                   std::max(first.y(), second.y())));
     const auto captureRect = scaledCaptureRect(
-        itemRect, QSizeF(window()->width(), window()->height()),
-        QRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x,
-              bottomRight.y - topLeft.y));
+        itemRect, QSizeF(window()->width(), window()->height()), clientScreenRect);
     if (captureRect.isEmpty()) {
         releaseCursorConfinement();
         return;

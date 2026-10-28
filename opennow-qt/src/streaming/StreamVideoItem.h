@@ -21,6 +21,7 @@
 #include <optional>
 
 class QHoverEvent;
+class QWindow;
 class NativeStreamRuntime;
 
 class StreamVideoItem : public QQuickItem
@@ -116,6 +117,9 @@ public:
     [[nodiscard]] static QRect scaledCaptureRect(const QRectF &itemRect,
                                                  const QSizeF &windowSize,
                                                  const QRect &clientScreenRect);
+#ifdef Q_OS_WIN
+    [[nodiscard]] static QRect windowsClientScreenRect(const QWindow *window);
+#endif
     [[nodiscard]] static QRect absoluteMouseCoordinates(const QPointF &position,
                                                         const QSize &videoSize,
                                                         const QSizeF &itemSize);

@@ -429,6 +429,31 @@ QRect StreamVideoItem::physicalSurfaceRect(const QRectF &logicalRect, qreal devi
                  QPoint(qRound(right) - 1, qRound(bottom) - 1));
 }
 
+#ifdef Q_OS_WIN
+QRect StreamVideoItem::windowsClientScreenRect(const QWindow *targetWindow)
+{
+    if (!targetWindow) return {};
+    const auto handle = reinterpret_cast<HWND>(targetWindow->winId());
+    if (!handle) return {};
+
+    // Win32 queries use the calling thread's DPI context. Qt can be
+    // bitmap-scaled while the SDL presenter is PerMonitorV2, so query the
+    // parent in the presenter's coordinate space and restore Qt immediately.
+    const auto previousDpiContext = SetThreadDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (!previousDpiContext) return {};
+    RECT client{};
+    POINT topLeft{};
+    const bool valid = GetClientRect(handle, &client)
+        && ClientToScreen(handle, &topLeft);
+    SetThreadDpiAwarenessContext(previousDpiContext);
+    if (!valid) return {};
+    return QRect(static_cast<int>(topLeft.x), static_cast<int>(topLeft.y),
+                 static_cast<int>(client.right - client.left),
+                 static_cast<int>(client.bottom - client.top));
+}
+#endif
+
 QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
     bool visible, const QJsonArray &occlusions, bool inputPassthrough) const
 {
@@ -449,20 +474,14 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
     // make ordinary window moves resynchronize screen-space Raw Input exclusions.
     auto screenRect = physicalSurfaceRect(QRectF(targetWindow->geometry()), scale);
 #ifdef Q_OS_WIN
-    bool usesNativeClientGeometry = false;
-    QRect nativeClientScreenRect;
     QSizeF logicalWindowSize;
-    const auto handle = reinterpret_cast<HWND>(targetWindow->winId());
-    RECT client{};
-    POINT topLeft{};
-    if (handle && GetClientRect(handle, &client) && ClientToScreen(handle, &topLeft)) {
+    const auto nativeClientScreenRect = windowsClientScreenRect(targetWindow);
+    const bool usesNativeClientGeometry = !nativeClientScreenRect.isEmpty();
+    if (usesNativeClientGeometry) {
         // A DPI-unaware Qt parent can be bitmap-scaled by Windows while the
-        // PerMonitorV2 SDL child is not. Win32's actual client rect is the
-        // authoritative bridge between their coordinate spaces.
+        // PerMonitorV2 SDL child is not. The physical client rect bridges
+        // those coordinate spaces without applying deviceScaleFactor twice.
         logicalWindowSize = QSizeF(targetWindow->width(), targetWindow->height());
-        nativeClientScreenRect = QRect(static_cast<int>(topLeft.x), static_cast<int>(topLeft.y),
-            static_cast<int>(client.right - client.left),
-            static_cast<int>(client.bottom - client.top));
         const auto nativeWindowRect = scaledCaptureRect(
             QRectF(QPointF(0, 0), logicalWindowSize), logicalWindowSize, nativeClientScreenRect);
         if (!nativeWindowRect.isEmpty()) {
@@ -470,7 +489,6 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
                 logicalRect, logicalWindowSize, nativeClientScreenRect);
             rect = nativeItemRect.translated(-nativeWindowRect.x(), -nativeWindowRect.y());
             screenRect = nativeWindowRect;
-            usesNativeClientGeometry = true;
         }
     }
 #endif
