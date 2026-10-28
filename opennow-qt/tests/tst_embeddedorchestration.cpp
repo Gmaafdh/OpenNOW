@@ -2753,7 +2753,7 @@ private slots:
         const auto exit = source(QStringLiteral("qml/desktop/stream/DesktopStreamExitConfirm.qml"));
         QVERIFY(runtimeHeader.contains(QStringLiteral(
             "Q_PROPERTY(bool usesHostedSurface READ usesHostedSurface CONSTANT)")));
-        QVERIFY(runtime.contains(QStringLiteral("d->hostedSurface = useExternalWindow;")));
+        QVERIFY(runtime.contains(QStringLiteral("d->hostedSurface = false;")));
         QVERIFY(runtime.contains(QStringLiteral("void NativeStreamRuntime::focusHostedOverlay(QWindow *window)")));
         QVERIFY(runtime.contains(QStringLiteral("SetForegroundWindow(handle);")));
         QVERIFY(runtime.contains(QStringLiteral("SetFocus(handle);")));
@@ -2803,6 +2803,10 @@ private slots:
         QVERIFY(!externalBranch.contains(QStringLiteral(".set_surface(")));
         QVERIFY(output.contains(QStringLiteral(
             "raw_input.set_overlay_exclusions(rect, &surface.occlusions);")));
+        QVERIFY(output.contains(QStringLiteral(
+            "set_fullscreen(sdl2::video::FullscreenType::Desktop)")));
+        QVERIFY(output.contains(QStringLiteral("self.native_surface.focus()")));
+        QVERIFY(output.contains(QStringLiteral("self.input_capture.focused = true;")));
         QVERIFY(output.contains(QStringLiteral("surface.input_passthrough,")));
         QVERIFY(output.contains(QStringLiteral("raw_input.clear_overlay_exclusions();")));
         QVERIFY(rawInput.contains(QStringLiteral("cursor_in_exclusions(state)")));

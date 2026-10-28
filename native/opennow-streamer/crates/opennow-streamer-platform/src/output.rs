@@ -2836,12 +2836,35 @@ impl WindowsExternalSdlSurface {
             return;
         }
         eprintln!(
-            "External SDL stream window: showing standalone maximized window after first frame"
+            "External SDL stream window: showing standalone desktop-fullscreen window after first frame"
         );
         self.window.show();
+        // Keep a usable maximized window if the display driver rejects a
+        // fullscreen transition. Never leave the initial 1280x720 surface.
         self.window.maximize();
+        if let Err(error) = self
+            .window
+            .set_fullscreen(sdl2::video::FullscreenType::Desktop)
+        {
+            eprintln!(
+                "Windows SDL startup fullscreen unavailable; using maximized window: {error}"
+            );
+            self.fullscreen = false;
+        } else {
+            self.fullscreen = true;
+        }
         self.sdl.mouse().show_cursor(true);
         self.window.raise();
+        if self.native_surface.focus() {
+            // SetFocus is synchronous, while SDL delivers FocusGained on the
+            // next pump. Allow the first keyboard event and pointer-lock
+            // command to use the native window immediately.
+            self.input_capture.focused = true;
+        } else {
+            eprintln!(
+                "Windows SDL stream window focus will be retried by SDL focus events"
+            );
+        }
         if let Some(raw_input) = self.raw_input.as_ref() {
             raw_input.set_foreground_owner(self.native_surface.window_handle());
         }
