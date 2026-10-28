@@ -323,9 +323,9 @@ fn overlay_exclusions(
 }
 
 fn point_in_exclusions(x: i32, y: i32, exclusions: &[(i32, i32, i32, i32)]) -> bool {
-    exclusions.iter().any(|&(left, top, right, bottom)| {
-        x >= left && x < right && y >= top && y < bottom
-    })
+    exclusions
+        .iter()
+        .any(|&(left, top, right, bottom)| x >= left && x < right && y >= top && y < bottom)
 }
 
 fn cursor_in_exclusions(state: &RawInputState) -> bool {
@@ -485,8 +485,8 @@ mod tests {
         RawInputState, overlay_exclusions, point_in_exclusions, push_mouse_delta,
         push_raw_mouse_buttons, release_pressed_buttons,
     };
-    use opennow_streamer_protocol::RenderSurfaceRect;
     use crate::media::{CapturedInput, CapturedInputQueue};
+    use opennow_streamer_protocol::RenderSurfaceRect;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
     };
@@ -548,7 +548,10 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(exclusions, vec![(1460, 324, 1760, 484), (500, 300, 540, 340)]);
+        assert_eq!(
+            exclusions,
+            vec![(1460, 324, 1760, 484), (500, 300, 540, 340)]
+        );
         assert!(point_in_exclusions(1460, 324, &exclusions));
         assert!(point_in_exclusions(1759, 483, &exclusions));
         assert!(!point_in_exclusions(1760, 324, &exclusions));

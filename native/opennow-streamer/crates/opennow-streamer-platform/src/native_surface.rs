@@ -120,8 +120,9 @@ mod platform {
         if hole_right <= hole_left || hole_bottom <= hole_top {
             return None;
         }
-        let coordinate =
-            |value: i64| i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX });
+        let coordinate = |value: i64| {
+            i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
+        };
         Some((
             coordinate(hole_left - left),
             coordinate(hole_top - top),
