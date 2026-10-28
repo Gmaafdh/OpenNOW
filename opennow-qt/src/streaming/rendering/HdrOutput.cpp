@@ -38,6 +38,15 @@ HdrOutput::HdrOutput(QObject *parent) : QObject(parent)
 
 HdrOutput::~HdrOutput() = default;
 
+void HdrOutput::setSdrOnly(bool sdrOnly)
+{
+    if (m_sdrOnly.exchange(sdrOnly) == sdrOnly) return;
+    m_probeRequested.store(true);
+    m_chromeSynchronized = false;
+    if (sdrOnly) requestChrome(false);
+    if (m_window) m_window->update();
+}
+
 void HdrOutput::attach(QQuickWindow *window)
 {
     if (!window || m_window) return;
@@ -165,6 +174,7 @@ void HdrOutput::updateOutput()
 {
     if (!m_window) return;
     const bool probe = m_probeRequested.exchange(false);
+    const bool sdrOnly = m_sdrOnly.load();
     auto *d = QQuickWindowPrivate::get(m_window);
     auto *sc = d->swapchain;
     if (!sc || !d->rhi) {
@@ -180,9 +190,11 @@ void HdrOutput::updateOutput()
             m_window->setRenderTarget(target);
         }
     }
-    if (!probe && d->hasActiveSwapchain && d->hasRenderableSwapchain
-            && (sc->format() != QRhiSwapChain::HDR10
-                || (m_outputPass && m_outputPass->matches(d->rhi, sc)))) return;
+    const bool modeReady = sdrOnly
+        ? sc->format() == QRhiSwapChain::SDR && !m_outputPass
+        : sc->format() != QRhiSwapChain::HDR10
+            || (m_outputPass && m_outputPass->matches(d->rhi, sc));
+    if (!probe && d->hasActiveSwapchain && d->hasRenderableSwapchain && modeReady) return;
     const auto waylandOutput = m_waylandOutput->state();
 #if defined(Q_OS_LINUX)
     const bool platformReady = waylandOutput.supported;
@@ -193,8 +205,9 @@ void HdrOutput::updateOutput()
         || d->rhi->backend() == QRhi::Vulkan || d->rhi->backend() == QRhi::Metal);
     const bool linearSupported = outputReady
         && sc->isFormatSupported(QRhiSwapChain::HDRExtendedSrgbLinear);
-    const auto desired = preferredHdrSwapChainFormat(outputReady, linearSupported,
-        outputReady && !linearSupported && sc->isFormatSupported(QRhiSwapChain::HDR10));
+    const auto desired = sdrOnly ? QRhiSwapChain::SDR
+        : preferredHdrSwapChainFormat(outputReady, linearSupported,
+            outputReady && !linearSupported && sc->isFormatSupported(QRhiSwapChain::HDR10));
     const bool hdrAvailable = desired != QRhiSwapChain::SDR;
     if (desired != QRhiSwapChain::SDR && !m_chromeSynchronized) {
         requestChrome(true);

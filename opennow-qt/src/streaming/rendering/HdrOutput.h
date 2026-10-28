@@ -38,6 +38,7 @@ public:
     explicit HdrOutput(QObject *parent = nullptr);
     ~HdrOutput() override;
     void attach(QQuickWindow *window);
+    void setSdrOnly(bool sdrOnly);
     bool supported() const { return m_supported; }
     int outputMode() const { return m_mode; }
     bool chromeRequired() const { return m_chromeRequired; }
@@ -66,6 +67,7 @@ private:
     QPointer<QQuickWindow> m_window;
     QTimer m_probeTimer;
     std::atomic<bool> m_probeRequested{true};
+    std::atomic<bool> m_sdrOnly{false};
     std::atomic<bool> m_chromeGuiReady{false};
     bool m_chromeSynchronized = false;
     bool m_chromeRequired = false;

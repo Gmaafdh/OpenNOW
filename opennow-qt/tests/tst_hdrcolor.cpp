@@ -401,6 +401,34 @@ private slots:
         QVERIFY(std::abs(float(alphaPixel[3]) - 0.5f) < 0.002f);
     }
 
+    void externalOverlayOutputRemainsSdrAcrossShowCycles()
+    {
+#if defined(Q_OS_WIN)
+        QQuickWindow window;
+        QQuickGraphicsConfiguration configuration;
+        configuration.setPreferSoftwareDevice(true);
+        window.setGraphicsConfiguration(configuration);
+        window.resize(64, 64);
+        HdrOutput output;
+        output.setSdrOnly(true);
+        output.attach(&window);
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+            QImage image;
+            QTRY_VERIFY(!(image = window.grabWindow()).isNull());
+            QCoreApplication::processEvents();
+            QVERIFY(!output.supported());
+            QCOMPARE(output.outputMode(), HdrOutput::Sdr);
+            QVERIFY(!output.chromeRequired());
+            window.hide();
+            QCoreApplication::processEvents();
+        }
+#else
+        QSKIP("Windows external-overlay swapchain policy");
+#endif
+    }
+
     void chromeLayerPreservesColorAlphaAndSurfaceChanges()
     {
         qmlRegisterType<HdrChromeEffect>("HdrTest", 1, 0, "HdrChromeEffect");

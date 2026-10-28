@@ -330,6 +330,10 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
         qCritical("Could not select the graphics adapter before scene-graph initialization");
         return EXIT_FAILURE;
     }
+    // The compatibility presenter owns native video/HDR independently. Keep
+    // its transparent Qt overlay on one SDR alpha swapchain instead of
+    // reinitializing HDR surfaces across overlay show/hide transitions.
+    hdrOutput.setSdrOnly(useExternalStreamWindow);
     hdrOutput.attach(rootWindow);
 #if defined(Q_OS_LINUX) && QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
     if (vulkanDevice.handle() && !vulkanDevice.adopt(rootWindow)) {

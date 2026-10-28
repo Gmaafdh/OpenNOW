@@ -2873,6 +2873,10 @@ private slots:
         QCOMPARE(rootColor.captured(1), QStringLiteral("\"transparent\""));
         QVERIFY(main.contains(QStringLiteral("background: Rectangle")));
         QVERIFY(startup.contains(QStringLiteral("alphaSurfaceFormat.setAlphaBufferSize(8)")));
+        const auto sdrOnly = startup.indexOf(QStringLiteral(
+            "hdrOutput.setSdrOnly(useExternalStreamWindow);"));
+        const auto hdrAttach = startup.indexOf(QStringLiteral("hdrOutput.attach(rootWindow);"));
+        QVERIFY(sdrOnly >= 0 && hdrAttach > sdrOnly);
         QVERIFY(main.contains(QStringLiteral(
             "if (!window.geometryRestored || window.standaloneStreamPresentation")));
         const auto fullscreen = QRegularExpression(QStringLiteral(
