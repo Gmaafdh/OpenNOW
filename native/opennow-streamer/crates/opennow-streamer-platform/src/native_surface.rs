@@ -88,17 +88,14 @@ mod platform {
         CombineRgn, CreateRectRgn, DeleteObject, RGN_DIFF, SetWindowRgn,
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
-    use windows_sys::Win32::UI::Shell::{
-        DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass,
-    };
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HTTRANSPARENT, HWND_TOP, SW_HIDE,
         SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-        SetForegroundWindow,
-        SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_CHILD,
-        WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
-        WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
-        WM_NCHITTEST,
+        SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_NCHITTEST,
+        WS_CAPTION, WS_CHILD, WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+        WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+        WS_VISIBLE,
     };
 
     use super::*;
