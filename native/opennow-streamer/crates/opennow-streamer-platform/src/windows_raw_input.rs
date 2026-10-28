@@ -117,13 +117,12 @@ impl WindowsRawInputController {
         occlusions: &[RenderSurfaceRect],
     ) {
         let mut bounds = RECT::default();
-        let next = if unsafe {
-            GetWindowRect(self.state.presentation_window as HWND, &mut bounds)
-        } == 0 {
-            Vec::new()
-        } else {
-            overlay_exclusions((bounds.left, bounds.top), rect, occlusions)
-        };
+        let next =
+            if unsafe { GetWindowRect(self.state.presentation_window as HWND, &mut bounds) } == 0 {
+                Vec::new()
+            } else {
+                overlay_exclusions((bounds.left, bounds.top), rect, occlusions)
+            };
         *self
             .state
             .exclusions
@@ -301,18 +300,15 @@ fn overlay_exclusions(
     let surface_top = i64::from(rect.y);
     let surface_right = surface_left + i64::from(rect.width.max(2));
     let surface_bottom = surface_top + i64::from(rect.height.max(2));
-    let coordinate = |value: i64| {
-        i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
-    };
+    let coordinate =
+        |value: i64| i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX });
     occlusions
         .iter()
         .filter_map(|occlusion| {
             let left = i64::from(occlusion.x).max(surface_left);
             let top = i64::from(occlusion.y).max(surface_top);
-            let right = (i64::from(occlusion.x) + i64::from(occlusion.width))
-                .min(surface_right);
-            let bottom = (i64::from(occlusion.y) + i64::from(occlusion.height))
-                .min(surface_bottom);
+            let right = (i64::from(occlusion.x) + i64::from(occlusion.width)).min(surface_right);
+            let bottom = (i64::from(occlusion.y) + i64::from(occlusion.height)).min(surface_bottom);
             if right <= left || bottom <= top {
                 return None;
             }

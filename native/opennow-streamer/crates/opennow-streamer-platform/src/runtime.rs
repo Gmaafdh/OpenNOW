@@ -1005,9 +1005,8 @@ impl MainThreadHost {
                     #[cfg(target_os = "windows")]
                     Ok(OutputEvent::PointerLockChanged(relative_mouse)) => {
                         if let Some(feedback) = feedback.as_ref() {
-                            let _ = feedback.send(MediaFeedback::PointerLockChanged {
-                                relative_mouse,
-                            });
+                            let _ =
+                                feedback.send(MediaFeedback::PointerLockChanged { relative_mouse });
                         }
                     }
                     #[cfg(target_os = "windows")]

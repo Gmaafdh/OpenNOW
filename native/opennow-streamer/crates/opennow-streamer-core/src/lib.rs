@@ -1302,9 +1302,9 @@ impl Engine {
                     "Native streamer has no focusable output window",
                 )
             })?;
-            runtime
-                .focus_surface()
-                .map_err(|message| error(Some(&command.id), "surface-focus-unavailable", message))?;
+            runtime.focus_surface().map_err(|message| {
+                error(Some(&command.id), "surface-focus-unavailable", message)
+            })?;
             Ok(vec![response(command.id, "ok")])
         }
     }
@@ -3567,10 +3567,7 @@ mod tests {
             ))
             .unwrap();
         current
-            .send(event(
-                "pointer-lock-toggled",
-                json!({"relativeMouse":true}),
-            ))
+            .send(event("pointer-lock-toggled", json!({"relativeMouse":true})))
             .unwrap();
         current
             .send(event("telemetry", json!({"videoFramesReceived":1})))
