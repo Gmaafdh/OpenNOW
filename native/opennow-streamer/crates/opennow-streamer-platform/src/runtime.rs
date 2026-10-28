@@ -1481,6 +1481,14 @@ pub fn create_test_runtime() -> (TestMediaRuntimeHost, MediaRuntime) {
                     HostCommand::Surface { reply, .. } | HostCommand::Control { reply, .. } => {
                         let _ = reply.send(Ok(()));
                     }
+                    #[cfg(target_os = "windows")]
+                    HostCommand::TogglePointerLock { reply } => {
+                        let _ = reply.send(Ok(false));
+                    }
+                    #[cfg(target_os = "windows")]
+                    HostCommand::FocusSurface { reply } => {
+                        let _ = reply.send(Ok(()));
+                    }
                     HostCommand::Cursor(_) | HostCommand::Stop => {}
                     #[cfg(target_os = "macos")]
                     HostCommand::ConfigureMacH264 { reply, .. } => {
