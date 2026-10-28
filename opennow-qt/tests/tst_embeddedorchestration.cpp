@@ -2866,6 +2866,21 @@ private slots:
     void standaloneOwnedOverlayRestoresNativeGameplayAndShell()
     {
         const auto main = source(QStringLiteral("qml/Main.qml"));
+        const auto startup = source(QStringLiteral("src/app/ApplicationStartup.cpp"));
+        const auto rootColor = QRegularExpression(QStringLiteral(
+            "^    color: ([^\\n]+)$"), QRegularExpression::MultilineOption).match(main);
+        QVERIFY(rootColor.hasMatch());
+        QCOMPARE(rootColor.captured(1), QStringLiteral("\"transparent\""));
+        QVERIFY(main.contains(QStringLiteral("background: Rectangle")));
+        QVERIFY(startup.contains(QStringLiteral("alphaSurfaceFormat.setAlphaBufferSize(8)")));
+        QVERIFY(main.contains(QStringLiteral(
+            "if (!window.geometryRestored || window.standaloneStreamPresentation")));
+        const auto fullscreen = QRegularExpression(QStringLiteral(
+            "    function toggleFullscreen\\(\\) \\{.*?\\n    \\}"),
+            QRegularExpression::DotMatchesEverythingOption).match(main);
+        QVERIFY(fullscreen.hasMatch());
+        QVERIFY(fullscreen.captured().contains(QStringLiteral(
+            "ShellStore.controlStream(\"toggle-fullscreen\")")));
         const auto transition = QRegularExpression(QStringLiteral(
             "    function synchronizeStandaloneShell\\([^\\n]*\\) \\{.*?\\n    \\}"),
             QRegularExpression::DotMatchesEverythingOption).match(main);

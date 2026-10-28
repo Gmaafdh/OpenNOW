@@ -90,6 +90,9 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
 #elif defined(Q_OS_LINUX)
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Vulkan);
 #endif
+    auto alphaSurfaceFormat = QSurfaceFormat::defaultFormat();
+    alphaSurfaceFormat.setAlphaBufferSize(8);
+    QSurfaceFormat::setDefaultFormat(alphaSurfaceFormat);
     QQuickStyle::setStyle(u"Basic"_s);
 
     // The official GeForce NOW client presents its stream with tearing allowed

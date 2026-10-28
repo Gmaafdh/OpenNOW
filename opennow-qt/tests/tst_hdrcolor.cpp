@@ -380,6 +380,25 @@ private slots:
         QVERIFY(std::abs(float(pixel[0]) - expected) < 0.002f);
         QVERIFY(std::abs(float(pixel[0]) - incorrectPqBlend) > 0.015f);
         QVERIFY(encoder.initialize(m_rhi.get(), output.get()));
+
+        // A standalone Qt overlay uses the same HDR10 output pass, but its
+        // transparent pixels must remain transparent to the native game.
+        cb = nullptr;
+        QCOMPARE(m_rhi->beginOffscreenFrame(&cb), QRhi::FrameOpSuccess);
+        cb->beginPass(encoder.target(), QColor::fromRgbF(0.25f, 0.5f, 0.75f, 0.5f),
+                      {1.0f, 0}, nullptr);
+        cb->endPass();
+        encoder.record(cb, output.get());
+        QRhiReadbackResult alphaResult;
+        bool alphaComplete = false;
+        alphaResult.completed = [&] { alphaComplete = true; };
+        auto *alphaReadback = m_rhi->nextResourceUpdateBatch();
+        alphaReadback->readBackTexture(QRhiReadbackDescription(texture.get()), &alphaResult);
+        cb->resourceUpdate(alphaReadback);
+        QCOMPARE(m_rhi->endOffscreenFrame(), QRhi::FrameOpSuccess);
+        QVERIFY(alphaComplete);
+        const auto *alphaPixel = reinterpret_cast<const qfloat16 *>(alphaResult.data.constData());
+        QVERIFY(std::abs(float(alphaPixel[3]) - 0.5f) < 0.002f);
     }
 
     void chromeLayerPreservesColorAlphaAndSurfaceChanges()

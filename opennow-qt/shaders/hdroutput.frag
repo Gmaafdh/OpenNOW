@@ -6,5 +6,9 @@ layout(location = 0) out vec4 fragColor;
 layout(binding = 1) uniform sampler2D linearScene;
 void main()
 {
-    fragColor = vec4(outputColor(texture(linearScene, uv).rgb * 80.0, 2.0, 203.0), 1.0);
+    vec4 scene = texture(linearScene, uv);
+    // Qt renders premultiplied alpha. Preserve it through the HDR10 output
+    // pass so transparent native-overlay pixels stay transparent.
+    vec3 linearColor = scene.a > 0.00001 ? scene.rgb / scene.a : vec3(0.0);
+    fragColor = vec4(outputColor(linearColor * 80.0, 2.0, 203.0) * scene.a, scene.a);
 }

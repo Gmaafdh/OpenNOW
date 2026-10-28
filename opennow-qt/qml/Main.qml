@@ -10,9 +10,13 @@ ApplicationWindow {
     minimumHeight: 540
     visible: !window.standaloneShellHidden
     visibility: ApplicationWindow.Windowed
-    // Standalone video remains in the native window. Qt is hidden during
-    // gameplay and becomes a transparent overlay surface only when needed.
-    color: window.standaloneOverlayVisible ? "transparent" : "black"
+    // Keep one alpha-capable surface format for the entire window lifetime.
+    // Switching QQuickWindow.color between opaque and transparent can replace
+    // the native D3D11 swapchain format between overlay transitions.
+    color: "transparent"
+    background: Rectangle {
+        color: window.standaloneOverlayVisible ? "transparent" : "black"
+    }
     flags: window.standaloneOverlayVisible
         ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
     title: qsTr("OpenNOW")
@@ -183,7 +187,8 @@ ApplicationWindow {
         interval: 450
         repeat: false
         onTriggered: {
-            if (!window.geometryRestored || window.visibility !== ApplicationWindow.Windowed)
+            if (!window.geometryRestored || window.standaloneStreamPresentation
+                    || window.visibility !== ApplicationWindow.Windowed)
                 return
             const geometry = {windowX: window.x, windowY: window.y,
                 windowWidth: window.width, windowHeight: window.height}
@@ -262,14 +267,8 @@ ApplicationWindow {
             AppController.requestWindowAttention(window)
         }
         function onFullscreenToggleRequested() {
-            if (window.activeRoute !== "stream")
-                return
-            if (window.standaloneStreamPresentation) {
-                ShellStore.controlStream("toggle-fullscreen")
-                standaloneOverlayResync.restart()
-            } else {
+            if (window.activeRoute === "stream")
                 window.toggleFullscreen()
-            }
         }
         function onConsoleScreenshotRequested() {
             const session = ShellStore.activeSession
@@ -448,6 +447,11 @@ ApplicationWindow {
     }
 
     function toggleFullscreen() {
+        if (window.standaloneStreamPresentation) {
+            ShellStore.controlStream("toggle-fullscreen")
+            standaloneOverlayResync.restart()
+            return
+        }
         const enteringFullscreen = window.visibility !== ApplicationWindow.FullScreen
         if (enteringFullscreen) {
             window.visibilityBeforeFullscreen = window.visibility
