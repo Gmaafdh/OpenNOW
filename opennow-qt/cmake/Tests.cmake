@@ -1070,7 +1070,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(opennow-nativestreamruntime-tests PRIVATE src)
     target_link_libraries(opennow-nativestreamruntime-tests PRIVATE
-        Qt6::Test Qt6::Core opennow-streamer-ffi)
+        Qt6::Test Qt6::Core Qt6::Gui opennow-streamer-ffi)
     if(WIN32)
         target_link_libraries(opennow-nativestreamruntime-tests PRIVATE user32)
     endif()
