@@ -2942,7 +2942,7 @@ private slots:
             "if self.standalone {"), output.indexOf(QStringLiteral(
             "fn update(&mut self, surface: &RenderSurface)")));
         const auto standaloneEnd = output.indexOf(QStringLiteral(
-            "let Some(rect) = surface.rect.filter"), standaloneStart);
+            "\n        let Some(rect) = surface.rect.filter"), standaloneStart);
         QVERIFY(standaloneStart >= 0 && standaloneEnd > standaloneStart);
         const auto standalone = output.mid(standaloneStart, standaloneEnd - standaloneStart);
         QVERIFY(standalone.contains(QStringLiteral("raw_input.set_overlay_exclusions")));
