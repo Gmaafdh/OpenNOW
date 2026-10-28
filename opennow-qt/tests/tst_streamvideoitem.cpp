@@ -1128,6 +1128,55 @@ private slots:
         QCOMPARE(StreamVideoItem::aspectFitRect(QSize(1920, 1080), QSize()), QRect());
     }
 
+    void scalesHostedSurfaceGeometryToPhysicalPixels()
+    {
+        QCOMPARE(StreamVideoItem::physicalSurfaceRect(QRectF(10.25, 20.5, 100.5, 50.25), 1.5),
+                 QRect(15, 30, 152, 77));
+        QCOMPARE(StreamVideoItem::physicalSurfaceRect(QRectF(0, 0, 1280, 720), 1.25),
+                 QRect(0, 0, 1600, 900));
+        QCOMPARE(StreamVideoItem::physicalSurfaceRect(QRectF(1, 2, 3, 4), 0),
+                 QRect(1, 2, 3, 4));
+        QCOMPARE(StreamVideoItem::physicalSurfaceRect(QRectF(), 2), QRect());
+    }
+
+    void buildsHostedSurfaceDescriptorFromSceneGeometry()
+    {
+        QQuickWindow window;
+        window.resize(640, 480);
+        auto *item = new StreamVideoItem(window.contentItem());
+        item->setPosition(QPointF(10, 20));
+        item->setSize(QSizeF(400, 200));
+        const QJsonArray occlusions{QJsonObject{
+            {QStringLiteral("x"), 20}, {QStringLiteral("y"), 30},
+            {QStringLiteral("width"), 50}, {QStringLiteral("height"), 40}}};
+        const auto descriptor = item->nativeSurfaceDescriptor(true, occlusions);
+        const auto scale = window.devicePixelRatio();
+        const auto expected = StreamVideoItem::physicalSurfaceRect(
+            QRectF(10, 20, 400, 200), scale);
+        const auto rect = descriptor.value(QStringLiteral("rect")).toObject();
+        QCOMPARE(descriptor.value(QStringLiteral("visible")).toBool(), true);
+        QCOMPARE(rect.value(QStringLiteral("x")).toInt(), expected.x());
+        QCOMPARE(rect.value(QStringLiteral("y")).toInt(), expected.y());
+        QCOMPARE(rect.value(QStringLiteral("width")).toInt(), expected.width());
+        QCOMPARE(rect.value(QStringLiteral("height")).toInt(), expected.height());
+        QVERIFY(!descriptor.value(QStringLiteral("windowHandle")).toString().isEmpty());
+        const auto expectedScreen = StreamVideoItem::physicalSurfaceRect(
+            QRectF(window.geometry()), scale);
+        const auto screen = descriptor.value(QStringLiteral("screenRect")).toObject();
+        QCOMPARE(screen.value(QStringLiteral("x")).toInt(), expectedScreen.x());
+        QCOMPARE(screen.value(QStringLiteral("width")).toInt(), expectedScreen.width());
+        const auto holes = descriptor.value(QStringLiteral("occlusions")).toArray();
+        QCOMPARE(holes.size(), 1);
+        const auto hole = StreamVideoItem::physicalSurfaceRect(QRectF(20, 30, 50, 40), scale);
+        QCOMPARE(holes.at(0).toObject().value(QStringLiteral("x")).toInt(), hole.x());
+        QCOMPARE(holes.at(0).toObject().value(QStringLiteral("width")).toInt(), hole.width());
+
+        const auto hidden = item->nativeSurfaceDescriptor(false, occlusions);
+        QCOMPARE(hidden.value(QStringLiteral("visible")).toBool(), false);
+        QVERIFY(!hidden.contains(QStringLiteral("rect")));
+        QVERIFY(!hidden.contains(QStringLiteral("occlusions")));
+    }
+
     void mapsScaledStreamBoundsIntoNativeClientCoordinates()
     {
         QCOMPARE(StreamVideoItem::scaledCaptureRect(

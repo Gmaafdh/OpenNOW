@@ -885,6 +885,7 @@ pub enum MediaFeedback {
         recovered: bool,
         message: Option<String>,
     },
+    PointerLockChanged { relative_mouse: bool },
     DecodeTimings(DecodeTimingsReport),
 }
 

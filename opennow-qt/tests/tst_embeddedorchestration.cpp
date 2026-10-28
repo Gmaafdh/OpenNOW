@@ -2731,6 +2731,110 @@ private slots:
         }
     }
 
+    void hostedWindowsSurfacePreservesNativePresentationAndQmlOverlays()
+    {
+        const auto runtime = source(QStringLiteral("src/streaming/NativeStreamRuntime.cpp"));
+        const auto runtimeHeader = source(QStringLiteral("src/streaming/NativeStreamRuntime.h"));
+        const auto item = source(QStringLiteral("src/streaming/StreamVideoItem.cpp"));
+        const auto itemInput = source(QStringLiteral("src/streaming/StreamVideoItemInput.cpp"));
+        const auto shell = source(QStringLiteral("qml/state/ShellStore.qml"));
+        const auto protocol = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-protocol/src/lib.rs"));
+        const auto nativeSurface = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-platform/src/native_surface.rs"));
+        const auto output = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-platform/src/output.rs"));
+        const auto rawInput = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-platform/src/windows_raw_input.rs"));
+        const auto core = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-core/src/lib.rs"));
+        const auto host = source(QStringLiteral("qml/desktop/stream/DesktopStreamOverlayHost.qml"));
+        QVERIFY(runtimeHeader.contains(QStringLiteral(
+            "Q_PROPERTY(bool usesHostedSurface READ usesHostedSurface CONSTANT)")));
+        QVERIFY(runtime.contains(QStringLiteral("d->hostedSurface = useExternalWindow;")));
+        QVERIFY(runtime.contains(QStringLiteral("void NativeStreamRuntime::focusHostedOverlay(QWindow *window)")));
+        QVERIFY(runtime.contains(QStringLiteral("SetForegroundWindow(handle);")));
+        QVERIFY(runtime.contains(QStringLiteral("SetFocus(handle);")));
+        QVERIFY(runtime.contains(QStringLiteral(
+            "d->hostedSurface ? u\"0\"_s : u\"1\"_s")));
+        QVERIFY(item.contains(QStringLiteral("nativeSurfaceDescriptor(")));
+        QVERIFY(item.contains(QStringLiteral("targetWindow->devicePixelRatio()")));
+        QVERIFY(item.contains(QStringLiteral("targetWindow->winId()")));
+        QVERIFY(itemInput.contains(QStringLiteral("void StreamVideoItem::setExternalPointerLock(bool relative)")));
+        QVERIFY(itemInput.contains(QStringLiteral("setRelativeMouse(relative);")));
+        QVERIFY(runtime.contains(QStringLiteral("kind == u\"pointer-lock-toggled\"_s")));
+        QVERIFY(runtime.contains(QStringLiteral("object.value(u\"relativeMouse\"_s).isBool()")));
+        QVERIFY(shell.contains(QStringLiteral("sendNativeCommand(\"surface\"")));
+        QVERIFY(shell.contains(QStringLiteral("\"toggle-pointer-lock\": \"pointer-lock-toggle\"")));
+        QVERIFY(shell.contains(QStringLiteral("nativePointerLockToggled(event.relativeMouse)")));
+        QVERIFY(shell.contains(QStringLiteral("NativeStreamRuntime.usesHostedSurface !== true")));
+        QVERIFY(shell.contains(QStringLiteral(
+            "&& NativeStreamRuntime.usesExternalWindow === true\n"
+            "                && NativeStreamRuntime.usesHostedSurface !== true\n"
+            "            ? \"standalone-fullscreen-toggle\"")));
+        QVERIFY(protocol.contains(QStringLiteral("pub occlusions: Vec<RenderSurfaceRect>")));
+        QVERIFY(nativeSurface.contains(QStringLiteral("WS_CHILD")));
+        QVERIFY(nativeSurface.contains(QStringLiteral("apply_overlay_clip(self.child, rect, occlusions)")));
+        QVERIFY(nativeSurface.contains(QStringLiteral("SetWindowRgn(child, region, 1)")));
+        QVERIFY(nativeSurface.contains(QStringLiteral("GetFocus() == self.child")));
+        const auto externalBranchStart = output.indexOf(QStringLiteral(
+            "if let Some(external_surface) = self.external_surface.as_mut() {"));
+        QVERIFY(externalBranchStart >= 0);
+        const auto externalBranchEnd = output.indexOf(QStringLiteral(
+            "return external_surface.update(surface);"), externalBranchStart);
+        QVERIFY(externalBranchEnd > externalBranchStart);
+        const auto externalBranch = output.mid(
+            externalBranchStart, externalBranchEnd - externalBranchStart);
+        QVERIFY(!externalBranch.contains(QStringLiteral(".set_surface(")));
+        QVERIFY(output.contains(QStringLiteral(
+            "raw_input.set_overlay_exclusions(rect, &surface.occlusions);")));
+        QVERIFY(output.contains(QStringLiteral("raw_input.clear_overlay_exclusions();")));
+        QVERIFY(rawInput.contains(QStringLiteral("cursor_in_exclusions(state)")));
+        QVERIFY(rawInput.contains(QStringLiteral("&& !relative_motion")));
+        QVERIFY(rawInput.contains(QStringLiteral("let owns_pointer = owns_foreground && !pointer_excluded;")));
+        QVERIFY(core.contains(QStringLiteral("\"pointer-lock-toggle\" => self.pointer_lock(command)")));
+        QVERIFY(core.contains(QStringLiteral("\"surface-focus\" => self.focus_surface(command)")));
+        QVERIFY(core.contains(QStringLiteral("MediaFeedback::PointerLockChanged { relative_mouse }")));
+        QVERIFY(core.contains(QStringLiteral("\"pointer-lock-toggled\"")));
+        QVERIFY(output.contains(QStringLiteral("surface.focus_input()?;")));
+        QVERIFY(output.contains(QStringLiteral("OutputEvent::PointerLockChanged(relative_mouse)")));
+        QVERIFY(nativeSurface.contains(QStringLiteral("pub(crate) fn focus(&self) -> bool")));
+        QVERIFY(shell.contains(QStringLiteral("return sendNativeCommand(\"surface-focus\"")));
+        QVERIFY(host.contains(QStringLiteral("statsView.nativeOcclusionRects")));
+        const QStringList screens{
+            QStringLiteral("qml/screens/StreamScreen.qml"),
+            QStringLiteral("qml/desktop/stream/DesktopStreamScreen.qml"),
+        };
+        for (const auto &path : screens) {
+            const auto qml = source(path);
+            QVERIFY2(qml.contains(QStringLiteral("function publishNativeSurface()")), qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral(
+                "NativeStreamRuntime.usesHostedSurface !== true || !NativeStreamRuntime.running")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("if (!show && !nativeSurfaceAttached)")), qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("!ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("localNativeOcclusions.concat(shared)")), qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral(
+                "streamVideo.relativeMouse\n"
+                "        && (streamVideo.captureActive || NativeStreamRuntime.usesHostedSurface)")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral(
+                "if (!show && blockingOverlay && root.visible && nativeSurfaceAttached)")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral(
+                "NativeStreamRuntime.focusHostedOverlay(root.Window.window)")), qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("function onScreenChanged()")), qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("function onNativePointerLockToggled(relativeMouse)")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral("streamVideo.setExternalPointerLock(relativeMouse)")),
+                qPrintable(path));
+            QVERIFY2(qml.contains(QStringLiteral(
+                "if (descriptor.visible === true && AppController.overlay === \"\")\n"
+                "            ShellStore.focusNativeSurface()")), qPrintable(path));
+        }
+    }
+
     void passiveStatsKeepGameplayInputWhileModalOverlaysTakeOwnership()
     {
         const auto main = source(QStringLiteral("qml/Main.qml"));

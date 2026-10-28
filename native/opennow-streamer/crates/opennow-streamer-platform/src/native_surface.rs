@@ -18,15 +18,21 @@ impl NativeSurface {
         &mut self,
         parent_handle: &str,
         rect: RenderSurfaceRect,
+        occlusions: &[RenderSurfaceRect],
         screen_rect: Option<RenderSurfaceRect>,
         scale: f32,
     ) -> Result<(), String> {
         self.inner
-            .attach_and_show(parent_handle, rect, screen_rect, scale)
+            .attach_and_show(parent_handle, rect, occlusions, screen_rect, scale)
     }
 
     pub(crate) fn hide(&mut self) {
         self.inner.hide();
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn focus(&self) -> bool {
+        self.inner.focus()
     }
 
     #[cfg(target_os = "windows")]
@@ -67,7 +73,10 @@ fn physical_rect(rect: RenderSurfaceRect, _scale: f32) -> (i32, i32, u32, u32) {
 mod platform {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+    use windows_sys::Win32::Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, DeleteObject, RGN_DIFF, SetWindowRgn,
+    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOP, SW_HIDE, SWP_FRAMECHANGED,
         SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
@@ -94,6 +103,77 @@ mod platform {
 
     fn child_extended_style(style: u32) -> u32 {
         style & !(WS_EX_APPWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT)
+    }
+
+    fn child_local_hole(
+        rect: RenderSurfaceRect,
+        occlusion: RenderSurfaceRect,
+    ) -> Option<(i32, i32, i32, i32)> {
+        let left = i64::from(rect.x);
+        let top = i64::from(rect.y);
+        let right = left + i64::from(rect.width.max(2));
+        let bottom = top + i64::from(rect.height.max(2));
+        let hole_left = i64::from(occlusion.x).max(left);
+        let hole_top = i64::from(occlusion.y).max(top);
+        let hole_right = (i64::from(occlusion.x) + i64::from(occlusion.width)).min(right);
+        let hole_bottom = (i64::from(occlusion.y) + i64::from(occlusion.height)).min(bottom);
+        if hole_right <= hole_left || hole_bottom <= hole_top {
+            return None;
+        }
+        let coordinate = |value: i64| {
+            i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
+        };
+        Some((
+            coordinate(hole_left - left),
+            coordinate(hole_top - top),
+            coordinate(hole_right - left),
+            coordinate(hole_bottom - top),
+        ))
+    }
+
+    fn apply_overlay_clip(
+        child: windows_sys::Win32::Foundation::HWND,
+        rect: RenderSurfaceRect,
+        occlusions: &[RenderSurfaceRect],
+    ) -> Result<(), String> {
+        let width = i32::try_from(rect.width.max(2)).unwrap_or(i32::MAX);
+        let height = i32::try_from(rect.height.max(2)).unwrap_or(i32::MAX);
+        unsafe {
+            let mut region = CreateRectRgn(0, 0, width, height);
+            if region.is_null() {
+                return Err("failed to allocate the native video clip region".to_owned());
+            }
+            for &occlusion in occlusions {
+                let Some((left, top, right, bottom)) = child_local_hole(rect, occlusion) else {
+                    continue;
+                };
+                let hole = CreateRectRgn(left, top, right, bottom);
+                let next = CreateRectRgn(0, 0, 0, 0);
+                if hole.is_null() || next.is_null() {
+                    DeleteObject(hole);
+                    DeleteObject(next);
+                    DeleteObject(region);
+                    return Err("failed to allocate an overlay clip region".to_owned());
+                }
+                let result = CombineRgn(next, region, hole, RGN_DIFF);
+                DeleteObject(hole);
+                if result == 0 {
+                    DeleteObject(next);
+                    DeleteObject(region);
+                    return Err(
+                        "failed to subtract an overlay from the video clip region".to_owned()
+                    );
+                }
+                DeleteObject(region);
+                region = next;
+            }
+            // On success Windows owns `region`. On failure ownership remains here.
+            if SetWindowRgn(child, region, 1) == 0 {
+                DeleteObject(region);
+                return Err("failed to apply the native video overlay clip region".to_owned());
+            }
+        }
+        Ok(())
     }
 
     pub(crate) struct Surface {
@@ -131,6 +211,7 @@ mod platform {
             &mut self,
             parent_handle: &str,
             rect: RenderSurfaceRect,
+            occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
         ) -> Result<(), String> {
@@ -178,6 +259,7 @@ mod platform {
                 {
                     return Err("failed to position the Qt child video surface".to_owned());
                 }
+                apply_overlay_clip(self.child, rect, occlusions)?;
                 if !self.shown {
                     let _ = SetForegroundWindow(parent);
                     let _ = SetFocus(self.child);
@@ -187,8 +269,31 @@ mod platform {
             Ok(())
         }
 
+        pub(crate) fn focus(&self) -> bool {
+            unsafe {
+                if self.child.is_null() {
+                    return false;
+                }
+                let foreground = if self.parent.is_null() {
+                    self.child
+                } else {
+                    self.parent
+                };
+                let _ = SetForegroundWindow(foreground);
+                let _ = SetFocus(self.child);
+                GetFocus() == self.child
+            }
+        }
+
         pub(crate) fn hide_checked(&mut self) -> Result<(), String> {
             unsafe {
+                if !self.parent.is_null() && GetFocus() == self.child {
+                    // A blocking QML overlay is about to become the input owner.
+                    // Activate the Qt top-level window before detaching. Qt's
+                    // GUI thread performs the final thread-local SetFocus too.
+                    let _ = SetForegroundWindow(self.parent);
+                    let _ = SetFocus(self.parent);
+                }
                 ShowWindow(self.child, SW_HIDE);
                 if !self.parent.is_null() {
                     SetLastError(0);
@@ -270,6 +375,64 @@ mod platform {
             assert_eq!(
                 extended & (WS_EX_APPWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT),
                 0
+            );
+        }
+
+        #[test]
+        fn overlay_holes_are_child_local_and_clamped() {
+            let rect = RenderSurfaceRect {
+                x: 100,
+                y: 50,
+                width: 1280,
+                height: 720,
+            };
+            assert_eq!(
+                child_local_hole(
+                    rect,
+                    RenderSurfaceRect {
+                        x: 1060,
+                        y: 74,
+                        width: 300,
+                        height: 160,
+                    },
+                ),
+                Some((960, 24, 1260, 184))
+            );
+            assert_eq!(
+                child_local_hole(
+                    rect,
+                    RenderSurfaceRect {
+                        x: 0,
+                        y: 0,
+                        width: 140,
+                        height: 90,
+                    },
+                ),
+                Some((0, 0, 40, 40))
+            );
+            assert_eq!(
+                child_local_hole(
+                    rect,
+                    RenderSurfaceRect {
+                        x: 2000,
+                        y: 10,
+                        width: 100,
+                        height: 100,
+                    },
+                ),
+                None
+            );
+            assert_eq!(
+                child_local_hole(
+                    rect,
+                    RenderSurfaceRect {
+                        x: 110,
+                        y: 60,
+                        width: 0,
+                        height: 100,
+                    },
+                ),
+                None
             );
         }
     }
@@ -377,6 +540,7 @@ mod platform {
             &mut self,
             parent_handle: &str,
             rect: RenderSurfaceRect,
+            _occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
         ) -> Result<(), String> {
@@ -476,6 +640,7 @@ mod platform {
             &mut self,
             _parent_handle: &str,
             _rect: RenderSurfaceRect,
+            _occlusions: &[RenderSurfaceRect],
             screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
         ) -> Result<(), String> {
@@ -554,6 +719,7 @@ mod platform {
             &mut self,
             _parent_handle: &str,
             _rect: RenderSurfaceRect,
+            _occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
         ) -> Result<(), String> {

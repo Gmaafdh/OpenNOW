@@ -664,6 +664,7 @@ impl LinuxHardwareOutput {
                 .attach_and_show(
                     parent_handle,
                     rect,
+                    &surface.occlusions,
                     surface.screen_rect,
                     surface.device_scale_factor,
                 )?;
@@ -1363,13 +1364,14 @@ impl SdlInputCapture {
         &mut self,
         sdl: &sdl2::Sdl,
         window: &mut sdl2::video::Window,
-    ) {
+    ) -> bool {
         if self.relative_mouse {
             self.disable_relative_mouse(sdl, window);
             sdl.mouse().show_cursor(true);
         } else {
             self.enable_relative_mouse(sdl, window);
         }
+        self.relative_mouse
     }
 
     pub(crate) fn apply_cursor(
@@ -1777,6 +1779,7 @@ impl SoftwareOutput {
             .attach_and_show(
                 parent_handle,
                 rect,
+                &surface.occlusions,
                 surface.screen_rect,
                 surface.device_scale_factor,
             )?;
@@ -2579,6 +2582,42 @@ impl ActiveOutput {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    pub(crate) fn focus_surface(&mut self) -> Result<(), String> {
+        match self {
+            Self::Software(output) => {
+                output.canvas.window_mut().raise();
+                Ok(())
+            }
+            Self::Windows(output) => {
+                let Some(surface) = output.external_surface.as_mut() else {
+                    return Err("Focus requires the external stream window".to_owned());
+                };
+                surface.focus_input()
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn toggle_pointer_lock(&mut self) -> Result<bool, String> {
+        match self {
+            Self::Software(output) => Ok(output
+                .input_capture
+                .toggle_pointer_lock(&output._sdl, output.canvas.window_mut())),
+            Self::Windows(output) => {
+                let Some(surface) = output.external_surface.as_mut() else {
+                    return Err("Pointer lock requires the external stream window".to_owned());
+                };
+                surface.focus_input()?;
+                let relative = surface
+                    .input_capture
+                    .toggle_pointer_lock(&surface.sdl, &mut surface.window);
+                surface.sync_raw_input();
+                Ok(relative)
+            }
+        }
+    }
+
     pub(crate) fn control(&mut self, control: OutputControl) -> Result<(), String> {
         match self {
             Self::Software(output) => match control {
@@ -2686,6 +2725,8 @@ pub(crate) enum OutputEvent {
     #[cfg(target_os = "windows")]
     QueueDropped(&'static str),
     #[cfg(target_os = "windows")]
+    PointerLockChanged(bool),
+    #[cfg(target_os = "windows")]
     Fatal(String),
 }
 
@@ -2703,6 +2744,7 @@ struct WindowsExternalSdlSurface {
     visible: bool,
     session_paused: bool,
     input_suspended: bool,
+    reported_relative_mouse: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -2777,6 +2819,7 @@ impl WindowsExternalSdlSurface {
             visible: false,
             session_paused: false,
             input_suspended: true,
+            reported_relative_mouse: false,
         })
     }
 
@@ -2830,6 +2873,9 @@ impl WindowsExternalSdlSurface {
         let Some(rect) = surface.rect.filter(|_| surface.visible) else {
             self.visible = false;
             self.sync_input_ownership();
+            if let Some(raw_input) = self.raw_input.as_ref() {
+                raw_input.clear_overlay_exclusions();
+            }
             self.native_surface.hide_checked()?;
             return Ok(());
         };
@@ -2840,11 +2886,13 @@ impl WindowsExternalSdlSurface {
         self.native_surface.attach_and_show(
             parent_handle,
             rect,
+            &surface.occlusions,
             surface.screen_rect,
             surface.device_scale_factor,
         )?;
         if let Some(raw_input) = self.raw_input.as_ref() {
             raw_input.set_foreground_owner(foreground_owner);
+            raw_input.set_overlay_exclusions(rect, &surface.occlusions);
         }
         self.visible = true;
         self.sync_input_ownership();
@@ -2888,6 +2936,25 @@ impl WindowsExternalSdlSurface {
     fn set_paused(&mut self, paused: bool) {
         self.session_paused = paused;
         self.sync_input_ownership();
+    }
+
+    fn take_pointer_lock_change(&mut self) -> Option<bool> {
+        let relative = self.input_capture.relative_mouse_enabled();
+        if relative == self.reported_relative_mouse {
+            return None;
+        }
+        self.reported_relative_mouse = relative;
+        Some(relative)
+    }
+
+    fn focus_input(&mut self) -> Result<(), String> {
+        if !self.native_surface.focus() {
+            return Err("failed to focus the hosted SDL video surface".to_owned());
+        }
+        // SetFocus is synchronous, but SDL delivers FocusGained on the next
+        // pump. A command may toggle pointer lock before that event arrives.
+        self.input_capture.focused = true;
+        Ok(())
     }
 
     fn sync_input_ownership(&mut self) {
@@ -3070,11 +3137,11 @@ impl WindowsOutput {
 
     fn update_surface(&mut self, surface: &RenderSurface) -> Result<(), String> {
         if let Some(external_surface) = self.external_surface.as_mut() {
-            external_surface.update(surface)?;
-            return self
-                .backend
-                .set_surface(external_surface.target()?)
-                .map_err(|error| error.to_string());
+            // The sidecar owns one persistent SDL HWND. Reparenting, resizing,
+            // hiding, and changing its clip region do not change the DXGI
+            // target. Avoid Backend::set_surface here: it clears decoded video
+            // and resets presentation pacing even for an overlay-only update.
+            return external_surface.update(surface);
         }
         self.backend
             .set_surface(windows_surface(surface)?)
@@ -3082,8 +3149,12 @@ impl WindowsOutput {
     }
 
     fn pump(&mut self) -> Result<OutputEvent, String> {
-        if let Some(surface) = self.external_surface.as_mut() {
+        let pointer_lock_change = self.external_surface.as_mut().and_then(|surface| {
             surface.pump();
+            surface.take_pointer_lock_change()
+        });
+        if let Some(relative_mouse) = pointer_lock_change {
+            return Ok(OutputEvent::PointerLockChanged(relative_mouse));
         }
         let Some(event) = self.backend.try_event() else {
             return Ok(OutputEvent::None);

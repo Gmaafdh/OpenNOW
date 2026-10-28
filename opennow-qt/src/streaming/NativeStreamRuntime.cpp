@@ -18,6 +18,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QThread>
+#include <QWindow>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -207,6 +208,7 @@ struct NativeStreamRuntime::Private {
     const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr;
     quint64 windowsAdapterLuid = 0;
     bool externalWindow = false;
+    bool hostedSurface = false;
     QProcess *externalProcess = nullptr;
     bool externalStopping = false;
     bool externalExitNotified = false;
@@ -292,6 +294,11 @@ NativeStreamRuntime::NativeStreamRuntime(Api api, QObject *parent,
     d->vulkanDevice = vulkanDevice;
     d->windowsAdapterLuid = windowsAdapterLuid;
     d->externalWindow = useExternalWindow;
+#ifdef Q_OS_WIN
+    // Keep D3D presentation in the sidecar, but host its SDL HWND as a clipped
+    // child of the Qt window. Other platforms retain their standalone path.
+    d->hostedSurface = useExternalWindow;
+#endif
     if (d->externalWindow) {
         auto *timer = new QTimer(this);
         timer->setInterval(100);
@@ -427,6 +434,11 @@ bool NativeStreamRuntime::streaming() const { return d->streaming; }
 bool NativeStreamRuntime::usesExternalWindow() const
 {
     return d->externalWindow;
+}
+
+bool NativeStreamRuntime::usesHostedSurface() const
+{
+    return d->hostedSurface;
 }
 
 bool NativeStreamRuntime::externalWindowActive() const
@@ -590,7 +602,8 @@ bool NativeStreamRuntime::startExternalProcess()
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert(u"OPENNOW_NATIVE_EXTERNAL_RENDERER"_s, u"1"_s);
     environment.insert(u"OPENNOW_NATIVE_INPUT_OWNER"_s, u"native"_s);
-    environment.insert(u"OPENNOW_NATIVE_STANDALONE_WINDOW"_s, u"1"_s);
+    environment.insert(u"OPENNOW_NATIVE_STANDALONE_WINDOW"_s,
+                       d->hostedSurface ? u"0"_s : u"1"_s);
     environment.insert(u"OPENNOW_NATIVE_WINDOWS_API"_s, u"d3d11"_s);
     environment.insert(u"OPENNOW_NATIVE_VIDEO_BACKEND"_s, u"auto"_s);
     const auto nativeLog = nativeStreamerLogPath();
@@ -617,7 +630,8 @@ bool NativeStreamRuntime::startExternalProcess()
             [this](QProcess::ProcessError error) {
                 if (error == QProcess::FailedToStart) handleExternalExit();
             });
-    handshakeLog(u"runtime.sidecar.start standalone=1 input=native adapter=default api=d3d11"_s);
+    handshakeLog(u"runtime.sidecar.start standalone=%1 hosted=%2 input=native adapter=default api=d3d11"_s
+        .arg(d->hostedSurface ? 0 : 1).arg(d->hostedSurface ? 1 : 0));
     process->start(program, {}, QIODevice::ReadWrite | QIODevice::Unbuffered);
     if (d->externalExitNotified) return false;
     setLastError({});
@@ -851,6 +865,28 @@ bool NativeStreamRuntime::defaultRelativeMouse() const
 bool NativeStreamRuntime::send(const QJsonObject &command)
 {
     return sendBytes(QJsonDocument(command).toJson(QJsonDocument::Compact));
+}
+
+void NativeStreamRuntime::focusHostedOverlay(QWindow *window)
+{
+    if (!d->hostedSurface || !window) return;
+    if (QThread::currentThread() != thread()) {
+        const QPointer<QWindow> guard(window);
+        QMetaObject::invokeMethod(this, [this, guard] {
+            if (guard) focusHostedOverlay(guard.data());
+        }, Qt::QueuedConnection);
+        return;
+    }
+    window->requestActivate();
+#ifdef Q_OS_WIN
+    const auto handle = reinterpret_cast<HWND>(window->winId());
+    if (handle) {
+        // SetFocus is thread-local. Perform the final handoff from Qt's GUI
+        // thread; the sidecar cannot reliably focus a Qt-owned HWND directly.
+        SetForegroundWindow(handle);
+        SetFocus(handle);
+    }
+#endif
 }
 
 bool NativeStreamRuntime::sendBytes(const QByteArray &command)
@@ -1467,6 +1503,12 @@ void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &s
                 setStreaming(true);
                 if (!current()) return;
             }
+        }
+        if (message.event && kind == u"pointer-lock-toggled"_s) {
+            const auto object = document.object();
+            if (d->sessionStartId.isEmpty()
+                || object.value(u"startId"_s).toString() != d->sessionStartId
+                || !object.value(u"relativeMouse"_s).isBool()) continue;
         }
         if (message.event && kind == u"cursor-capture"_s) {
             if (d->cursorStartId.isEmpty()

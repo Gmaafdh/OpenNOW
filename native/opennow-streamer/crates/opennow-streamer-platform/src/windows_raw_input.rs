@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use opennow_streamer_protocol::RenderSurfaceRect;
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
@@ -17,12 +18,13 @@ use windows_sys::Win32::UI::Input::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA,
-    GetForegroundWindow, GetMessageW, GetWindowLongPtrW, HWND_MESSAGE, MSG, PostMessageW,
-    PostQuitMessage, RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP, RI_MOUSE_BUTTON_5_DOWN,
-    RI_MOUSE_BUTTON_5_UP, RI_MOUSE_HWHEEL, RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP,
-    RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
-    RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL, RegisterClassW, SetWindowLongPtrW, TranslateMessage,
-    WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE, WM_NCDESTROY, WNDCLASSW,
+    GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowLongPtrW, GetWindowRect, HWND_MESSAGE,
+    MSG, PostMessageW, PostQuitMessage, RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP,
+    RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP, RI_MOUSE_HWHEEL, RI_MOUSE_LEFT_BUTTON_DOWN,
+    RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP,
+    RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL, RegisterClassW,
+    SetWindowLongPtrW, TranslateMessage, WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE, WM_NCDESTROY,
+    WNDCLASSW,
 };
 
 use crate::media::{CapturedInput, CapturedInputQueue};
@@ -47,10 +49,14 @@ const RAW_INPUT_CLASS: &[u16] = &[
 ];
 const WM_RAW_INPUT_REREGISTER: u32 = WM_APP + 1;
 
+type ScreenExclusions = Vec<(i32, i32, i32, i32)>;
+
 struct RawInputState {
+    presentation_window: isize,
     foreground_owner: AtomicIsize,
     enabled: AtomicBool,
     relative_motion: AtomicBool,
+    exclusions: Mutex<ScreenExclusions>,
     pressed_buttons: Mutex<HashSet<u8>>,
     captured_input: Arc<CapturedInputQueue>,
 }
@@ -67,9 +73,11 @@ impl WindowsRawInputController {
         captured_input: Arc<CapturedInputQueue>,
     ) -> Result<Self, String> {
         let state = Arc::new(RawInputState {
+            presentation_window: foreground_owner,
             foreground_owner: AtomicIsize::new(foreground_owner),
             enabled: AtomicBool::new(false),
             relative_motion: AtomicBool::new(false),
+            exclusions: Mutex::new(Vec::new()),
             pressed_buttons: Mutex::new(HashSet::new()),
             captured_input,
         });
@@ -101,6 +109,34 @@ impl WindowsRawInputController {
         self.state
             .foreground_owner
             .store(foreground_owner, Ordering::Release);
+    }
+
+    pub(crate) fn set_overlay_exclusions(
+        &self,
+        rect: RenderSurfaceRect,
+        occlusions: &[RenderSurfaceRect],
+    ) {
+        let mut bounds = RECT::default();
+        let next = if unsafe {
+            GetWindowRect(self.state.presentation_window as HWND, &mut bounds)
+        } == 0 {
+            Vec::new()
+        } else {
+            overlay_exclusions((bounds.left, bounds.top), rect, occlusions)
+        };
+        *self
+            .state
+            .exclusions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+    }
+
+    pub(crate) fn clear_overlay_exclusions(&self) {
+        self.state
+            .exclusions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 
     pub(crate) fn set_capture(&self, enabled: bool, relative_motion: bool) {
@@ -256,6 +292,58 @@ unsafe fn unregister_raw_mouse() {
     }
 }
 
+fn overlay_exclusions(
+    origin: (i32, i32),
+    rect: RenderSurfaceRect,
+    occlusions: &[RenderSurfaceRect],
+) -> ScreenExclusions {
+    let surface_left = i64::from(rect.x);
+    let surface_top = i64::from(rect.y);
+    let surface_right = surface_left + i64::from(rect.width.max(2));
+    let surface_bottom = surface_top + i64::from(rect.height.max(2));
+    let coordinate = |value: i64| {
+        i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
+    };
+    occlusions
+        .iter()
+        .filter_map(|occlusion| {
+            let left = i64::from(occlusion.x).max(surface_left);
+            let top = i64::from(occlusion.y).max(surface_top);
+            let right = (i64::from(occlusion.x) + i64::from(occlusion.width))
+                .min(surface_right);
+            let bottom = (i64::from(occlusion.y) + i64::from(occlusion.height))
+                .min(surface_bottom);
+            if right <= left || bottom <= top {
+                return None;
+            }
+            Some((
+                origin.0.saturating_add(coordinate(left - surface_left)),
+                origin.1.saturating_add(coordinate(top - surface_top)),
+                origin.0.saturating_add(coordinate(right - surface_left)),
+                origin.1.saturating_add(coordinate(bottom - surface_top)),
+            ))
+        })
+        .collect()
+}
+
+fn point_in_exclusions(x: i32, y: i32, exclusions: &[(i32, i32, i32, i32)]) -> bool {
+    exclusions.iter().any(|&(left, top, right, bottom)| {
+        x >= left && x < right && y >= top && y < bottom
+    })
+}
+
+fn cursor_in_exclusions(state: &RawInputState) -> bool {
+    let mut point = POINT::default();
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return false;
+    }
+    let exclusions = state
+        .exclusions
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    point_in_exclusions(point.x, point.y, &exclusions)
+}
+
 unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
     if !state.enabled.load(Ordering::Acquire) {
         return;
@@ -281,17 +369,22 @@ unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
     let mouse = unsafe { raw.data.mouse };
     let owns_foreground =
         unsafe { GetForegroundWindow() } as isize == state.foreground_owner.load(Ordering::Acquire);
-    if owns_foreground
-        && state.relative_motion.load(Ordering::Acquire)
-        && mouse.usFlags & MOUSE_MOVE_ABSOLUTE == 0
-    {
+    let relative_motion = state.relative_motion.load(Ordering::Acquire);
+    if owns_foreground && relative_motion && mouse.usFlags & MOUSE_MOVE_ABSOLUTE == 0 {
         // SDL continues to own absolute cursor coordinates. This thread owns raw relative
         // deltas, plus buttons and wheel in both cursor modes.
         push_mouse_delta(&state.captured_input, mouse.lLastX, mouse.lLastY);
     }
 
     let buttons = unsafe { mouse.Anonymous.Anonymous };
-    let button_flags = if owns_foreground {
+    // QML disables HUD interaction while the pointer is locked. In that mode
+    // the hidden cursor position is meaningless and all clicks belong to gameplay.
+    let pointer_excluded = owns_foreground
+        && !relative_motion
+        && buttons.usButtonFlags != 0
+        && cursor_in_exclusions(state);
+    let owns_pointer = owns_foreground && !pointer_excluded;
+    let button_flags = if owns_pointer {
         buttons.usButtonFlags
     } else {
         // A click can transiently move foreground before WM_INPUT delivers the
@@ -300,13 +393,13 @@ unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
         buttons.usButtonFlags & raw_mouse_button_up_mask()
     };
     push_raw_mouse_buttons(state, button_flags);
-    if owns_foreground && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
+    if owns_pointer && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
         state.captured_input.push(CapturedInput::MouseWheel {
             delta_x: 0,
             delta_y: buttons.usButtonData as i16,
         });
     }
-    if owns_foreground && u32::from(buttons.usButtonFlags) & RI_MOUSE_HWHEEL != 0 {
+    if owns_pointer && u32::from(buttons.usButtonFlags) & RI_MOUSE_HWHEEL != 0 {
         state.captured_input.push(CapturedInput::MouseWheel {
             delta_x: buttons.usButtonData as i16,
             delta_y: 0,
@@ -392,7 +485,11 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
 
-    use super::{RawInputState, push_mouse_delta, push_raw_mouse_buttons, release_pressed_buttons};
+    use super::{
+        RawInputState, overlay_exclusions, point_in_exclusions, push_mouse_delta,
+        push_raw_mouse_buttons, release_pressed_buttons,
+    };
+    use opennow_streamer_protocol::RenderSurfaceRect;
     use crate::media::{CapturedInput, CapturedInputQueue};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
@@ -400,9 +497,11 @@ mod tests {
 
     fn state() -> RawInputState {
         RawInputState {
+            presentation_window: 0,
             foreground_owner: Default::default(),
             enabled: true.into(),
             relative_motion: false.into(),
+            exclusions: Default::default(),
             pressed_buttons: Default::default(),
             captured_input: Arc::new(CapturedInputQueue::default()),
         }
@@ -420,6 +519,45 @@ mod tests {
             total_y += i32::from(delta_y);
         }
         assert_eq!((total_x, total_y), (40_000, -40_000));
+    }
+
+    #[test]
+    fn overlay_exclusions_are_screen_relative_and_boundary_exclusive() {
+        let exclusions = overlay_exclusions(
+            (500, 300),
+            RenderSurfaceRect {
+                x: 100,
+                y: 50,
+                width: 1280,
+                height: 720,
+            },
+            &[
+                RenderSurfaceRect {
+                    x: 1060,
+                    y: 74,
+                    width: 300,
+                    height: 160,
+                },
+                RenderSurfaceRect {
+                    x: 0,
+                    y: 0,
+                    width: 140,
+                    height: 90,
+                },
+                RenderSurfaceRect {
+                    x: 2000,
+                    y: 0,
+                    width: 20,
+                    height: 20,
+                },
+            ],
+        );
+        assert_eq!(exclusions, vec![(1460, 324, 1760, 484), (500, 300, 540, 340)]);
+        assert!(point_in_exclusions(1460, 324, &exclusions));
+        assert!(point_in_exclusions(1759, 483, &exclusions));
+        assert!(!point_in_exclusions(1760, 324, &exclusions));
+        assert!(!point_in_exclusions(1460, 484, &exclusions));
+        assert!(!point_in_exclusions(900, 700, &exclusions));
     }
 
     #[test]

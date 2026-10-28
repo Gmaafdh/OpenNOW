@@ -72,6 +72,14 @@ pub(crate) enum HostCommand {
         control: MediaRuntimeControl,
         reply: Sender<Result<(), String>>,
     },
+    #[cfg(target_os = "windows")]
+    TogglePointerLock {
+        reply: Sender<Result<bool, String>>,
+    },
+    #[cfg(target_os = "windows")]
+    FocusSurface {
+        reply: Sender<Result<(), String>>,
+    },
     Cursor(Vec<u8>),
     #[cfg(target_os = "macos")]
     ConfigureMacH264 {
@@ -516,6 +524,34 @@ impl MediaRuntime {
             .map_err(|_| "native media host did not apply the runtime control".to_owned())?
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn toggle_pointer_lock(&self) -> Result<bool, String> {
+        if !matches!(self.mode, MediaRuntimeMode::Standalone) {
+            return Ok(false);
+        }
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .send(HostCommand::TogglePointerLock { reply })
+            .map_err(|_| "native media host is no longer running".to_owned())?;
+        response
+            .recv_timeout(HOST_CONTROL_TIMEOUT)
+            .map_err(|_| "native media host did not toggle pointer lock".to_owned())?
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn focus_surface(&self) -> Result<(), String> {
+        if !matches!(self.mode, MediaRuntimeMode::Standalone) {
+            return Ok(());
+        }
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .send(HostCommand::FocusSurface { reply })
+            .map_err(|_| "native media host is no longer running".to_owned())?;
+        response
+            .recv_timeout(HOST_CONTROL_TIMEOUT)
+            .map_err(|_| "native media host did not focus the stream surface".to_owned())?
+    }
+
     pub fn shutdown(&self) {
         self.output.stop_microphone();
         let _ = self.commands.send(HostCommand::Shutdown);
@@ -777,6 +813,22 @@ impl MainThreadHost {
                     surface = Some(new_surface);
                     let _ = reply.send(result);
                 }
+                #[cfg(target_os = "windows")]
+                Ok(HostCommand::TogglePointerLock { reply }) => {
+                    let result = active
+                        .as_mut()
+                        .ok_or_else(|| "native media output is not active".to_owned())
+                        .and_then(ActiveOutput::toggle_pointer_lock);
+                    let _ = reply.send(result);
+                }
+                #[cfg(target_os = "windows")]
+                Ok(HostCommand::FocusSurface { reply }) => {
+                    let result = active
+                        .as_mut()
+                        .ok_or_else(|| "native media output is not active".to_owned())
+                        .and_then(ActiveOutput::focus_surface);
+                    let _ = reply.send(result);
+                }
                 Ok(HostCommand::Control { control, reply }) => {
                     let output_control = match control {
                         MediaRuntimeControl::PointerLock => OutputControl::PointerLock,
@@ -948,6 +1000,14 @@ impl MainThreadHost {
                         software_playback_started = true;
                         if let Some(feedback) = feedback.as_ref() {
                             let _ = feedback.send(MediaFeedback::PlaybackStarted { backend });
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    Ok(OutputEvent::PointerLockChanged(relative_mouse)) => {
+                        if let Some(feedback) = feedback.as_ref() {
+                            let _ = feedback.send(MediaFeedback::PointerLockChanged {
+                                relative_mouse,
+                            });
                         }
                     }
                     #[cfg(target_os = "windows")]

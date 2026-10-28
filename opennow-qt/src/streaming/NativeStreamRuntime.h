@@ -14,12 +14,15 @@
 #include <cstdint>
 #include <memory>
 
+class QWindow;
+
 class NativeStreamRuntime final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
     Q_PROPERTY(bool streaming READ streaming NOTIFY streamingChanged)
     Q_PROPERTY(bool usesExternalWindow READ usesExternalWindow CONSTANT)
+    Q_PROPERTY(bool usesHostedSurface READ usesHostedSurface CONSTANT)
     Q_PROPERTY(bool externalWindowActive READ externalWindowActive NOTIFY externalWindowActiveChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
@@ -117,6 +120,7 @@ public:
     [[nodiscard]] bool running() const;
     [[nodiscard]] bool streaming() const;
     [[nodiscard]] bool usesExternalWindow() const;
+    [[nodiscard]] bool usesHostedSurface() const;
     [[nodiscard]] bool externalWindowActive() const;
     [[nodiscard]] QString lastError() const;
     [[nodiscard]] quint64 presentationGeneration() const;
@@ -143,6 +147,7 @@ public:
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool send(const QJsonObject &command);
+    Q_INVOKABLE void focusHostedOverlay(QWindow *window);
     bool sendBytes(const QByteArray &command);
     Q_INVOKABLE bool shutdown(int timeoutMs = DefaultShutdownTimeoutMs);
 

@@ -86,8 +86,10 @@ impl EventSender {
     }
 
     fn scope_lifecycle(&self, mut value: Value) -> Value {
-        if !matches!(value["type"].as_str(), Some("status" | "error"))
-            || value.get("startId").is_some()
+        if !matches!(
+            value["type"].as_str(),
+            Some("status" | "error" | "pointer-lock-toggled")
+        ) || value.get("startId").is_some()
         {
             return value;
         }
@@ -445,6 +447,8 @@ impl Engine {
                 ),
             ]),
             "standalone-fullscreen-toggle" => self.standalone_fullscreen(command),
+            "pointer-lock-toggle" => self.pointer_lock(command),
+            "surface-focus" => self.focus_surface(command),
             "anti-afk-pulse" => self.anti_afk_pulse(command),
             "recording-start" => self.start_recording(command),
             "recording-stop" => self.stop_recording(command),
@@ -1253,6 +1257,56 @@ impl Engine {
             .control(MediaRuntimeControl::Fullscreen)
             .map_err(|message| error(Some(&command.id), "fullscreen-unavailable", message))?;
         Ok(vec![response(command.id, "ok")])
+    }
+
+    fn pointer_lock(&self, command: Command) -> Result<Vec<Value>, Value> {
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err(error(
+                Some(&command.id),
+                "unsupported-command",
+                "Native pointer-lock commands are available for the Windows output window",
+            ))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let runtime = self.media_runtime.as_ref().ok_or_else(|| {
+                error(
+                    Some(&command.id),
+                    "unsupported-command",
+                    "Native streamer has no pointer-lock output window",
+                )
+            })?;
+            runtime
+                .toggle_pointer_lock()
+                .map_err(|message| error(Some(&command.id), "pointer-lock-unavailable", message))?;
+            Ok(vec![response(command.id, "ok")])
+        }
+    }
+
+    fn focus_surface(&self, command: Command) -> Result<Vec<Value>, Value> {
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err(error(
+                Some(&command.id),
+                "unsupported-command",
+                "Native surface-focus commands are available for the Windows output window",
+            ))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let runtime = self.media_runtime.as_ref().ok_or_else(|| {
+                error(
+                    Some(&command.id),
+                    "unsupported-command",
+                    "Native streamer has no focusable output window",
+                )
+            })?;
+            runtime
+                .focus_surface()
+                .map_err(|message| error(Some(&command.id), "surface-focus-unavailable", message))?;
+            Ok(vec![response(command.id, "ok")])
+        }
     }
 
     fn set_paused(&self, command: Command) -> Result<Vec<Value>, Value> {
@@ -3033,6 +3087,12 @@ fn forward_nvst_media_feedback<R: NvstSessionResources>(
                 }),
             ));
         }
+        MediaFeedback::PointerLockChanged { relative_mouse } => {
+            let _ = output.send(event(
+                "pointer-lock-toggled",
+                json!({"relativeMouse":relative_mouse, "source":"native"}),
+            ));
+        }
         MediaFeedback::DecodeTimings(timings) => {
             state.decode_timings = Some(timings);
             flush_nvst_telemetry(output, resources, state);
@@ -3507,12 +3567,21 @@ mod tests {
             ))
             .unwrap();
         current
+            .send(event(
+                "pointer-lock-toggled",
+                json!({"relativeMouse":true}),
+            ))
+            .unwrap();
+        current
             .send(event("telemetry", json!({"videoFramesReceived":1})))
             .unwrap();
         assert_eq!(receiver.recv().unwrap()["startId"], "old-start");
         assert_eq!(receiver.recv().unwrap()["startId"], "new-start");
         assert_eq!(receiver.recv().unwrap()["startId"], "old-start");
         assert_eq!(receiver.recv().unwrap()["startId"], "sender-authored");
+        let pointer = receiver.recv().unwrap();
+        assert_eq!(pointer["startId"], "new-start");
+        assert_eq!(pointer["relativeMouse"], true);
         assert!(receiver.recv().unwrap().get("startId").is_none());
     }
 
@@ -3727,6 +3796,30 @@ mod tests {
             validate_context(&invalid_media, "start").unwrap_err()["code"],
             "invalid-context"
         );
+    }
+
+    #[test]
+    fn pointer_lock_feedback_reports_scoped_native_state() {
+        let (sender, receiver) = mpsc::channel();
+        let sender = EventSender::unbounded(sender).for_session("pointer-start");
+        let resources = TestNvstResources::default();
+        let mut state = NvstMediaFeedbackState::new(true);
+        forward_nvst_media_feedback(
+            &sender,
+            &connected_lifecycle(),
+            7,
+            &resources,
+            MediaFeedback::PointerLockChanged {
+                relative_mouse: true,
+            },
+            &mut state,
+        );
+        let action = receiver.recv().expect("pointer lock state");
+        assert_eq!(action["type"], "pointer-lock-toggled");
+        assert_eq!(action["relativeMouse"], true);
+        assert_eq!(action["source"], "native");
+        assert_eq!(action["startId"], "pointer-start");
+        assert!(receiver.try_recv().is_err());
     }
 
     #[test]

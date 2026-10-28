@@ -653,6 +653,10 @@ impl Worker {
                 if recovered { control.request_keyframe(video_mid).map_err(Failure::transport)?; }
             }
             MediaFeedback::QueueDropped { media, count } => drops.record(media, count),
+            MediaFeedback::PointerLockChanged { relative_mouse } => self.emit(
+                "pointer-lock-toggled",
+                json!({"relativeMouse":relative_mouse,"source":"native"}),
+            ),
         }
         Ok(())
     }

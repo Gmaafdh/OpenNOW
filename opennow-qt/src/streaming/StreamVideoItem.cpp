@@ -409,6 +409,71 @@ void StreamVideoItem::requestFrame()
     update();
 }
 
+QRect StreamVideoItem::physicalSurfaceRect(const QRectF &logicalRect, qreal deviceScaleFactor)
+{
+    if (logicalRect.isEmpty()) return {};
+    const qreal scale = std::isfinite(deviceScaleFactor) && deviceScaleFactor > 0
+        ? deviceScaleFactor : 1.0;
+    const auto left = std::floor(logicalRect.left() * scale);
+    const auto top = std::floor(logicalRect.top() * scale);
+    const auto right = std::ceil(logicalRect.right() * scale);
+    const auto bottom = std::ceil(logicalRect.bottom() * scale);
+    return QRect(QPoint(qRound(left), qRound(top)),
+                 QPoint(qRound(right) - 1, qRound(bottom) - 1));
+}
+
+QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
+    bool visible, const QJsonArray &occlusions) const
+{
+    const auto *targetWindow = window();
+    if (!targetWindow) return {{QStringLiteral("visible"), false}};
+
+    const auto *content = targetWindow->contentItem();
+    const auto first = content ? mapToItem(content, QPointF(0, 0)) : QPointF(0, 0);
+    const auto second = content
+        ? mapToItem(content, QPointF(width(), height())) : QPointF(width(), height());
+    const QRectF logicalRect(QPointF(std::min(first.x(), second.x()),
+                                    std::min(first.y(), second.y())),
+                             QPointF(std::max(first.x(), second.x()),
+                                     std::max(first.y(), second.y())));
+    const qreal scale = targetWindow->devicePixelRatio();
+    const auto rect = physicalSurfaceRect(logicalRect, scale);
+    const bool show = visible && !rect.isEmpty();
+    QJsonObject descriptor{{QStringLiteral("visible"), show},
+                           {QStringLiteral("deviceScaleFactor"), scale}};
+    if (!show) return descriptor;
+
+    descriptor.insert(QStringLiteral("windowHandle"),
+                      QString::number(static_cast<qulonglong>(targetWindow->winId())));
+    descriptor.insert(QStringLiteral("rect"), QJsonObject{
+        {QStringLiteral("x"), rect.x()}, {QStringLiteral("y"), rect.y()},
+        {QStringLiteral("width"), rect.width()}, {QStringLiteral("height"), rect.height()}});
+    // Child placement uses the client rect above. Absolute bounds additionally
+    // make ordinary window moves resynchronize screen-space Raw Input HUD exclusions.
+    const auto screenRect = physicalSurfaceRect(QRectF(targetWindow->geometry()), scale);
+    descriptor.insert(QStringLiteral("screenRect"), QJsonObject{
+        {QStringLiteral("x"), screenRect.x()}, {QStringLiteral("y"), screenRect.y()},
+        {QStringLiteral("width"), screenRect.width()},
+        {QStringLiteral("height"), screenRect.height()}});
+
+    QJsonArray physicalOcclusions;
+    for (const auto &value : occlusions) {
+        const auto object = value.toObject();
+        const QRectF logical(object.value(QStringLiteral("x")).toDouble(),
+                             object.value(QStringLiteral("y")).toDouble(),
+                             object.value(QStringLiteral("width")).toDouble(),
+                             object.value(QStringLiteral("height")).toDouble());
+        const auto physical = physicalSurfaceRect(logical, scale);
+        if (physical.isEmpty()) continue;
+        physicalOcclusions.append(QJsonObject{
+            {QStringLiteral("x"), physical.x()}, {QStringLiteral("y"), physical.y()},
+            {QStringLiteral("width"), physical.width()},
+            {QStringLiteral("height"), physical.height()}});
+    }
+    descriptor.insert(QStringLiteral("occlusions"), physicalOcclusions);
+    return descriptor;
+}
+
 QRect StreamVideoItem::aspectFitRect(const QSize &videoSize, const QSize &targetSize)
 {
     if (!targetSize.isValid() || targetSize.isEmpty()) return {};

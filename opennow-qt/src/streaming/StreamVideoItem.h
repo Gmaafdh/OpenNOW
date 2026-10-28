@@ -8,6 +8,8 @@
 #include <QCursor>
 #include <QHash>
 #include <QPoint>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSet>
 #include <QRect>
@@ -103,7 +105,12 @@ public:
     Q_INVOKABLE void requestFrame();
     Q_INVOKABLE void resynchronizeInput();
     Q_INVOKABLE void togglePointerLock();
+    Q_INVOKABLE void setExternalPointerLock(bool relative);
+    Q_INVOKABLE QJsonObject nativeSurfaceDescriptor(
+        bool visible, const QJsonArray &occlusions) const;
 
+    [[nodiscard]] static QRect physicalSurfaceRect(const QRectF &logicalRect,
+                                                    qreal deviceScaleFactor);
     [[nodiscard]] static QRect aspectFitRect(const QSize &videoSize,
                                               const QSize &targetSize);
     [[nodiscard]] static QRect scaledCaptureRect(const QRectF &itemRect,

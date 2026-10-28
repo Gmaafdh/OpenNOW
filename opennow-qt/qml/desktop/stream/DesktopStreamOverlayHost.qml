@@ -15,6 +15,26 @@ FocusScope {
     property bool connectionNotificationsEnabled: true
     focus: visible && inputBlocking
     readonly property bool present: menuView.present || exitView.present || statsVisible || notificationsEnabled
+    readonly property var nativeSurfaceOcclusions: {
+        if (!root.visible || root.inputBlocking)
+            return []
+        const rectangles = root.statsVisible ? statsView.nativeOcclusionRects.slice() : []
+        const toast = nativeOcclusion(toasts)
+        if (toast !== null)
+            rectangles.push(toast)
+        return rectangles
+    }
+    onNativeSurfaceOcclusionsChanged: ShellStore.nativeSurfaceOcclusions = nativeSurfaceOcclusions
+    Component.onCompleted: ShellStore.nativeSurfaceOcclusions = nativeSurfaceOcclusions
+    Component.onDestruction: ShellStore.nativeSurfaceOcclusions = []
+
+    function nativeOcclusion(item) {
+        if (!root.visible || !item.visible || item.width <= 0 || item.height <= 0
+                || !Number.isFinite(item.x) || !Number.isFinite(item.y))
+            return null
+        const rect = item.mapToItem(null, 0, 0, item.width, item.height)
+        return Qt.rect(rect.x, rect.y, rect.width, rect.height)
+    }
 
     readonly property bool menuVisible: overlay === "desktop-stream-menu"
     readonly property bool exitVisible: overlay === "desktop-stream-exit-confirm"
@@ -87,6 +107,7 @@ FocusScope {
     }
 
     DesktopStreamToasts {
+        id: toasts
         connectionNotificationsEnabled: root.connectionNotificationsEnabled
         controllers: ControllerInput.controllers
         anchors.right: parent.right

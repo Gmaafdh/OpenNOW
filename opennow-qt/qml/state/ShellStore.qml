@@ -820,6 +820,9 @@ QtObject {
     property string streamControlAction: ""
     property string streamControlMessage: ""
     property rect streamCaptureRect: Qt.rect(0, 0, 0, 0)
+    // Scene-space rectangles occupied by passive QML HUD elements. The hosted
+    // native presenter subtracts these from its Win32 clip region.
+    property var nativeSurfaceOcclusions: []
     property bool nativeRuntimeReady: false
     readonly property int nativeProtocolVersion: 7
     property var nativeRuntimeCapabilities: ({})
@@ -879,6 +882,7 @@ QtObject {
 
     signal fullscreenToggleRequested()
     signal pointerLockToggleRequested()
+    signal nativePointerLockToggled(bool relativeMouse)
     signal streamCaptureAnnounced(string message)
     signal textInputErrorAnnounced(string message)
     signal consoleScreenshotRequested()
@@ -1175,6 +1179,18 @@ QtObject {
             requests[requestId].recordingRequestId = streamRecordingAttempt ? streamRecordingAttempt.requestId : ""
         nativeRequests = requests
         return requestId
+    }
+
+    function updateNativeSurface(surface) {
+        if (NativeStreamRuntime.usesHostedSurface !== true || !surface)
+            return ""
+        return sendNativeCommand("surface", {surface: surface}, "surface")
+    }
+
+    function focusNativeSurface() {
+        if (NativeStreamRuntime.usesHostedSurface !== true)
+            return ""
+        return sendNativeCommand("surface-focus", {}, "surface-focus")
     }
 
     function takeNativeRequest(requestId) {
@@ -2749,10 +2765,12 @@ QtObject {
         streamControlAction = action
         const commandTypes = {
             "toggle-fullscreen": "fullscreen-toggle",
+            "toggle-pointer-lock": "pointer-lock-toggle",
             "anti-afk-pulse": "anti-afk-pulse"
         }
         const commandType = action === "toggle-fullscreen"
                 && NativeStreamRuntime.usesExternalWindow === true
+                && NativeStreamRuntime.usesHostedSurface !== true
             ? "standalone-fullscreen-toggle" : commandTypes[action]
         if (!commandType) {
             streamControlAction = ""
@@ -2933,7 +2951,10 @@ QtObject {
         } else if (action === "toggle-fullscreen") {
             fullscreenToggleRequested()
         } else if (action === "toggle-pointer-lock") {
-            pointerLockToggleRequested()
+            if (NativeStreamRuntime.usesHostedSurface === true)
+                controlStream(action)
+            else
+                pointerLockToggleRequested()
         } else if (action === "screenshot") {
             captureStreamScreenshot()
         } else if (action === "toggle-recording") {
@@ -3872,6 +3893,11 @@ QtObject {
             streamControlMessage = qsTr("Text input could not be delivered. Try pasting again.")
             accessibilityMessage = streamControlMessage
             textInputErrorAnnounced(streamControlMessage)
+            return
+        }
+        if (type === "pointer-lock-toggled") {
+            if (typeof event.relativeMouse === "boolean")
+                nativePointerLockToggled(event.relativeMouse)
             return
         }
         if (event && event.event === "color-format-changed") {

@@ -130,6 +130,11 @@ pub struct RenderSurface {
     pub window_handle: Option<String>,
     #[serde(default)]
     pub screen_rect: Option<RenderSurfaceRect>,
+    /// Parent-client physical rectangles occupied by non-blocking shell UI.
+    /// Windows subtracts these from the native child clip region so QML HUDs
+    /// remain visible and clickable without compositing decoded video in Qt.
+    #[serde(default)]
+    pub occlusions: Vec<RenderSurfaceRect>,
 }
 
 impl Default for RenderSurface {
@@ -140,6 +145,7 @@ impl Default for RenderSurface {
             device_scale_factor: default_device_scale_factor(),
             window_handle: None,
             screen_rect: None,
+            occlusions: Vec::new(),
         }
     }
 }
@@ -480,6 +486,28 @@ mod tests {
         let stop: Command =
             serde_json::from_value(json!({"id":"stop-1","type":"replay-stop"})).unwrap();
         assert_eq!(stop.kind, "replay-stop");
+    }
+
+    #[test]
+    fn surface_occlusions_are_additive_and_default_to_empty() {
+        let legacy: RenderSurface = serde_json::from_value(serde_json::json!({
+            "visible": true,
+            "rect": {"x": 0, "y": 0, "width": 1280, "height": 720},
+            "windowHandle": "1234"
+        }))
+        .expect("legacy surface");
+        assert!(legacy.occlusions.is_empty());
+
+        let hosted: RenderSurface = serde_json::from_value(serde_json::json!({
+            "visible": true,
+            "rect": {"x": 10, "y": 20, "width": 1920, "height": 1080},
+            "windowHandle": "1234",
+            "occlusions": [{"x": 1560, "y": 44, "width": 320, "height": 72}]
+        }))
+        .expect("hosted surface");
+        assert_eq!(hosted.occlusions.len(), 1);
+        assert_eq!(hosted.occlusions[0].x, 1560);
+        assert_eq!(hosted.occlusions[0].width, 320);
     }
 
     #[test]

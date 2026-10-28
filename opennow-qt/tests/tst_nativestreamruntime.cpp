@@ -1507,6 +1507,11 @@ private slots:
         QSignalSpy responses(&runtime, &NativeStreamRuntime::responseReceived);
         QSignalSpy events(&runtime, &NativeStreamRuntime::eventReceived);
         QVERIFY(runtime.usesExternalWindow());
+#ifdef Q_OS_WIN
+        QVERIFY(runtime.usesHostedSurface());
+#else
+        QVERIFY(!runtime.usesHostedSurface());
+#endif
         QVERIFY(!runtime.externalWindowActive());
         QVERIFY2(runtime.start(), qPrintable(runtime.lastError()));
         QVERIFY(runtime.running());
@@ -1556,7 +1561,11 @@ private slots:
                                         QStringLiteral("stop"), QStringLiteral("shutdown")}));
         QCOMPARE(first.value(QStringLiteral("externalRenderer")).toString(), QStringLiteral("1"));
         QCOMPARE(first.value(QStringLiteral("inputOwner")).toString(), QStringLiteral("native"));
+#ifdef Q_OS_WIN
+        QCOMPARE(first.value(QStringLiteral("standalone")).toString(), QStringLiteral("0"));
+#else
         QCOMPARE(first.value(QStringLiteral("standalone")).toString(), QStringLiteral("1"));
+#endif
         QCOMPARE(first.value(QStringLiteral("windowsApi")).toString(), QStringLiteral("d3d11"));
         QCOMPARE(first.value(QStringLiteral("videoBackend")).toString(), QStringLiteral("auto"));
     }

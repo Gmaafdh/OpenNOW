@@ -32,6 +32,9 @@ Item {
             clockPill.visible && clockPill.x + clockPill.width > width - 408 ? clockPill.y + clockPill.height + 12 : inset)
     readonly property color surface: Qt.rgba(14 / 255, 16 / 255, 24 / 255,
         Math.max(0.4, Math.min(1, Number(ShellStore.settings.statsOverlayOpacity || 85) / 100)))
+    readonly property var nativeOcclusionRects: [
+        nativeOcclusion(compact), nativeOcclusion(panel), nativeOcclusion(clockPill)
+    ].filter(rect => rect !== null)
     readonly property bool degraded: telemetryActive && ShellStore.connectionHealth.status === "unstable"
     readonly property bool healthKnown: telemetryActive && ShellStore.connectionHealth.status !== "unknown"
     readonly property color accent: degraded ? "#F5A623" : "#6EE7B7"
@@ -63,6 +66,13 @@ Item {
     readonly property var compactMetrics: compactItems()
     property var history: ({})
     property double nowMs: Date.now()
+    function nativeOcclusion(item) {
+        if (!root.visible || !item.visible || item.width <= 0 || item.height <= 0
+                || !Number.isFinite(item.x) || !Number.isFinite(item.y))
+            return null
+        const rect = item.mapToItem(null, 0, 0, item.width, item.height)
+        return Qt.rect(rect.x, rect.y, rect.width, rect.height)
+    }
     function shown(key) { return ShellStore.settings["statsShow" + key] !== false }
     function numeric(value) {
         return value === undefined || value === null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value)

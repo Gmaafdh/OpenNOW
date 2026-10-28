@@ -4,7 +4,8 @@ import OpenNOW
 
 FocusScope {
     id: root
-    readonly property bool streamPointerLocked: streamVideo.captureActive && streamVideo.relativeMouse
+    readonly property bool streamPointerLocked: streamVideo.relativeMouse
+        && (streamVideo.captureActive || NativeStreamRuntime.usesHostedSurface)
     focus: true
     Accessible.role: Accessible.Pane
     Accessible.name: qsTr("Live session")
@@ -53,6 +54,7 @@ FocusScope {
         return rows
     }
     onVideoReadyChanged: {
+        Qt.callLater(root.publishNativeSurface)
         if (!videoReady) {
             if (!failed && visible && AppController.overlay === "")
                 Qt.callLater(root.forceActiveFocus)
@@ -67,6 +69,13 @@ FocusScope {
     }
     readonly property bool videoSurfaceActive: root.streaming || (root.streamer.status === "connecting" && root.status !== "error")
     property var frameGenerationStats: streamVideo.frameGenerationStats || ({})
+    property bool nativeSurfaceAttached: false
+    property string publishedNativeSurfaceKey: ""
+    readonly property var localNativeOcclusions: [
+        nativeOcclusion(idleWarning), nativeOcclusion(inputNotice),
+        nativeOcclusion(captureStatus), nativeOcclusion(clockIndicator),
+        nativeOcclusion(streamHintsPanel), nativeOcclusion(afkIndicator)
+    ].filter(rect => rect !== null)
     readonly property bool failed: status === "error"
     property double nowMs: Date.now()
     readonly property int elapsedSeconds: ShellStore.streamStartedAtMs > 0
@@ -85,6 +94,13 @@ FocusScope {
             + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0")
     }
 
+    function nativeOcclusion(item) {
+        if (!item || !item.visible || item.width <= 0 || item.height <= 0
+                || !Number.isFinite(item.x) || !Number.isFinite(item.y))
+            return null
+        const rect = item.mapToItem(null, 0, 0, item.width, item.height)
+        return Qt.rect(rect.x, rect.y, rect.width, rect.height)
+    }
     function publishCaptureRect() {
         const window = root.Window.window
         if (!window)
@@ -94,8 +110,38 @@ FocusScope {
             Math.round(window.x + rect.x), Math.round(window.y + rect.y),
             Math.round(rect.width), Math.round(rect.height))
     }
+    function publishNativeSurface() {
+        if (NativeStreamRuntime.usesHostedSurface !== true || !NativeStreamRuntime.running)
+            return
+        const blockingOverlay = ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
+        const show = root.visible && root.videoReady && !root.launchCoverVisible
+            && !blockingOverlay
+        if (ShellStore.streamerStopExpected || root.status === "stopped") {
+            nativeSurfaceAttached = false
+            publishedNativeSurfaceKey = ""
+            return
+        }
+        if (!show && !nativeSurfaceAttached)
+            return
+        const shared = ShellStore.nativeSurfaceOcclusions || []
+        const descriptor = streamVideo.nativeSurfaceDescriptor(show,
+            show ? localNativeOcclusions.concat(shared) : [])
+        const key = JSON.stringify(descriptor)
+        if (key === publishedNativeSurfaceKey)
+            return
+        if (!show && blockingOverlay && root.visible && nativeSurfaceAttached)
+            NativeStreamRuntime.focusHostedOverlay(root.Window.window)
+        const requestId = ShellStore.updateNativeSurface(descriptor)
+        if (requestId === "")
+            return
+        publishedNativeSurfaceKey = key
+        nativeSurfaceAttached = descriptor.visible === true
+        if (descriptor.visible === true && AppController.overlay === "")
+            ShellStore.focusNativeSurface()
+    }
     function resynchronizeStreamInput() {
         root.publishCaptureRect()
+        root.publishNativeSurface()
         if (!root.visible || !root.videoReady
                 || NativeStreamRuntime.usesExternalWindow
                 || ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay))
@@ -104,12 +150,13 @@ FocusScope {
         streamVideo.resynchronizeInput()
     }
 
-    onXChanged: publishCaptureRect()
-    onYChanged: publishCaptureRect()
-    onWidthChanged: publishCaptureRect()
-    onHeightChanged: publishCaptureRect()
-    onVisibleChanged: publishCaptureRect()
-    Component.onCompleted: publishCaptureRect()
+    onXChanged: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
+    onYChanged: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
+    onWidthChanged: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
+    onHeightChanged: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
+    onVisibleChanged: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
+    onLocalNativeOcclusionsChanged: Qt.callLater(publishNativeSurface)
+    Component.onCompleted: { publishCaptureRect(); Qt.callLater(publishNativeSurface) }
 
     Connections {
         target: root.Window.window
@@ -119,6 +166,22 @@ FocusScope {
         function onHeightChanged() { Qt.callLater(root.resynchronizeStreamInput) }
         function onVisibilityChanged() { Qt.callLater(root.resynchronizeStreamInput) }
         function onActiveChanged() { Qt.callLater(root.resynchronizeStreamInput) }
+        function onScreenChanged() { Qt.callLater(root.resynchronizeStreamInput) }
+    }
+
+    Connections {
+        target: AppController
+        function onOverlayChanged() { Qt.callLater(root.publishNativeSurface) }
+    }
+
+    Connections {
+        target: NativeStreamRuntime
+        function onRunningChanged() {
+            if (!NativeStreamRuntime.running) {
+                root.nativeSurfaceAttached = false
+                root.publishedNativeSurfaceKey = ""
+            }
+        }
     }
 
     Timer { interval: 1000; repeat: true; running: root.streaming || root.reconnectBannerVisible; onTriggered: root.nowMs = Date.now() }
@@ -159,12 +222,14 @@ FocusScope {
     }
 
     StreamIdleWarning {
+        id: idleWarning
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
         z: 13
     }
 
     StreamInputNotice {
+        id: inputNotice
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
         title: clipboardPasteNotice.running ? qsTr("Text input unavailable") : qsTr("Relative mouse input unavailable")
@@ -175,6 +240,7 @@ FocusScope {
     }
 
     StreamCaptureStatus {
+        id: captureStatus
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
         z: 12
@@ -184,6 +250,9 @@ FocusScope {
         target: ShellStore
         function onPointerLockToggleRequested() {
             streamVideo.togglePointerLock()
+        }
+        function onNativePointerLockToggled(relativeMouse) {
+            streamVideo.setExternalPointerLock(relativeMouse)
         }
         function onTextInputErrorAnnounced(message) {
             root.clipboardPasteMessage = message
@@ -368,6 +437,7 @@ FocusScope {
     }
 
     GlassPanel {
+        id: clockIndicator
         MotionProgress { id: clockMotion; shown: root.sessionClockVisible }
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}

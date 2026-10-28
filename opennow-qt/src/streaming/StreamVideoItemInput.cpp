@@ -1173,6 +1173,14 @@ void StreamVideoItem::togglePointerLock()
     syncCaptureState();
 }
 
+void StreamVideoItem::setExternalPointerLock(bool relative)
+{
+    if (!s_nativeRuntime || !s_nativeRuntime->usesHostedSurface()) return;
+    // The sidecar already applied this state. Update QML hit-testing without
+    // creating a manual override or issuing a second native toggle.
+    setRelativeMouse(relative);
+}
+
 void StreamVideoItem::applyRemoteCursor(const QByteArray &bytes)
 {
     if (bytes.size() < 2) return;
