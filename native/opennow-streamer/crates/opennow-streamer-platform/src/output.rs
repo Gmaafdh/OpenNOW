@@ -2861,9 +2861,7 @@ impl WindowsExternalSdlSurface {
             // command to use the native window immediately.
             self.input_capture.focused = true;
         } else {
-            eprintln!(
-                "Windows SDL stream window focus will be retried by SDL focus events"
-            );
+            eprintln!("Windows SDL stream window focus will be retried by SDL focus events");
         }
         if let Some(raw_input) = self.raw_input.as_ref() {
             raw_input.set_foreground_owner(self.native_surface.window_handle());
