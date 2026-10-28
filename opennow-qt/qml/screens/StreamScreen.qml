@@ -71,6 +71,7 @@ FocusScope {
     property var frameGenerationStats: streamVideo.frameGenerationStats || ({})
     property bool nativeSurfaceAttached: false
     property string publishedNativeSurfaceKey: ""
+    property string nativeSurfaceFocusedOverlay: ""
     readonly property var localNativeOcclusions: [
         nativeOcclusion(idleWarning), nativeOcclusion(inputNotice),
         nativeOcclusion(captureStatus), nativeOcclusion(clockIndicator),
@@ -113,24 +114,31 @@ FocusScope {
     function publishNativeSurface() {
         if (NativeStreamRuntime.usesHostedSurface !== true || !NativeStreamRuntime.running)
             return
-        const blockingOverlay = ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
+        const overlay = String(AppController.overlay || "")
+        const blockingOverlay = ShellStore.streamOverlayBlocksGameplayInput(overlay)
         const show = root.visible && root.videoReady && !root.launchCoverVisible
-            && !blockingOverlay
+            && (!blockingOverlay || ShellStore.streamOverlayPreservesNativeSurface(overlay))
         if (ShellStore.streamerStopExpected || root.status === "stopped") {
             nativeSurfaceAttached = false
             publishedNativeSurfaceKey = ""
+            nativeSurfaceFocusedOverlay = ""
             return
         }
         if (!show && !nativeSurfaceAttached)
             return
         const shared = ShellStore.nativeSurfaceOcclusions || []
         const descriptor = streamVideo.nativeSurfaceDescriptor(show,
-            show ? localNativeOcclusions.concat(shared) : [])
+            show ? localNativeOcclusions.concat(shared) : [], show && blockingOverlay)
         const key = JSON.stringify(descriptor)
         if (key === publishedNativeSurfaceKey)
             return
-        if (!show && blockingOverlay && root.visible && nativeSurfaceAttached)
+        if (blockingOverlay && root.visible && nativeSurfaceAttached
+                && nativeSurfaceFocusedOverlay !== overlay) {
             NativeStreamRuntime.focusHostedOverlay(root.Window.window)
+            nativeSurfaceFocusedOverlay = overlay
+        }
+        if (!blockingOverlay)
+            nativeSurfaceFocusedOverlay = ""
         const requestId = ShellStore.updateNativeSurface(descriptor)
         if (requestId === "")
             return
@@ -180,6 +188,7 @@ FocusScope {
             if (!NativeStreamRuntime.running) {
                 root.nativeSurfaceAttached = false
                 root.publishedNativeSurfaceKey = ""
+                root.nativeSurfaceFocusedOverlay = ""
             }
         }
     }

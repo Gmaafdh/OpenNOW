@@ -107,7 +107,7 @@ public:
     Q_INVOKABLE void togglePointerLock();
     Q_INVOKABLE void setExternalPointerLock(bool relative);
     Q_INVOKABLE QJsonObject nativeSurfaceDescriptor(
-        bool visible, const QJsonArray &occlusions) const;
+        bool visible, const QJsonArray &occlusions, bool inputPassthrough = false) const;
 
     [[nodiscard]] static QRect physicalSurfaceRect(const QRectF &logicalRect,
                                                     qreal deviceScaleFactor);

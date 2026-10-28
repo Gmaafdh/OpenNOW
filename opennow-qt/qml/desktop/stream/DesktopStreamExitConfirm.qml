@@ -15,10 +15,17 @@ FocusScope {
         return title || (ShellStore.selectedGame && ShellStore.selectedGame.title ? String(ShellStore.selectedGame.title) : "")
     }
     readonly property bool present: reveal.present
+    readonly property var nativeOcclusionRects: [nativeOcclusion(card)].filter(rect => rect !== null)
     visible: present
     enabled: opened
     focus: opened
     MotionProgress { id: reveal; shown: root.opened }
+    function nativeOcclusion(item) {
+        if (!root.visible || !item || !item.visible || item.width <= 0 || item.height <= 0)
+            return null
+        const rect = item.mapToItem(null, 0, 0, item.width, item.height)
+        return Qt.rect(rect.x, rect.y, rect.width, rect.height)
+    }
     Accessible.role: Accessible.Dialog
     Accessible.name: root.quittingApplication ? qsTr("Quit OpenNOW confirmation")
         : root.switchingAccount ? qsTr("Switch account confirmation") : qsTr("End cloud session confirmation")

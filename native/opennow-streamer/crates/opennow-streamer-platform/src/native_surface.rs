@@ -21,9 +21,16 @@ impl NativeSurface {
         occlusions: &[RenderSurfaceRect],
         screen_rect: Option<RenderSurfaceRect>,
         scale: f32,
+        input_passthrough: bool,
     ) -> Result<(), String> {
-        self.inner
-            .attach_and_show(parent_handle, rect, occlusions, screen_rect, scale)
+        self.inner.attach_and_show(
+            parent_handle,
+            rect,
+            occlusions,
+            screen_rect,
+            scale,
+            input_passthrough,
+        )
     }
 
     pub(crate) fn hide(&mut self) {
@@ -71,21 +78,53 @@ fn physical_rect(rect: RenderSurfaceRect, _scale: f32) -> (i32, i32, u32, u32) {
 
 #[cfg(target_os = "windows")]
 mod platform {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+    use windows_sys::Win32::Foundation::{
+        GetLastError, HWND, LPARAM, LRESULT, SetLastError, WPARAM,
+    };
     use windows_sys::Win32::Graphics::Gdi::{
         CombineRgn, CreateRectRgn, DeleteObject, RGN_DIFF, SetWindowRgn,
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+    use windows_sys::Win32::UI::Shell::{
+        DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOP, SW_HIDE, SWP_FRAMECHANGED,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HTTRANSPARENT, HWND_TOP, SW_HIDE,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        SetForegroundWindow,
         SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_CHILD,
         WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
         WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
+        WM_NCHITTEST,
     };
 
     use super::*;
+
+    const INPUT_PASSTHROUGH_SUBCLASS_ID: usize = 0x4f4e_4f57;
+
+    fn hosted_hit_test(message: u32, input_passthrough: bool) -> Option<LRESULT> {
+        (message == WM_NCHITTEST && input_passthrough).then_some(HTTRANSPARENT as LRESULT)
+    }
+
+    unsafe extern "system" fn hosted_surface_subclass(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _subclass_id: usize,
+        reference_data: usize,
+    ) -> LRESULT {
+        if reference_data != 0 {
+            let passthrough = unsafe { &*(reference_data as *const AtomicBool) };
+            if let Some(result) = hosted_hit_test(message, passthrough.load(Ordering::Acquire)) {
+                return result;
+            }
+        }
+        unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+    }
 
     fn child_style(style: u32) -> u32 {
         (style
@@ -182,6 +221,7 @@ mod platform {
         standalone_style: u32,
         standalone_extended_style: u32,
         shown: bool,
+        input_passthrough: Box<AtomicBool>,
     }
 
     impl Surface {
@@ -194,12 +234,26 @@ mod platform {
                 RawWindowHandle::Win32(handle) => handle.hwnd.get() as _,
                 _ => return Err("SDL did not create a Win32 presentation window".to_owned()),
             };
+            let input_passthrough = Box::new(AtomicBool::new(false));
+            let reference_data = &*input_passthrough as *const AtomicBool as usize;
+            if unsafe {
+                SetWindowSubclass(
+                    child,
+                    Some(hosted_surface_subclass),
+                    INPUT_PASSTHROUGH_SUBCLASS_ID,
+                    reference_data,
+                )
+            } == 0
+            {
+                return Err("failed to subclass the SDL stream surface for shell input".to_owned());
+            }
             Ok(Self {
                 child,
                 parent: std::ptr::null_mut(),
                 standalone_style: unsafe { GetWindowLongPtrW(child, GWL_STYLE) as u32 },
                 standalone_extended_style: unsafe { GetWindowLongPtrW(child, GWL_EXSTYLE) as u32 },
                 shown: false,
+                input_passthrough,
             })
         }
 
@@ -214,9 +268,12 @@ mod platform {
             occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
+            input_passthrough: bool,
         ) -> Result<(), String> {
             let parent = parse_handle(parent_handle)? as _;
             let (x, y, width, height) = physical_rect(rect, _scale);
+            self.input_passthrough
+                .store(input_passthrough, Ordering::Release);
             unsafe {
                 SetWindowLongPtrW(
                     self.child,
@@ -262,7 +319,9 @@ mod platform {
                 apply_overlay_clip(self.child, rect, occlusions)?;
                 if !self.shown {
                     let _ = SetForegroundWindow(parent);
-                    let _ = SetFocus(self.child);
+                    if !input_passthrough {
+                        let _ = SetFocus(self.child);
+                    }
                     self.shown = true;
                 }
             }
@@ -286,6 +345,7 @@ mod platform {
         }
 
         pub(crate) fn hide_checked(&mut self) -> Result<(), String> {
+            self.input_passthrough.store(false, Ordering::Release);
             unsafe {
                 if !self.parent.is_null() && GetFocus() == self.child {
                     // A blocking QML overlay is about to become the input owner.
@@ -339,9 +399,32 @@ mod platform {
         }
     }
 
+    impl Drop for Surface {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = RemoveWindowSubclass(
+                    self.child,
+                    Some(hosted_surface_subclass),
+                    INPUT_PASSTHROUGH_SUBCLASS_ID,
+                );
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+        use windows_sys::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE;
+
+        #[test]
+        fn blocking_shell_input_only_makes_nonclient_hit_tests_transparent() {
+            assert_eq!(
+                hosted_hit_test(WM_NCHITTEST, true),
+                Some(HTTRANSPARENT as LRESULT)
+            );
+            assert_eq!(hosted_hit_test(WM_NCHITTEST, false), None);
+            assert_eq!(hosted_hit_test(WM_MOUSEMOVE, true), None);
+        }
 
         #[test]
         fn embedded_presenter_is_an_enabled_input_capable_child() {
@@ -543,6 +626,7 @@ mod platform {
             _occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
+            _input_passthrough: bool,
         ) -> Result<(), String> {
             let parent = parse_handle(parent_handle)? as xlib::Window;
             let (x, y, width, height) = physical_rect(rect, _scale);
@@ -643,6 +727,7 @@ mod platform {
             _occlusions: &[RenderSurfaceRect],
             screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
+            _input_passthrough: bool,
         ) -> Result<(), String> {
             let screen_rect = screen_rect.ok_or_else(|| {
                 "macOS native surface is missing absolute screen bounds".to_owned()
@@ -722,6 +807,7 @@ mod platform {
             _occlusions: &[RenderSurfaceRect],
             _screen_rect: Option<RenderSurfaceRect>,
             _scale: f32,
+            _input_passthrough: bool,
         ) -> Result<(), String> {
             Err("native presentation is unsupported on this operating system".to_owned())
         }

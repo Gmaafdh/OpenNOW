@@ -12,6 +12,13 @@
 #include <QQuickWindow>
 #include <QThread>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -423,7 +430,7 @@ QRect StreamVideoItem::physicalSurfaceRect(const QRectF &logicalRect, qreal devi
 }
 
 QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
-    bool visible, const QJsonArray &occlusions) const
+    bool visible, const QJsonArray &occlusions, bool inputPassthrough) const
 {
     const auto *targetWindow = window();
     if (!targetWindow) return {{QStringLiteral("visible"), false}};
@@ -437,10 +444,40 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
                              QPointF(std::max(first.x(), second.x()),
                                      std::max(first.y(), second.y())));
     const qreal scale = targetWindow->devicePixelRatio();
-    const auto rect = physicalSurfaceRect(logicalRect, scale);
+    auto rect = physicalSurfaceRect(logicalRect, scale);
+    // Child placement uses client coordinates. Absolute bounds additionally
+    // make ordinary window moves resynchronize screen-space Raw Input exclusions.
+    auto screenRect = physicalSurfaceRect(QRectF(targetWindow->geometry()), scale);
+#ifdef Q_OS_WIN
+    bool usesNativeClientGeometry = false;
+    QRect nativeClientScreenRect;
+    QSizeF logicalWindowSize;
+    const auto handle = reinterpret_cast<HWND>(targetWindow->winId());
+    RECT client{};
+    POINT topLeft{};
+    if (handle && GetClientRect(handle, &client) && ClientToScreen(handle, &topLeft)) {
+        // A DPI-unaware Qt parent can be bitmap-scaled by Windows while the
+        // PerMonitorV2 SDL child is not. Win32's actual client rect is the
+        // authoritative bridge between their coordinate spaces.
+        logicalWindowSize = QSizeF(targetWindow->width(), targetWindow->height());
+        nativeClientScreenRect = QRect(static_cast<int>(topLeft.x), static_cast<int>(topLeft.y),
+            static_cast<int>(client.right - client.left),
+            static_cast<int>(client.bottom - client.top));
+        const auto nativeWindowRect = scaledCaptureRect(
+            QRectF(QPointF(0, 0), logicalWindowSize), logicalWindowSize, nativeClientScreenRect);
+        if (!nativeWindowRect.isEmpty()) {
+            const auto nativeItemRect = scaledCaptureRect(
+                logicalRect, logicalWindowSize, nativeClientScreenRect);
+            rect = nativeItemRect.translated(-nativeWindowRect.x(), -nativeWindowRect.y());
+            screenRect = nativeWindowRect;
+            usesNativeClientGeometry = true;
+        }
+    }
+#endif
     const bool show = visible && !rect.isEmpty();
     QJsonObject descriptor{{QStringLiteral("visible"), show},
-                           {QStringLiteral("deviceScaleFactor"), scale}};
+                           {QStringLiteral("deviceScaleFactor"), scale},
+                           {QStringLiteral("inputPassthrough"), show && inputPassthrough}};
     if (!show) return descriptor;
 
     descriptor.insert(QStringLiteral("windowHandle"),
@@ -448,9 +485,6 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
     descriptor.insert(QStringLiteral("rect"), QJsonObject{
         {QStringLiteral("x"), rect.x()}, {QStringLiteral("y"), rect.y()},
         {QStringLiteral("width"), rect.width()}, {QStringLiteral("height"), rect.height()}});
-    // Child placement uses the client rect above. Absolute bounds additionally
-    // make ordinary window moves resynchronize screen-space Raw Input HUD exclusions.
-    const auto screenRect = physicalSurfaceRect(QRectF(targetWindow->geometry()), scale);
     descriptor.insert(QStringLiteral("screenRect"), QJsonObject{
         {QStringLiteral("x"), screenRect.x()}, {QStringLiteral("y"), screenRect.y()},
         {QStringLiteral("width"), screenRect.width()},
@@ -463,7 +497,13 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
                              object.value(QStringLiteral("y")).toDouble(),
                              object.value(QStringLiteral("width")).toDouble(),
                              object.value(QStringLiteral("height")).toDouble());
-        const auto physical = physicalSurfaceRect(logical, scale);
+        auto physical = physicalSurfaceRect(logical, scale);
+#ifdef Q_OS_WIN
+        if (usesNativeClientGeometry) {
+            physical = scaledCaptureRect(logical, logicalWindowSize, nativeClientScreenRect)
+                .translated(-screenRect.x(), -screenRect.y());
+        }
+#endif
         if (physical.isEmpty()) continue;
         physicalOcclusions.append(QJsonObject{
             {QStringLiteral("x"), physical.x()}, {QStringLiteral("y"), physical.y()},

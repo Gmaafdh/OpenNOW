@@ -1155,6 +1155,9 @@ private slots:
             QRectF(10, 20, 400, 200), scale);
         const auto rect = descriptor.value(QStringLiteral("rect")).toObject();
         QCOMPARE(descriptor.value(QStringLiteral("visible")).toBool(), true);
+        QCOMPARE(descriptor.value(QStringLiteral("inputPassthrough")).toBool(), false);
+        const auto passthrough = item->nativeSurfaceDescriptor(true, occlusions, true);
+        QCOMPARE(passthrough.value(QStringLiteral("inputPassthrough")).toBool(), true);
         QCOMPARE(rect.value(QStringLiteral("x")).toInt(), expected.x());
         QCOMPARE(rect.value(QStringLiteral("y")).toInt(), expected.y());
         QCOMPARE(rect.value(QStringLiteral("width")).toInt(), expected.width());
@@ -1186,6 +1189,16 @@ private slots:
         QCOMPARE(StreamVideoItem::scaledCaptureRect(
                      QRectF(), QSizeF(1920, 1080), QRect(0, 0, 1920, 1080)),
                  QRect());
+        // A 125% bitmap-scaled Qt parent and an unscaled native child must
+        // still agree on the full physical surface and its clip coordinates.
+        const QSizeF logicalWindow(1280, 720);
+        const QRect nativeClient(0, 0, 1600, 900);
+        QCOMPARE(StreamVideoItem::scaledCaptureRect(
+                     QRectF(QPointF(0, 0), logicalWindow), logicalWindow, nativeClient),
+                 nativeClient);
+        QCOMPARE(StreamVideoItem::scaledCaptureRect(
+                     QRectF(16, 16, 456, 688), logicalWindow, nativeClient),
+                 QRect(20, 20, 570, 860));
     }
 
     void mapsAbsoluteMouseAgainstTheRenderedViewport()

@@ -49,6 +49,14 @@ FocusScope {
         : (Theme.lightMode ? DesktopTokens.flightWarning : DesktopTokens.ledAmber)
     readonly property int drawerMargin: 16
     readonly property int drawerWidth: Math.min(456, root.width - 2 * drawerMargin)
+    readonly property var nativeOcclusionRects: [nativeOcclusion(drawer)].filter(rect => rect !== null)
+
+    function nativeOcclusion(item) {
+        if (!root.visible || !item || !item.visible || item.width <= 0 || item.height <= 0)
+            return null
+        const rect = item.mapToItem(null, 0, 0, item.width, item.height)
+        return Qt.rect(rect.x, rect.y, rect.width, rect.height)
+    }
 
     function liveNumber(value) {
         return value === undefined || value === null || isNaN(Number(value)) ? null : Number(value)

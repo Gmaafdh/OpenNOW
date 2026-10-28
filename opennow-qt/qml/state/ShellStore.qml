@@ -2900,6 +2900,15 @@ QtObject {
         return name !== "" && !isStreamStatsOverlay(name)
     }
 
+    // These overlays publish native clip regions and can pass mouse hit-testing
+    // to QML without hiding the direct native video surface. Other modal shell
+    // surfaces retain the existing hide/detach behavior until they do the same.
+    function streamOverlayPreservesNativeSurface(overlay) {
+        const name = String(overlay || "")
+        return isStreamStatsOverlay(name)
+            || name === "desktop-stream-menu" || name === "desktop-stream-exit-confirm"
+    }
+
     function requestStreamExitConfirmation() {
         if (AppController.route !== "stream" && AppController.route !== "inserting")
             return

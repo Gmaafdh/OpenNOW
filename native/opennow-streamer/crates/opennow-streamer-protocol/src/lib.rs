@@ -135,6 +135,9 @@ pub struct RenderSurface {
     /// remain visible and clickable without compositing decoded video in Qt.
     #[serde(default)]
     pub occlusions: Vec<RenderSurfaceRect>,
+    /// Blocking shell UI can receive mouse hit-testing without hiding video.
+    #[serde(default)]
+    pub input_passthrough: bool,
 }
 
 impl Default for RenderSurface {
@@ -146,6 +149,7 @@ impl Default for RenderSurface {
             window_handle: None,
             screen_rect: None,
             occlusions: Vec::new(),
+            input_passthrough: false,
         }
     }
 }
@@ -497,17 +501,20 @@ mod tests {
         }))
         .expect("legacy surface");
         assert!(legacy.occlusions.is_empty());
+        assert!(!legacy.input_passthrough);
 
         let hosted: RenderSurface = serde_json::from_value(serde_json::json!({
             "visible": true,
             "rect": {"x": 10, "y": 20, "width": 1920, "height": 1080},
             "windowHandle": "1234",
-            "occlusions": [{"x": 1560, "y": 44, "width": 320, "height": 72}]
+            "occlusions": [{"x": 1560, "y": 44, "width": 320, "height": 72}],
+            "inputPassthrough": true
         }))
         .expect("hosted surface");
         assert_eq!(hosted.occlusions.len(), 1);
         assert_eq!(hosted.occlusions[0].x, 1560);
         assert_eq!(hosted.occlusions[0].width, 320);
+        assert!(hosted.input_passthrough);
     }
 
     #[test]

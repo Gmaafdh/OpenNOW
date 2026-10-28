@@ -16,9 +16,13 @@ FocusScope {
     focus: visible && inputBlocking
     readonly property bool present: menuView.present || exitView.present || statsVisible || notificationsEnabled
     readonly property var nativeSurfaceOcclusions: {
-        if (!root.visible || root.inputBlocking)
+        if (!root.visible)
             return []
-        const rectangles = root.statsVisible ? statsView.nativeOcclusionRects.slice() : []
+        let rectangles = root.statsVisible ? statsView.nativeOcclusionRects.slice() : []
+        if (root.menuVisible)
+            rectangles = rectangles.concat(menuView.nativeOcclusionRects)
+        if (root.exitVisible)
+            rectangles = rectangles.concat(exitView.nativeOcclusionRects)
         const toast = nativeOcclusion(toasts)
         if (toast !== null)
             rectangles.push(toast)

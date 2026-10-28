@@ -667,6 +667,7 @@ impl LinuxHardwareOutput {
                     &surface.occlusions,
                     surface.screen_rect,
                     surface.device_scale_factor,
+                    surface.input_passthrough,
                 )?;
         }
         let display_refresh_hz = linux_display_refresh_hz(&self.video, &self.window);
@@ -1782,6 +1783,7 @@ impl SoftwareOutput {
                 &surface.occlusions,
                 surface.screen_rect,
                 surface.device_scale_factor,
+                surface.input_passthrough,
             )?;
         self.visible = true;
         Ok(())
@@ -2889,6 +2891,7 @@ impl WindowsExternalSdlSurface {
             &surface.occlusions,
             surface.screen_rect,
             surface.device_scale_factor,
+            surface.input_passthrough,
         )?;
         if let Some(raw_input) = self.raw_input.as_ref() {
             raw_input.set_foreground_owner(foreground_owner);
