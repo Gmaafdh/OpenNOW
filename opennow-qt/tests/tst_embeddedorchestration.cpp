@@ -2842,7 +2842,7 @@ private slots:
             QVERIFY2(qml.contains(QStringLiteral("localNativeOcclusions.concat(shared)")), qPrintable(path));
             QVERIFY2(qml.contains(QStringLiteral(
                 "streamVideo.relativeMouse\n"
-                "        && (streamVideo.captureActive || NativeStreamRuntime.usesHostedSurface)")),
+                "        && (streamVideo.captureActive || NativeStreamRuntime.usesExternalWindow)")),
                 qPrintable(path));
             QVERIFY2(qml.contains(QStringLiteral(
                 "ShellStore.streamOverlayPreservesNativeSurface(overlay)")), qPrintable(path));
@@ -2861,6 +2861,94 @@ private slots:
                 "if (descriptor.visible === true && AppController.overlay === \"\")\n"
                 "            ShellStore.focusNativeSurface()")), qPrintable(path));
         }
+    }
+
+    void standaloneOwnedOverlayRestoresNativeGameplayAndShell()
+    {
+        const auto main = source(QStringLiteral("qml/Main.qml"));
+        const auto transition = QRegularExpression(QStringLiteral(
+            "    function synchronizeStandaloneShell\\([^\\n]*\\) \\{.*?\\n    \\}"),
+            QRegularExpression::DotMatchesEverythingOption).match(main);
+        QVERIFY(transition.hasMatch());
+        QJSEngine engine;
+        QVERIFY(!engine.evaluate(QStringLiteral(R"JS(
+            var AppController = {route:'stream',overlay:''};
+            var NativeStreamRuntime = {running:true,usesExternalWindow:true,usesHostedSurface:false,
+                externalWindowActive:true,focuses:0,focusExternalWindow:function(){++this.focuses;}};
+            var ShellStore = {focuses:0,focusNativeSurface:function(){++this.focuses;}};
+            var Qt = {callLater:function(callback){callback();}};
+            var window = {activeRoute:'stream',standaloneShellHidden:false,
+                standaloneOverlayPresented:false,standalonePresentedOverlay:'',standaloneSurfaceKey:'',
+                presents:[],dismissals:0,restores:0,
+                presentStandaloneOverlay:function(activate){this.presents.push({overlay:AppController.overlay,activate:activate});},
+                dismissStandaloneOverlay:function(){++this.dismissals;},
+                updateSessionWindowMode:function(){},restoreShellFocus:function(){++this.restores;}};
+            Object.defineProperty(window,'standaloneStreamPresentation',{get:function(){
+                return this.activeRoute === 'stream' && NativeStreamRuntime.running
+                    && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
+                    && (NativeStreamRuntime.externalWindowActive || this.standaloneShellHidden
+                        || this.standaloneOverlayPresented);
+            }});
+            Object.defineProperty(window,'standaloneOverlayVisible',{get:function(){
+                return this.standaloneStreamPresentation && this.standaloneOverlayPresented
+                    && AppController.overlay !== '';
+            }});
+        )JS")).isError());
+        QVERIFY(!engine.evaluate(transition.captured()).isError());
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "synchronizeStandaloneShell(); AppController.overlay='desktop-stream-menu';"
+            "synchronizeStandaloneShell();")).isError());
+        QVERIFY(engine.evaluate(QStringLiteral(
+            "window.standaloneOverlayPresented && !window.standaloneShellHidden"
+            " && window.presents.length === 1 && window.presents[0].activate")).toBool());
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "AppController.overlay=''; synchronizeStandaloneShell();")).isError());
+        QVERIFY(engine.evaluate(QStringLiteral(
+            "window.standaloneShellHidden && !window.standaloneOverlayPresented"
+            " && window.dismissals === 1 && NativeStreamRuntime.focuses === 1"
+            " && ShellStore.focuses === 1")).toBool());
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "AppController.overlay='desktop-stream-stats'; synchronizeStandaloneShell();"
+            "window.activeRoute='library'; AppController.route='library'; synchronizeStandaloneShell();")).isError());
+        QVERIFY(engine.evaluate(QStringLiteral(
+            "!window.standaloneShellHidden && !window.standaloneOverlayPresented"
+            " && window.restores === 1")).toBool());
+        QVERIFY(!engine.evaluate(QStringLiteral(
+            "window.activeRoute='stream'; AppController.route='stream'; synchronizeStandaloneShell();"
+            "NativeStreamRuntime.running=false; synchronizeStandaloneShell();")).isError());
+        QVERIFY(engine.evaluate(QStringLiteral(
+            "!window.standaloneShellHidden && window.restores === 2")).toBool());
+
+        const auto runtime = source(QStringLiteral("src/streaming/NativeStreamRuntime.cpp"));
+        const auto presentStart = runtime.indexOf(QStringLiteral(
+            "QJsonObject NativeStreamRuntime::presentExternalOverlay"));
+        const auto presentEnd = runtime.indexOf(QStringLiteral(
+            "void NativeStreamRuntime::dismissExternalOverlay"), presentStart);
+        QVERIFY(presentStart >= 0 && presentEnd > presentStart);
+        const auto present = runtime.mid(presentStart, presentEnd - presentStart);
+        QVERIFY(present.contains(QStringLiteral("GWLP_HWNDPARENT")));
+        QVERIFY(present.contains(QStringLiteral("HWND_TOP")));
+        QVERIFY(present.contains(QStringLiteral("WS_EX_TRANSPARENT")));
+        QVERIFY(!present.contains(QStringLiteral("HWND_TOPMOST")));
+        QVERIFY(!present.contains(QStringLiteral("SetFocus(")));
+        QVERIFY(!present.contains(QStringLiteral("SetParent(")));
+        QVERIFY(main.contains(QStringLiteral(
+            "&& (!NativeStreamRuntime.usesExternalWindow\n"
+            "                            || NativeStreamRuntime.usesHostedSurface)")));
+
+        const auto output = source(QStringLiteral(
+            "../native/opennow-streamer/crates/opennow-streamer-platform/src/output.rs"));
+        const auto standaloneStart = output.indexOf(QStringLiteral(
+            "if self.standalone {"), output.indexOf(QStringLiteral(
+            "fn update(&mut self, surface: &RenderSurface)")));
+        const auto standaloneEnd = output.indexOf(QStringLiteral(
+            "let Some(rect) = surface.rect.filter"), standaloneStart);
+        QVERIFY(standaloneStart >= 0 && standaloneEnd > standaloneStart);
+        const auto standalone = output.mid(standaloneStart, standaloneEnd - standaloneStart);
+        QVERIFY(standalone.contains(QStringLiteral("raw_input.set_overlay_exclusions")));
+        QVERIFY(standalone.contains(QStringLiteral("raw_input.clear_overlay_exclusions")));
+        QVERIFY(!standalone.contains(QStringLiteral("attach_and_show")));
+        QVERIFY(!standalone.contains(QStringLiteral("hide_checked")));
     }
 
     void passiveStatsKeepGameplayInputWhileModalOverlaysTakeOwnership()
@@ -2976,7 +3064,9 @@ private slots:
         QJSEngine engine;
         QVERIFY(!engine.evaluate(QStringLiteral(R"JS(
             var window = {active:true,activeRoute:'stream',streamSurfaceLocked:false,
+                standaloneStreamPresentation:false,
                 desktopSurfaceActive:true,consoleStreamReady:true,lockedStreamDesktopSurface:false,synchronizeRenderedSurface:function(){}};
+            var NativeStreamRuntime = {externalWindowActive:false};
             var ShellStore = {activeSession:{sessionId:'seat'},authRestorePending:false,signedIn:false,
                 settings:{},streamOverlayBlocksGameplayInput:function(){return false;}};
             var AppController = {route:'stream',overlay:''};

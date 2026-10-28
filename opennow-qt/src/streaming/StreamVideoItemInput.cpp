@@ -1165,7 +1165,7 @@ void StreamVideoItem::togglePointerLock()
 
 void StreamVideoItem::setExternalPointerLock(bool relative)
 {
-    if (!s_nativeRuntime || !s_nativeRuntime->usesHostedSurface()) return;
+    if (!s_nativeRuntime || !s_nativeRuntime->usesExternalWindow()) return;
     // The sidecar already applied this state. Update QML hit-testing without
     // creating a manual override or issuing a second native toggle.
     setRelativeMouse(relative);

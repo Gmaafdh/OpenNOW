@@ -1182,13 +1182,13 @@ QtObject {
     }
 
     function updateNativeSurface(surface) {
-        if (NativeStreamRuntime.usesHostedSurface !== true || !surface)
+        if (NativeStreamRuntime.usesExternalWindow !== true || !surface)
             return ""
         return sendNativeCommand("surface", {surface: surface}, "surface")
     }
 
     function focusNativeSurface() {
-        if (NativeStreamRuntime.usesHostedSurface !== true)
+        if (NativeStreamRuntime.usesExternalWindow !== true)
             return ""
         return sendNativeCommand("surface-focus", {}, "surface-focus")
     }

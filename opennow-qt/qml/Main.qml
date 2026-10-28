@@ -8,9 +8,13 @@ ApplicationWindow {
     height: 900
     minimumWidth: 960
     minimumHeight: 540
-    visible: true
+    visible: !window.standaloneShellHidden
     visibility: ApplicationWindow.Windowed
-    color: "black"
+    // Standalone video remains in the native window. Qt is hidden during
+    // gameplay and becomes a transparent overlay surface only when needed.
+    color: window.standaloneOverlayVisible ? "transparent" : "black"
+    flags: window.standaloneOverlayVisible
+        ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
     title: qsTr("OpenNOW")
     WindowTheme {
         targetWindow: window
@@ -77,6 +81,19 @@ ApplicationWindow {
     property bool launchModeOverridden: false
     readonly property string effectiveLaunchMode: launchModeOverridden ? "" : LaunchModeOverride
     property bool streamStatsAutoShown: false
+    property bool standaloneShellHidden: false
+    property bool standaloneOverlayPresented: false
+    property string standalonePresentedOverlay: ""
+    property string standaloneSurfaceKey: ""
+    readonly property bool standaloneStreamPresentation: Qt.platform.os === "windows"
+        && window.activeRoute === "stream" && NativeStreamRuntime.running
+        && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
+        && (NativeStreamRuntime.externalWindowActive || window.standaloneShellHidden
+            || window.standaloneOverlayPresented)
+    readonly property bool standaloneOverlayVisible: window.standaloneStreamPresentation
+        && window.standaloneOverlayPresented && AppController.overlay !== ""
+    readonly property bool standalonePassiveOverlay: window.standaloneOverlayVisible
+        && ShellStore.isStreamStatsOverlay(AppController.overlay)
     property bool streamSurfaceLocked: false
     property bool lockedStreamDesktopSurface: true
     property int visibilityBeforeFullscreen: ApplicationWindow.Windowed
@@ -185,14 +202,21 @@ ApplicationWindow {
             geometrySaveTimer.restart()
         if (activeRoute === "stream")
             fullscreenInputSync.restart()
+        if (standaloneOverlayVisible)
+            standaloneOverlayResync.restart()
     }
     onHeightChanged: {
         if (geometryRestored)
             geometrySaveTimer.restart()
         if (activeRoute === "stream")
             fullscreenInputSync.restart()
+        if (standaloneOverlayVisible)
+            standaloneOverlayResync.restart()
     }
-    onVisibilityChanged: if (activeRoute === "stream") fullscreenInputSync.restart()
+    onVisibilityChanged: {
+        if (activeRoute === "stream") fullscreenInputSync.restart()
+        if (standaloneOverlayVisible) standaloneOverlayResync.restart()
+    }
     onActiveChanged: {
         syncInputOwnership()
         if (!active) {
@@ -238,8 +262,14 @@ ApplicationWindow {
             AppController.requestWindowAttention(window)
         }
         function onFullscreenToggleRequested() {
-            if (window.activeRoute === "stream")
+            if (window.activeRoute !== "stream")
+                return
+            if (window.standaloneStreamPresentation) {
+                ShellStore.controlStream("toggle-fullscreen")
+                standaloneOverlayResync.restart()
+            } else {
                 window.toggleFullscreen()
+            }
         }
         function onConsoleScreenshotRequested() {
             const session = ShellStore.activeSession
@@ -294,11 +324,15 @@ ApplicationWindow {
     }
 
     function syncInputOwnership() {
-        const shellOwnsInput = !window.active || AppController.route !== "stream"
-            || (!window.desktopSurfaceActive && !window.consoleStreamReady)
-            || (window.desktopSurfaceActive && !ShellStore.authRestorePending && !ShellStore.signedIn)
-            || ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
-        ControllerInput.inputSuspended = !window.active
+        const overlayBlocksGameplay = ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
+        const nativeGameplay = window.standaloneStreamPresentation
+            && NativeStreamRuntime.externalWindowActive && !overlayBlocksGameplay
+        const shellBackgrounded = !window.active && !nativeGameplay
+        const shellOwnsInput = shellBackgrounded || AppController.route !== "stream"
+            || overlayBlocksGameplay
+            || (!nativeGameplay && ((!window.desktopSurfaceActive && !window.consoleStreamReady)
+                || (window.desktopSurfaceActive && !ShellStore.authRestorePending && !ShellStore.signedIn)))
+        ControllerInput.inputSuspended = shellBackgrounded
             || (shellOwnsInput && ShellStore.settings.controllerMode === false)
         ControllerInput.shellCaptureEnabled = shellOwnsInput
             && ShellStore.settings.controllerMode !== false
@@ -389,6 +423,8 @@ ApplicationWindow {
             if (AppController.route === "stream" && !window.sessionFullscreenApplied) {
                 window.sessionFullscreenApplied = true
                 if (ShellStore.settings.autoFullScreen === true
+                        && (!NativeStreamRuntime.usesExternalWindow
+                            || NativeStreamRuntime.usesHostedSurface)
                         && window.visibility !== ApplicationWindow.FullScreen) {
                     window.visibilityBeforeFullscreen = window.visibility
                     window.showFullScreen()
@@ -615,6 +651,103 @@ ApplicationWindow {
             routeLoader.item.forceActiveFocus()
     }
 
+    function presentStandaloneOverlay(activate) {
+        if (!window.standaloneOverlayVisible)
+            return
+        const descriptor = NativeStreamRuntime.presentExternalOverlay(window,
+            desktopStreamOverlay.nativeSurfaceOcclusions,
+            window.standalonePassiveOverlay, desktopStreamOverlay.pointerLocked)
+        if (descriptor && descriptor.visible === true) {
+            const key = JSON.stringify(descriptor)
+            if (key !== window.standaloneSurfaceKey) {
+                window.standaloneSurfaceKey = key
+                ShellStore.updateNativeSurface(descriptor)
+            }
+        }
+        if (!activate)
+            return
+        if (window.standalonePassiveOverlay) {
+            NativeStreamRuntime.focusExternalWindow()
+            ShellStore.focusNativeSurface()
+        } else {
+            window.raise()
+            window.requestActivate()
+            if (desktopStreamOverlay.inputBlocking)
+                Qt.callLater(() => desktopStreamOverlay.forceActiveFocus())
+        }
+    }
+
+    function dismissStandaloneOverlay() {
+        NativeStreamRuntime.dismissExternalOverlay(window)
+        if (window.standaloneSurfaceKey !== "" && NativeStreamRuntime.running)
+            ShellStore.updateNativeSurface({"visible": false})
+        window.standaloneSurfaceKey = ""
+    }
+
+    function synchronizeStandaloneShell() {
+        const overlay = String(AppController.overlay || "")
+        if (!window.standaloneStreamPresentation) {
+            const restoreShell = window.standaloneShellHidden || window.standaloneOverlayPresented
+            window.standaloneOverlayPresented = false
+            window.standalonePresentedOverlay = ""
+            window.standaloneShellHidden = false
+            window.dismissStandaloneOverlay()
+            if (restoreShell) {
+                Qt.callLater(() => {
+                    window.updateSessionWindowMode()
+                    window.restoreShellFocus()
+                })
+            }
+            return
+        }
+        if (overlay !== "") {
+            const activate = !window.standaloneOverlayPresented || window.standaloneShellHidden
+                || window.standalonePresentedOverlay !== overlay
+            window.standaloneOverlayPresented = true
+            window.standalonePresentedOverlay = overlay
+            window.standaloneShellHidden = false
+            Qt.callLater(() => {
+                if (!window.standaloneOverlayVisible || AppController.overlay !== overlay)
+                    return
+                window.presentStandaloneOverlay(activate)
+            })
+            return
+        }
+        if (window.standaloneOverlayPresented || window.standalonePresentedOverlay !== "") {
+            window.standaloneOverlayPresented = false
+            window.standalonePresentedOverlay = ""
+            window.standaloneShellHidden = true
+            window.dismissStandaloneOverlay()
+            NativeStreamRuntime.focusExternalWindow()
+            ShellStore.focusNativeSurface()
+        } else if (NativeStreamRuntime.externalWindowActive) {
+            window.standaloneShellHidden = true
+        }
+    }
+
+    Timer {
+        id: standaloneOverlayResync
+        interval: 120
+        repeat: false
+        onTriggered: window.presentStandaloneOverlay(false)
+    }
+
+    Connections {
+        target: NativeStreamRuntime
+        function onExternalWindowActiveChanged() {
+            window.synchronizeStandaloneShell()
+            window.syncInputOwnership()
+        }
+        function onRunningChanged() { window.synchronizeStandaloneShell() }
+    }
+
+    Connections {
+        target: desktopStreamOverlay
+        enabled: window.standaloneOverlayVisible
+        function onNativeSurfaceOcclusionsChanged() { standaloneOverlayResync.restart() }
+        function onPointerLockedChanged() { standaloneOverlayResync.restart() }
+    }
+
     Component.onCompleted: {
         Qt.callLater(() => CoreClient.markUiReady())
         initializeStartupMode()
@@ -625,6 +758,7 @@ ApplicationWindow {
         window.synchronizeRenderedSurface()
         ShellStore.desktopUiActive = window.desktopSurfaceActive
         syncInputOwnership()
+        synchronizeStandaloneShell()
         Qt.callLater(() => window.showConfiguredStreamStats())
         Qt.callLater(() => {
             if (window.streamQmlOverlayActive && desktopStreamOverlay.inputBlocking)
@@ -705,7 +839,7 @@ ApplicationWindow {
     // color so any aspect looks deliberate instead of void-black.
     Rectangle {
         anchors.fill: parent
-        visible: !window.desktopSurfaceActive
+        visible: !window.desktopSurfaceActive && !window.standaloneOverlayVisible
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
         gradient: Gradient {
@@ -729,6 +863,7 @@ ApplicationWindow {
 
     ShellViewport {
         desktopSurfaceActive: window.desktopSurfaceActive
+        visible: !window.standaloneOverlayVisible
         layer.enabled: HdrOutput.chromeRequired && window.activeRoute !== "stream"
         layer.effect: HdrChromeEffect {}
         focus: true
@@ -774,6 +909,7 @@ ApplicationWindow {
             function onRouteChanged() {
                 if (window.activeRoute !== "library")
                     window.librarySearchPending = false
+                window.synchronizeStandaloneShell()
                 window.updateSessionWindowMode()
                 window.updateStreamSurfaceLock()
                 // The desktop shell and embedded video stay opaque. Animate
@@ -790,6 +926,7 @@ ApplicationWindow {
                     Qt.callLater(() => AppController.showOverlay("desktop-stream-menu"))
                     return
                 }
+                window.synchronizeStandaloneShell()
                 window.syncInputOwnership()
                 if (window.activeRoute === "stream"
                         && !ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay))

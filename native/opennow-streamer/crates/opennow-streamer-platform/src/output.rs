@@ -2890,7 +2890,16 @@ impl WindowsExternalSdlSurface {
     fn update(&mut self, surface: &RenderSurface) -> Result<(), String> {
         // Standalone playback deliberately has no Qt parent or Qt placement.
         // The first presented frame owns showing the independent SDL window.
+        // Qt's transparent owned overlay only contributes occlusion metadata;
+        // it must never move, hide, or replace native presentation.
         if self.standalone {
+            if let Some(raw_input) = self.raw_input.as_ref() {
+                if let Some(rect) = surface.rect.filter(|_| surface.visible) {
+                    raw_input.set_overlay_exclusions(rect, &surface.occlusions);
+                } else {
+                    raw_input.clear_overlay_exclusions();
+                }
+            }
             return Ok(());
         }
         let Some(rect) = surface.rect.filter(|_| surface.visible) else {
