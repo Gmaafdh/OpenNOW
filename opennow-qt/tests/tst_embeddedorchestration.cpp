@@ -2767,6 +2767,8 @@ private slots:
         QVERIFY(item.contains(QStringLiteral("DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2")));
         QVERIFY(item.contains(QStringLiteral("windowsClientScreenRect(targetWindow)")));
         QVERIFY(itemInput.contains(QStringLiteral("windowsClientScreenRect(window())")));
+        QVERIFY(item.contains(QStringLiteral("QSizeF(content->width(), content->height())")));
+        QVERIFY(itemInput.contains(QStringLiteral("QSizeF(content->width(), content->height())")));
         QVERIFY(item.contains(QStringLiteral("scaledCaptureRect(")));
         QVERIFY(item.contains(QStringLiteral("targetWindow->winId()")));
         QVERIFY(itemInput.contains(QStringLiteral("void StreamVideoItem::setExternalPointerLock(bool relative)")));

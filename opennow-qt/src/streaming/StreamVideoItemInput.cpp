@@ -1069,7 +1069,7 @@ void StreamVideoItem::updateCursorConfinement()
                           QPointF(std::max(first.x(), second.x()),
                                   std::max(first.y(), second.y())));
     const auto captureRect = scaledCaptureRect(
-        itemRect, QSizeF(window()->width(), window()->height()), clientScreenRect);
+        itemRect, QSizeF(content->width(), content->height()), clientScreenRect);
     if (captureRect.isEmpty()) {
         releaseCursorConfinement();
         return;

@@ -481,7 +481,9 @@ QJsonObject StreamVideoItem::nativeSurfaceDescriptor(
         // A DPI-unaware Qt parent can be bitmap-scaled by Windows while the
         // PerMonitorV2 SDL child is not. The physical client rect bridges
         // those coordinate spaces without applying deviceScaleFactor twice.
-        logicalWindowSize = QSizeF(targetWindow->width(), targetWindow->height());
+        logicalWindowSize = content
+            ? QSizeF(content->width(), content->height())
+            : QSizeF(targetWindow->width(), targetWindow->height());
         const auto nativeWindowRect = scaledCaptureRect(
             QRectF(QPointF(0, 0), logicalWindowSize), logicalWindowSize, nativeClientScreenRect);
         if (!nativeWindowRect.isEmpty()) {
