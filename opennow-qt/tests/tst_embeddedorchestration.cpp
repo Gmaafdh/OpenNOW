@@ -2957,6 +2957,7 @@ private slots:
 
         const auto output = source(QStringLiteral(
             "../native/opennow-streamer/crates/opennow-streamer-platform/src/output.rs"));
+        QVERIFY(output.contains(QStringLiteral("direct_composition: self.standalone")));
         const auto standaloneStart = output.indexOf(QStringLiteral(
             "if self.standalone {"), output.indexOf(QStringLiteral(
             "fn update(&mut self, surface: &RenderSurface)")));

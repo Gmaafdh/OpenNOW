@@ -2828,7 +2828,10 @@ impl WindowsExternalSdlSurface {
     fn target(&self) -> Result<SurfaceTarget, String> {
         let handle = WindowHandle::new(self.native_surface.window_handle())
             .ok_or_else(|| "external SDL window returned an empty HWND".to_owned())?;
-        Ok(SurfaceTarget::Existing(ExistingWindow { hwnd: handle }))
+        Ok(SurfaceTarget::Existing(ExistingWindow {
+            hwnd: handle,
+            direct_composition: self.standalone,
+        }))
     }
 
     fn show_standalone(&mut self) {

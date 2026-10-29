@@ -214,6 +214,9 @@ impl Bounds {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExistingWindow {
     pub hwnd: WindowHandle,
+    /// Present through a window-local DirectComposition visual so transparent
+    /// owned overlays cannot occlude the HWND swapchain.
+    pub direct_composition: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

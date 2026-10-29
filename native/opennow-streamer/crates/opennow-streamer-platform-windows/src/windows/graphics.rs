@@ -35,8 +35,12 @@ use ::windows::Win32::Graphics::Direct3D12::{
     D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC, D3D12_COMMAND_QUEUE_FLAG_NONE,
     D3D12_COMMAND_QUEUE_PRIORITY_NORMAL, D3D12CreateDevice, ID3D12CommandQueue, ID3D12Device,
 };
+use ::windows::Win32::Graphics::DirectComposition::{
+    DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
+};
 use ::windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_ALPHA_MODE_IGNORE, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_FORMAT, DXGI_FORMAT_AYUV,
+    DXGI_ALPHA_MODE_IGNORE, DXGI_ALPHA_MODE_PREMULTIPLIED,
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_FORMAT, DXGI_FORMAT_AYUV,
     DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R10G10B10A2_UNORM,
     DXGI_FORMAT_Y410, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
@@ -266,6 +270,16 @@ fn resolve_adapter_with(
     resolve(luid, raw).map(Some)
 }
 
+fn uses_direct_composition(target: SurfaceTarget) -> bool {
+    matches!(
+        target,
+        SurfaceTarget::Existing(ExistingWindow {
+            direct_composition: true,
+            ..
+        })
+    )
+}
+
 enum RenderWindow {
     Existing(HWND),
     Owned {
@@ -278,7 +292,7 @@ enum RenderWindow {
 impl RenderWindow {
     fn new(target: SurfaceTarget) -> Result<Self, String> {
         match target {
-            SurfaceTarget::Existing(ExistingWindow { hwnd }) => {
+            SurfaceTarget::Existing(ExistingWindow { hwnd, .. }) => {
                 let hwnd = hwnd_from_handle(hwnd);
                 if unsafe { !IsWindow(Some(hwnd)).as_bool() } {
                     return Err("supplied HWND is not a live Win32 window".to_owned());
@@ -377,11 +391,19 @@ struct ProcessorResources {
     output_view: ID3D11VideoProcessorOutputView,
 }
 
+struct CompositionResources {
+    // Release the visual and target before their device.
+    _visual: IDCompositionVisual,
+    _target: IDCompositionTarget,
+    _device: IDCompositionDevice,
+}
+
 struct SwapChainResources {
     swap_chain: IDXGISwapChain1,
     frame_latency_waitable: HANDLE,
     flags: DXGI_SWAP_CHAIN_FLAG,
     allow_tearing: bool,
+    composition: Option<CompositionResources>,
 }
 
 struct FormatProbeCache {
@@ -395,6 +417,8 @@ static FORMAT_PROBE_CACHE: std::sync::Mutex<[Option<FormatProbeCache>; 2]> =
 
 pub(super) struct Graphics {
     processor: Option<ProcessorResources>,
+    composition: Option<CompositionResources>,
+    direct_composition: bool,
     swap_chain: IDXGISwapChain1,
     frame_latency_waitable: HANDLE,
     swap_chain_flags: DXGI_SWAP_CHAIN_FLAG,
@@ -580,12 +604,18 @@ impl Graphics {
         video_format: VideoFormat,
     ) -> Result<Self, String> {
         validate_standalone_color(video_format)?;
+        let direct_composition = uses_direct_composition(target);
         let resources = DeviceResources::new(api, adapter_luid)?;
         let window = RenderWindow::new(target)?;
         let swap_size = window.client_size()?;
         let swap_format = swap_chain_format(video_format, true);
-        let swap_chain =
-            create_swap_chain(&resources.device, window.hwnd(), swap_size, swap_format)?;
+        let swap_chain = create_swap_chain(
+            &resources.device,
+            window.hwnd(),
+            swap_size,
+            swap_format,
+            direct_composition,
+        )?;
         eprintln!(
             "Windows presenter configured swapchain={}x{} format={} bitDepth={}",
             swap_size.0,
@@ -595,6 +625,8 @@ impl Graphics {
         );
         let mut graphics = Self {
             processor: None,
+            composition: swap_chain.composition,
+            direct_composition,
             swap_chain: swap_chain.swap_chain,
             frame_latency_waitable: swap_chain.frame_latency_waitable,
             swap_chain_flags: swap_chain.flags,
@@ -646,7 +678,8 @@ impl Graphics {
         video_format: VideoFormat,
     ) -> Result<(), String> {
         validate_standalone_color(video_format)?;
-        if self.window.can_update(target) {
+        let direct_composition = uses_direct_composition(target);
+        if self.window.can_update(target) && self.direct_composition == direct_composition {
             self.window.update(target)?;
             if self.video_format != video_format {
                 self.processor = None;
@@ -663,10 +696,14 @@ impl Graphics {
             window.hwnd(),
             swap_size,
             swap_format,
+            direct_composition,
         )?;
         self.processor = None;
+        let old_composition = std::mem::replace(&mut self.composition, swap_chain.composition);
         let old_swap_chain = std::mem::replace(&mut self.swap_chain, swap_chain.swap_chain);
+        drop(old_composition);
         drop(old_swap_chain);
+        self.direct_composition = direct_composition;
         self.frame_latency_waitable = swap_chain.frame_latency_waitable;
         self.swap_chain_flags = swap_chain.flags;
         self.allow_tearing = swap_chain.allow_tearing;
@@ -1014,6 +1051,81 @@ fn create_swap_chain(
     hwnd: HWND,
     size: (u32, u32),
     format: DXGI_FORMAT,
+    direct_composition: bool,
+) -> Result<SwapChainResources, String> {
+    if direct_composition {
+        match create_composition_swap_chain(device, hwnd, size, format) {
+            Ok(resources) => return Ok(resources),
+            Err(error) => eprintln!(
+                "DirectComposition stream presentation unavailable; using HWND swapchain: {error}"
+            ),
+        }
+    }
+    create_hwnd_swap_chain(device, hwnd, size, format)
+}
+
+fn create_composition_swap_chain(
+    device: &ID3D11Device,
+    hwnd: HWND,
+    size: (u32, u32),
+    format: DXGI_FORMAT,
+) -> Result<SwapChainResources, String> {
+    unsafe {
+        let dxgi_device: IDXGIDevice = device.cast().map_err(|error| error.to_string())?;
+        let adapter = dxgi_device
+            .GetAdapter()
+            .map_err(|error| error.to_string())?;
+        let factory: IDXGIFactory2 = adapter.GetParent().map_err(|error| error.to_string())?;
+        let flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        let description = DXGI_SWAP_CHAIN_DESC1 {
+            Width: size.0,
+            Height: size.1,
+            Format: format,
+            Stereo: false.into(),
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            BufferCount: 2,
+            Scaling: DXGI_SCALING_STRETCH,
+            SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+            AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
+            Flags: flags.0 as u32,
+        };
+        let swap_chain = factory
+            .CreateSwapChainForComposition(device, &description, None)
+            .map_err(|error| error.to_string())?;
+        let composition_device: IDCompositionDevice =
+            DCompositionCreateDevice(&dxgi_device).map_err(|error| error.to_string())?;
+        let target = composition_device
+            .CreateTargetForHwnd(hwnd, true)
+            .map_err(|error| error.to_string())?;
+        let visual = composition_device
+            .CreateVisual()
+            .map_err(|error| error.to_string())?;
+        let content: IUnknown = swap_chain.cast().map_err(|error| error.to_string())?;
+        visual.SetContent(&content).map_err(|error| error.to_string())?;
+        target.SetRoot(&visual).map_err(|error| error.to_string())?;
+        composition_device.Commit().map_err(|error| error.to_string())?;
+        finalize_swap_chain(
+            swap_chain,
+            flags,
+            false,
+            Some(CompositionResources {
+                _visual: visual,
+                _target: target,
+                _device: composition_device,
+            }),
+        )
+    }
+}
+
+fn create_hwnd_swap_chain(
+    device: &ID3D11Device,
+    hwnd: HWND,
+    size: (u32, u32),
+    format: DXGI_FORMAT,
 ) -> Result<SwapChainResources, String> {
     unsafe {
         let dxgi_device: IDXGIDevice = device.cast().map_err(|error| error.to_string())?;
@@ -1049,6 +1161,17 @@ fn create_swap_chain(
             .CreateSwapChainForHwnd(device, hwnd, &description, None, None)
             .map_err(|error| error.to_string())?;
         let _ = factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+        finalize_swap_chain(swap_chain, flags, allow_tearing, None)
+    }
+}
+
+fn finalize_swap_chain(
+    swap_chain: IDXGISwapChain1,
+    flags: DXGI_SWAP_CHAIN_FLAG,
+    allow_tearing: bool,
+    composition: Option<CompositionResources>,
+) -> Result<SwapChainResources, String> {
+    unsafe {
         let swap_chain_2: IDXGISwapChain2 = swap_chain.cast().map_err(|error| error.to_string())?;
         swap_chain_2
             .SetMaximumFrameLatency(1)
@@ -1063,6 +1186,7 @@ fn create_swap_chain(
             frame_latency_waitable,
             flags,
             allow_tearing,
+            composition,
         })
     }
 }
@@ -1474,6 +1598,69 @@ mod tests {
         })
         .expect("default adapter selection");
         assert!(default.is_none());
+    }
+
+    #[test]
+    fn direct_composition_presenter_initializes_and_presents() {
+        let hwnd = create_owned_window(OwnedWindow {
+            parent: None,
+            bounds: Bounds {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            },
+            visible: false,
+        })
+        .expect("composition test window");
+        let target = SurfaceTarget::Existing(ExistingWindow {
+            hwnd: WindowHandle::new(hwnd.0 as isize).expect("non-null test HWND"),
+            direct_composition: true,
+        });
+        let mut graphics = match Graphics::new(
+            WindowsGraphicsApi::D3d11,
+            None,
+            target,
+            video_format(VideoPixelFormat::Nv12),
+        ) {
+            Ok(graphics) => graphics,
+            Err(error) => {
+                unsafe {
+                    let _ = DestroyWindow(hwnd);
+                }
+                panic!("DirectComposition presenter must initialize: {error}");
+            }
+        };
+        assert!(graphics.composition.is_some());
+        let description = D3D11_TEXTURE2D_DESC {
+            Width: 64,
+            Height: 64,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_DECODER.0 as u32 | D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut texture = None;
+        unsafe {
+            graphics
+                .resources
+                .device
+                .CreateTexture2D(&description, None, Some(&mut texture))
+                .expect("create synthetic NV12 decoder surface");
+        }
+        graphics
+            .present(&texture.expect("D3D11 returned an NV12 surface"), 0, 0, 83_333)
+            .expect("present through DirectComposition");
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
     }
 
     #[test]
