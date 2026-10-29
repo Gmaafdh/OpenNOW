@@ -24,6 +24,10 @@ def report(directory):
             message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
             print(f"::error title={log.name}::{message}")
             continue
+        # Successful logs must not consume the small visible annotation budget
+        # while a different test's actual assertion is waiting to be reported.
+        if not hits:
+            continue
         excerpt = []
         for i in hits[:3]:
             excerpt.extend(lines[max(0, i - 1):i + 8])
