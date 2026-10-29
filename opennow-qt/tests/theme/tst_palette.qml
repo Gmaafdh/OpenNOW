@@ -59,6 +59,15 @@ TestCase {
         compare(Theme.focus, data.accent === "pack" ? Theme.packAccent : Theme.customAccent)
     }
 
+    function test_customHexAccentAndFont() {
+        compare(Theme.accentColor("#A1B2C3"), "#a1b2c3")
+        ShellStore.settings = {themePack:"nocturne",appTheme:"dark",appAccentColor:"#12ABEF",themeAccentOverride:true,appFontFamily:"Verdana"}
+        compare(Theme.focus, Theme.customAccent)
+        compare(Theme.bodyFont, "Verdana")
+        compare(Theme.displayFont, "Verdana")
+        compare(Theme.monoFont, "IBM Plex Mono")
+    }
+
     function test_autoFollowsSystem() {
         for (const pack of Theme.packs) {
             ShellStore.settings = {themePack:pack.id, appTheme:"auto"}

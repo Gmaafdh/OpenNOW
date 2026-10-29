@@ -3643,6 +3643,30 @@ QtObject {
         return settingsOwner.setSetting(key, value, source)
     }
 
+    function customProfileId(account) {
+        const directId = typeof account === "string" || typeof account === "number"
+        const userId = directId ? account : account && account.userId
+        const normalized = String(userId === undefined || userId === null || userId === "" ? "guest" : userId).trim()
+        return normalized === "" ? "guest" : normalized
+    }
+
+    function customProfileImageFor(account) {
+        const images = settings && settings.customProfileImages
+        if (!images || typeof images !== "object") return ""
+        const value = images[customProfileId(account)]
+        return typeof value === "string" && value.indexOf("file://") === 0 ? value : ""
+    }
+
+    function setCustomProfileImage(account, imageUrl) {
+        const id = customProfileId(account)
+        const url = String(imageUrl || "").trim()
+        if (url !== "" && url.indexOf("file://") !== 0) return false
+        const updated = Object.assign({}, settings && settings.customProfileImages || {})
+        if (url === "") delete updated[id]
+        else updated[id] = url
+        return setSetting("customProfileImages", updated, "custom-profile-image")
+    }
+
     function resetSettings() {
         return settingsOwner.resetSettings()
     }

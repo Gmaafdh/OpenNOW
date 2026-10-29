@@ -81,6 +81,8 @@ qt_add_executable(opennow-qt
     src/localization/Localization.h
     src/media/ThumbnailGenerator.cpp
     src/media/ThumbnailGenerator.h
+    src/media/ProfileImageStore.cpp
+    src/media/ProfileImageStore.h
     ${OPENNOW_STREAM_RUNTIME_SOURCES}
     ${OPENNOW_STREAM_PRESENTATION_SOURCES}
 )

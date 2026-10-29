@@ -150,9 +150,12 @@ FocusScope {
     readonly property real tileScale: Math.max(0.75, Math.min(1.5, Number(ShellStore.settings.posterSizeScale || 1.05))) / 1.05
     readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (176 * tileScale)))
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
-    // Artwork, frame padding and the persistent information deck share one
-    // geometry contract with DesktopPoster; no title or focus ring is clipped.
-    readonly property int libraryCellH: Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(126)
+    // Artwork, frame padding and the optional information deck share one
+    // geometry contract with DesktopPoster; hiding labels reclaims the space.
+    readonly property bool tileLabelsVisible: ShellStore.settings.showTileLabels !== false
+    readonly property int libraryCellH: tileLabelsVisible
+        ? Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(126)
+        : Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(24)
 
     function editCollection(mode, game) {
         collectionDialog.mode = mode
@@ -493,7 +496,7 @@ FocusScope {
             required property int index
             game: modelData
             revealIndex: index
-            showTitle: true
+            showTitle: root.tileLabelsVisible
             tileWidth: root.libraryCellW
             tileHeight: root.libraryCellH
             onClicked: {

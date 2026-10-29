@@ -160,31 +160,15 @@ AbstractButton {
                 opacity: (1 - root.selectionProgress) * 0.9
             }
 
-            Shape {
+            ProfileAvatar {
                 anchors.fill: parent
                 visible: !root.addTile
                 opacity: root.manageMode ? 0.55 : 1
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: -1
-                    fillGradient: LinearGradient {
-                        x1: 0; y1: 0
-                        x2: root.avatarSize; y2: root.avatarSize * 1.19
-                        GradientStop { position: 0; color: root.gradient[0] }
-                        GradientStop { position: 1; color: root.gradient[1] }
-                    }
-                    PathRectangle { width: root.avatarSize; height: root.avatarSize; radius: root.animatedCornerRadius }
-                }
-            }
-            Text {
-                anchors.centerIn: parent
-                visible: !root.addTile
-                opacity: root.manageMode ? 0.55 : 1
-                text: root.displayName.charAt(0).toUpperCase()
-                color: "#0B0F1A"
-                font.family: DesktopTokens.displayFont
-                font.pixelSize: Math.round(root.avatarSize * 71 / 168)
-                font.weight: Font.Black
+                account: root.account
+                displayName: root.displayName
+                fallbackStart: root.gradient[0]
+                fallbackEnd: root.gradient[1]
+                cornerRadius: root.animatedCornerRadius
             }
 
             Shape {

@@ -14,7 +14,8 @@ Item {
     readonly property bool navigationFocus: current && AppController.inputMode !== "pointer"
     readonly property bool highlighted: pointerHover || navigationFocus
     readonly property string artwork: DesktopTokens.artworkUrl(game, false)
-    readonly property int infoHeight: DesktopTokens.px(46)
+    readonly property bool labelsVisible: ShellStore.settings.showTileLabels !== false
+    readonly property int infoHeight: labelsVisible ? DesktopTokens.px(46) : 0
     readonly property int artHeight: Math.max(1, tileHeight - infoHeight)
     property real hoverMorph: highlighted && !AppController.reducedMotion ? 1 : 0
 
@@ -72,6 +73,7 @@ Item {
 
         Rectangle {
             id: infoDeck
+            visible: root.labelsVisible
             x: 0
             y: root.artHeight - 1
             width: root.tileWidth

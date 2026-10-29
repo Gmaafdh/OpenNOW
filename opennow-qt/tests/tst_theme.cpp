@@ -19,6 +19,13 @@ public:
     Q_INVOKABLE QString readinessNotice(const QVariant &) const { return {}; }
     Q_INVOKABLE QString source(const QString &text, int) const { return text; }
     Q_INVOKABLE bool streamOverlayBlocksGameplayInput(const QString &overlay) const { return !overlay.isEmpty(); }
+    Q_INVOKABLE QString customProfileImageFor(const QVariant &account) const
+    {
+        const auto userId = account.toMap().value(QStringLiteral("userId")).toString();
+        const auto key = userId.isEmpty() ? QStringLiteral("guest") : userId;
+        return value(QStringLiteral("settings")).toMap()
+            .value(QStringLiteral("customProfileImages")).toMap().value(key).toString();
+    }
 
 signals:
     void readyChanged();
@@ -49,6 +56,7 @@ public slots:
                                  {"MotionProgress", "components/MotionProgress.qml"},
                                  {"CloudLibraryActions", "components/CloudLibraryActions.qml"},
                                  {"RoundedArtwork", "components/RoundedArtwork.qml"},
+                                 {"ProfileAvatar", "components/ProfileAvatar.qml"},
                                  {"DesktopButton", "desktop/components/DesktopButton.qml"},
                                  {"DesktopGlyph", "desktop/components/DesktopGlyph.qml"},
                                  {"DesktopSettingsIcon", "desktop/settings/controls/DesktopSettingsIcon.qml"},

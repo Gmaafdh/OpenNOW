@@ -157,6 +157,7 @@ FocusScope {
         { icon: "desktop-nav-store.svg", name: qsTr("Open Store"), detail: qsTr("Discover games"), route: "store", key: "3" },
         { icon: "desktop-nav-friends.svg", name: qsTr("Friends and party"), detail: qsTr("See who is online"), route: "friends", key: "4" },
         { icon: "desktop-nav-settings.svg", name: qsTr("Settings"), detail: qsTr("Configure OpenNOW"), route: "settings", key: "," },
+        { icon: "desktop-sliders.svg", name: qsTr("Customization"), detail: qsTr("Profile image, theme, font and layout"), route: "settings-themes", key: "" },
         { icon: "desktop-sliders.svg", name: qsTr("Stream settings"), detail: qsTr("Resolution, frame rate and codec"), route: "settings-streaming", key: "" },
         { icon: "desktop-info.svg", name: qsTr("Updates"), detail: root.updateDetail(), route: "settings-updates", key: "" },
         { icon: "desktop-info.svg", name: qsTr("What the icons mean"), detail: qsTr("Launcher, feature and membership marks on game tiles"), route: "", overlay: "desktop-icon-guide", key: "" },

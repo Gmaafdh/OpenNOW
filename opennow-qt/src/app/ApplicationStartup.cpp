@@ -18,6 +18,7 @@
 #include "app/SingleInstance.h"
 #include "streaming/StreamVideoItem.h"
 #include "media/ThumbnailGenerator.h"
+#include "media/ProfileImageStore.h"
 
 #include <QGuiApplication>
 #include <QIcon>
@@ -160,6 +161,7 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     application.installEventFilter(&fileOpenFilter);
     ControllerInput controllerInput;
     ThumbnailGenerator thumbnailGenerator;
+    ProfileImageStore profileImageStore;
     Localization localization;
     application.installTranslator(&localization);
     CoreClient coreClient;
@@ -304,6 +306,7 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     engine.rootContext()->setContextProperty(u"AppController"_s, &controller);
     engine.rootContext()->setContextProperty(u"ControllerInput"_s, &controllerInput);
     engine.rootContext()->setContextProperty(u"ThumbnailGenerator"_s, &thumbnailGenerator);
+    engine.rootContext()->setContextProperty(u"ProfileImages"_s, &profileImageStore);
     engine.rootContext()->setContextProperty(u"I18n"_s, &localization);
     engine.rootContext()->setContextProperty(u"CoreClient"_s, &coreClient);
     engine.rootContext()->setContextProperty(u"GraphicsDevices"_s, &graphicsDevices);

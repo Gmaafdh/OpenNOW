@@ -38,7 +38,7 @@ FocusScope {
         {name:qsTr("Video & display"), icon:"settings-video.svg", color:Theme.yellow},
         {name:qsTr("Input & controllers"), icon:"settings-input.svg", color:Theme.mint},
         {name:qsTr("Network"), icon:"settings-network.svg", color:Theme.coral},
-        {name:qsTr("Themes"), icon:"settings-themes.svg", color:Theme.face},
+        {name:qsTr("Customization"), icon:"settings-themes.svg", color:Theme.face},
         {name:qsTr("Advanced"), icon:"settings-advanced.svg", color:"#252A35"},
         {name:qsTr("Recording"), icon:"settings-video.svg", color:Theme.coral}
     ]
@@ -354,6 +354,7 @@ FocusScope {
             return [
                 choice("Theme", "Auto follows the system at sunset", "appTheme", ["auto","dark","light"], ["Auto","Midnight","Light"], "segments"),
                 {t:"Accent colour", d:"Focus ring, progress and active states", v:root.titleCase(settings.appAccentColor || "blue"), key:"appAccentColor", values:["violet","blue","amber","green","rose","coral","white"], labels:["Violet","Sky","Amber","Mint","Rose","Coral","White"], colors:["violet","blue","amber","green","rose","coral","white"].map(value => Theme.accentColor(value, Theme.lightMode)), control:"colors"},
+                choice(qsTr("Interface font"), qsTr("Updates headings and body text immediately · monospace data stays readable"), "appFontFamily", ["Nunito","Segoe UI","Arial","Verdana"], ["Nunito","Segoe UI","Arial","Verdana"]),
                 choice("Backdrop", "What sits behind the glass", "themePack", ["nocturne","aurora","kraft","phosphor"], ["Aurora gradient","Nocturne","Console room","Off"], "segments"),
                 toggle("Translucent glass", "Blur the backdrop through panels · off is faster on iGPUs", "translucentUI"),
                 choice("Tile style", "Shape of game tiles on My games", "posterSizeScale", [0.9,1.05,1.25], ["Compact","Soft","Round"], "segments"),

@@ -29,6 +29,9 @@ const MAXIMUM_HDR_NOTICE_SHOWN: usize = 200;
 const MAXIMUM_CONTROLLER_PROFILES: usize = 32;
 const MAXIMUM_CONTROLLER_PROFILE_KEY_CHARS: usize = 160;
 const MAXIMUM_CONTROLLER_PROFILE_NAME_CHARS: usize = 80;
+const MAXIMUM_CUSTOM_PROFILE_IMAGES: usize = 32;
+const MAXIMUM_CUSTOM_PROFILE_ID_CHARS: usize = 256;
+const MAXIMUM_CUSTOM_PROFILE_URL_BYTES: usize = 8192;
 const CONTROLLER_PROFILE_TUNING: [(&str, i64); 3] = [
     ("leftStickDeadzone", 50),
     ("rightStickDeadzone", 50),
@@ -419,6 +422,7 @@ impl SettingsStore {
             self.values
                 .insert("desktopBackgroundImage".to_owned(), json!(""));
         }
+        normalize_custom_profile_images(&mut self.values);
         normalize_choice(
             &mut self.values,
             "aspectRatio",
@@ -572,12 +576,16 @@ impl SettingsStore {
             ],
             "nocturne",
         );
+        normalize_accent(&mut self.values);
         normalize_choice(
             &mut self.values,
-            "appAccentColor",
-            &["green", "blue", "violet", "amber", "rose", "coral", "white"],
-            "green",
+            "appFontFamily",
+            &["Nunito", "Segoe UI", "Arial", "Verdana"],
+            "Nunito",
         );
+        if !matches!(self.values["profileImageSize"].as_i64(), Some(128 | 256 | 512)) {
+            self.values.insert("profileImageSize".to_owned(), json!(256));
+        }
         normalize_choice(
             &mut self.values,
             "updateChannel",
@@ -814,6 +822,58 @@ fn select_existing_data_dir(
         .into_iter()
         .find(|candidate| candidate.exists())
         .unwrap_or(primary)
+}
+
+fn normalize_custom_profile_images(values: &mut Map<String, Value>) {
+    let mut normalized = Map::new();
+    if let Some(images) = values["customProfileImages"].as_object() {
+        for (id, value) in images {
+            if normalized.len() == MAXIMUM_CUSTOM_PROFILE_IMAGES {
+                break;
+            }
+            let id = id.trim();
+            let Some(url) = value.as_str().map(str::trim) else {
+                continue;
+            };
+            if id.is_empty()
+                || id.chars().count() > MAXIMUM_CUSTOM_PROFILE_ID_CHARS
+                || id.chars().any(char::is_control)
+                || url.len() > MAXIMUM_CUSTOM_PROFILE_URL_BYTES
+            {
+                continue;
+            }
+            let valid_url = url::Url::parse(url).is_ok_and(|url| {
+                url.scheme() == "file"
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+                    && url.to_file_path().is_ok_and(|path| {
+                        path.extension().is_some_and(|extension| {
+                            extension.to_string_lossy().eq_ignore_ascii_case("png")
+                        })
+                    })
+            });
+            if valid_url {
+                normalized.insert(id.to_owned(), Value::String(url.to_owned()));
+            }
+        }
+    }
+    values.insert("customProfileImages".to_owned(), Value::Object(normalized));
+}
+
+fn normalize_accent(values: &mut Map<String, Value>) {
+    let accent = values["appAccentColor"].as_str().unwrap_or("").trim();
+    if ["green", "blue", "violet", "amber", "rose", "coral", "white"].contains(&accent) {
+        return;
+    }
+    let custom = accent.len() == 7
+        && accent.starts_with('#')
+        && accent.as_bytes()[1..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit());
+    values.insert(
+        "appAccentColor".to_owned(),
+        Value::String(if custom { accent.to_ascii_lowercase() } else { "green".to_owned() }),
+    );
 }
 
 fn normalize_choice(values: &mut Map<String, Value>, key: &str, choices: &[&str], fallback: &str) {
@@ -1216,7 +1276,8 @@ fn defaults() -> Map<String, Value> {
         "statsShowPacketLoss":true, "statsShowDecode":true, "statsShowLatency":true,
         "statsShowVideo":true, "statsShowClock":true, "statsShowGraphs":true,
         "appAccentColor":"green", "appTheme":"auto", "appLanguage":"system", "themePack":"nocturne", "translucentUI":false,
-        "showTileLabels":true,
+        "appFontFamily":"Nunito", "showTileLabels":true,
+        "customProfileImages":{}, "profileImageSize":256,
         "controllerMode":true, "controllerModePromptDismissed":false, "forwardFlightControls":true,
         "controllerLeftStickDeadzone":5, "controllerRightStickDeadzone":5,
         "controllerVibrationIntensity":100, "controllerProfiles":{},
@@ -2156,6 +2217,57 @@ mod tests {
         assert!(store.set("appAccentColor", json!("green")).is_err());
         assert_eq!(store.all(), before);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn customization_preferences_and_local_profile_images_are_bounded() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        store.set("appFontFamily", json!("Segoe UI")).unwrap();
+        store.set("appAccentColor", json!("#A1B2C3")).unwrap();
+        store.set("profileImageSize", json!(512)).unwrap();
+        let avatar_url = url::Url::from_file_path(directory.path().join("avatar.png"))
+            .unwrap()
+            .to_string();
+        store
+            .set(
+                "customProfileImages",
+                json!({
+                    " account-1 ": avatar_url.clone(),
+                    "remote": "https://example.com/avatar.png",
+                    "not-an-image": "file:///tmp/avatar.txt"
+                }),
+            )
+            .unwrap();
+        let saved = store.all();
+        assert_eq!(saved["appFontFamily"], json!("Segoe UI"));
+        assert_eq!(saved["appAccentColor"], json!("#a1b2c3"));
+        assert_eq!(saved["profileImageSize"], json!(512));
+        assert_eq!(saved["customProfileImages"].as_object().unwrap().len(), 1);
+        assert_eq!(saved["customProfileImages"]["account-1"], json!(avatar_url.clone()));
+
+        let reloaded = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        assert_eq!(reloaded.all()["customProfileImages"], saved["customProfileImages"]);
+        store.set("appFontFamily", json!("Unknown Font")).unwrap();
+        store.set("appAccentColor", json!("not-a-color")).unwrap();
+        store.set("profileImageSize", json!(1024)).unwrap();
+        assert_eq!(store.all()["appFontFamily"], json!("Nunito"));
+        assert_eq!(store.all()["appAccentColor"], json!("green"));
+        assert_eq!(store.all()["profileImageSize"], json!(256));
+
+        let mut avatars = Map::new();
+        for index in 0..40 {
+            avatars.insert(format!("account-{index}"), json!(avatar_url.clone()));
+        }
+        store
+            .set("customProfileImages", Value::Object(avatars))
+            .unwrap();
+        assert_eq!(
+            store.all()["customProfileImages"].as_object().unwrap().len(),
+            MAXIMUM_CUSTOM_PROFILE_IMAGES
+        );
+        store.set("customProfileImages", json!({})).unwrap();
+        assert_eq!(store.all()["customProfileImages"], json!({}));
     }
 
     #[test]

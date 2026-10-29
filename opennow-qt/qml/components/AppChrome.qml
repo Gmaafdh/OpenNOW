@@ -76,18 +76,15 @@ Item {
             x: 10
             anchors.verticalCenter: parent.verticalCenter
             spacing: 12
-            Rectangle {
-                width: 42; height: 42; radius: 21
-                color: Theme.violet
-                border.color: Qt.rgba(1, 1, 1, 0.7); border.width: 2
-                Text {
-                    anchors.centerIn: parent
-                    text: root.profileInitial
-                    color: Theme.contrastText(Theme.violet)
-                    font.family: Theme.displayFont
-                    font.pixelSize: 18
-                    font.weight: Font.Black
-                }
+            ProfileAvatar {
+                width: 42; height: 42
+                anchors.verticalCenter: parent.verticalCenter
+                account: root.profile
+                displayName: root.displayName
+                fallbackStart: Theme.violet
+                fallbackEnd: Theme.violet
+                borderColor: Qt.rgba(1, 1, 1, 0.7)
+                borderWidth: 2
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter

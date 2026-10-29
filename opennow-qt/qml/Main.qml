@@ -1297,7 +1297,7 @@ ApplicationWindow {
                 "game-detail-platform-dropdown": qsTr("Platform choices"),
                 "settings-input": qsTr("Input settings"),
                 "settings-network": qsTr("Network settings"),
-                "settings-themes": qsTr("Theme settings"),
+                "settings-themes": qsTr("Customization"),
                 "settings-advanced": qsTr("Advanced settings"),
                 "settings-advanced-dropdown": qsTr("Advanced setting choices"),
                 "game-detail": qsTr("Game details"),

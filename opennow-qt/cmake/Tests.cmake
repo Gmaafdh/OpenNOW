@@ -1170,6 +1170,18 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 8
     )
+    qt_add_executable(opennow-profileimage-tests
+        tests/tst_profileimages.cpp
+        src/media/ProfileImageStore.cpp
+        src/media/ProfileImageStore.h
+    )
+    target_include_directories(opennow-profileimage-tests PRIVATE src)
+    target_link_libraries(opennow-profileimage-tests PRIVATE Qt6::Test Qt6::Core Qt6::Gui)
+    add_test(NAME opennow-profileimage-tests COMMAND opennow-profileimage-tests -o -,txt)
+    set_tests_properties(opennow-profileimage-tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 8
+    )
     qt_add_executable(opennow-generichidinput-tests tests/tst_generichidinput.cpp)
     target_link_libraries(opennow-generichidinput-tests PRIVATE
         Qt6::Test Qt6::Gui opennow-generic-hid)
@@ -1294,6 +1306,7 @@ if(BUILD_TESTING)
         opennow-embedded-orchestration-tests
         opennow-singleinstance-tests
         opennow-thumbnail-tests
+        opennow-profileimage-tests
         opennow-controllerinput-tests
         opennow-controllernavigation-tests
         opennow-controllertuning-tests
