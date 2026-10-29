@@ -1605,6 +1605,35 @@ mod tests {
 
     #[test]
     fn direct_composition_presenter_initializes_and_presents() {
+        // Match the existing GPU-blit tests: skip only when the runner lacks
+        // the D3D11 video interface, never when composition or Present fails.
+        let mut device = None;
+        unsafe {
+            D3D11CreateDevice(
+                None::<&IDXGIAdapter>,
+                D3D_DRIVER_TYPE_HARDWARE,
+                HMODULE::default(),
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+                Some(&[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                None,
+            )
+            .expect("D3D11 composition capability probe device");
+        }
+        let device = device.expect("D3D11 returned a composition probe device");
+        if let Err(error) = device.cast::<ID3D11VideoDevice>() {
+            assert_eq!(
+                error.code().0 as u32,
+                0x80004002,
+                "unexpected composition video probe error: {error}"
+            );
+            eprintln!(
+                "SKIP DirectComposition GPU blit: D3D11 video interface unavailable ({error})"
+            );
+            return;
+        }
         let hwnd = create_owned_window(OwnedWindow {
             parent: None,
             bounds: Bounds {
