@@ -14,7 +14,9 @@
     "readyToLaunch": "Ready to launch",
     "switching": "SWITCHING",
     "nextAdventure": "Your next adventure is waiting. Play something to see it here.",
-    "emptyLibrary": "No games in this view"
+    "emptyLibrary": "No games in this view",
+    "friendsInDevelopment": "IN DEVELOPMENT",
+    "friendsComingSoonDetail": "Presence, invites and party voice are in the works. Your friends list will appear here as soon as it ships."
   },
   "updatesPage": {
     "versionUpgrade": "%1  →  %2 · %3",
