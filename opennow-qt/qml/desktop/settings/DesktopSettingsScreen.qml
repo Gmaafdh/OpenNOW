@@ -409,6 +409,20 @@ FocusScope {
         return ShellStore.resolutionItems()
     }
 
+    // The navigation rail floats on its own Halo surface: settings copy sits
+    // over key art, so untreated text loses contrast in light packs.
+    DesktopSurface {
+        id: railSurface
+        x: DesktopTokens.px(12)
+        y: DesktopTokens.px(10)
+        width: root.compactNavigation ? 0 : DesktopTokens.px(288)
+        height: Math.max(0, root.height - y - DesktopTokens.px(10))
+        visible: width > 0
+        corner: DesktopTokens.radiusXl
+        tint: Theme.lightMode ? 0.78 : 0.58
+        bloom: false
+    }
+
     Column {
         id: settingsRail
         x: DesktopTokens.px(24)
