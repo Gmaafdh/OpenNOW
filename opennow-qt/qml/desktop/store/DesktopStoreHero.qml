@@ -41,14 +41,14 @@ Item {
     // renderer cannot draw MultiEffect masks, but must still show a readable hero.
     Rectangle {
         anchors.fill: parent
-        radius: 16
+        radius: DesktopTokens.radiusXl
         color: "#0B0F1A"
     }
 
     Rectangle {
         id: heroMask
         anchors.fill: parent
-        radius: 16
+        radius: DesktopTokens.radiusXl
         color: "white"
         visible: false
         layer.enabled: true
@@ -102,7 +102,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: DesktopTokens.radiusXl + 2
+        radius: DesktopTokens.radiusXl
         color: "transparent"
         border.width: 1
         border.color: DesktopTokens.hairlineStrong
@@ -180,15 +180,15 @@ Item {
 
     Row {
         x: 24
-        y: parent.height - 58
-        height: 36
-        spacing: 9
+        y: parent.height - 74
+        height: 44
+        spacing: 10
         visible: root.slideGame !== null
 
         Button {
             id: playButton
-            width: 121
-            height: 36
+            width: 134
+            height: 44
             padding: 0
             focusPolicy: Qt.NoFocus
             hoverEnabled: true
@@ -208,7 +208,7 @@ Item {
                 text: playButton.text
                 color: DesktopTokens.inkOnAccent
                 font.family: Theme.bodyFont
-                font.pixelSize: DesktopTokens.captionSize
+                font.pixelSize: DesktopTokens.px(14)
                 font.weight: Font.Black
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -217,8 +217,8 @@ Item {
 
         Button {
             id: detailsButton
-            width: 153
-            height: 36
+            width: 172
+            height: 44
             padding: 0
             focusPolicy: Qt.NoFocus
             hoverEnabled: true
@@ -236,7 +236,7 @@ Item {
                 text: detailsButton.text
                 color: Qt.rgba(1, 1, 1, 0.88)
                 font.family: Theme.bodyFont
-                font.pixelSize: DesktopTokens.captionSize
+                font.pixelSize: DesktopTokens.px(14)
                 font.weight: Font.Bold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -244,22 +244,37 @@ Item {
         }
     }
 
-    Row {
-        x: 24
-        y: parent.height - 20
-        spacing: 6
+    // Slide dots sit bottom-right on a frosted plate so they stay legible
+    // whatever artwork is behind them.
+    Rectangle {
+        anchors.right: parent.right
+        anchors.rightMargin: 20
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 16
         visible: root.slides.length > 1
-        Repeater {
-            model: root.slides.length
-            Rectangle {
-                required property int index
-                width: index === root.currentSlide ? 26 : 6
-                height: 5
-                radius: height / 2
-                color: index === root.currentSlide ? DesktopTokens.focus : Qt.rgba(1, 1, 1, 0.32)
-                Behavior on width { NumberAnimation { duration: AppController.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic } }
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: root.currentSlide = index }
+        width: dotsRow.implicitWidth + DesktopTokens.px(20)
+        height: DesktopTokens.px(24)
+        radius: DesktopTokens.radiusPill
+        color: Qt.rgba(0, 0, 0, 0.38)
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, 0.14)
+
+        Row {
+            id: dotsRow
+            anchors.centerIn: parent
+            spacing: 6
+            Repeater {
+                model: root.slides.length
+                Rectangle {
+                    required property int index
+                    width: index === root.currentSlide ? 20 : 6
+                    height: 5
+                    radius: height / 2
+                    color: index === root.currentSlide ? DesktopTokens.focus : Qt.rgba(1, 1, 1, 0.45)
+                    Behavior on width { NumberAnimation { duration: AppController.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic } }
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: root.currentSlide = index }
+                }
             }
         }
     }

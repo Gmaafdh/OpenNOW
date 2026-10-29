@@ -87,11 +87,24 @@ Item {
 
     height: root.empty ? 0 : DesktopTokens.px(31) + tileHeight
 
-    Row {
+    // Accent tick anchors the shelf heading to the Halo language used by
+    // the shell header and settings sections.
+    Rectangle {
         x: 0
+        y: DesktopTokens.px(4)
+        width: DesktopTokens.px(3)
+        height: DesktopTokens.px(15)
+        radius: width / 2
+        color: DesktopTokens.focus
+        opacity: 0.9
+    }
+
+    Row {
+        id: headerRow
+        x: DesktopTokens.px(11)
         y: 0
-        width: Math.max(0, headerActions.visible ? headerActions.x - DesktopTokens.px(12) : parent.width)
-        height: DesktopTokens.px(20)
+        width: Math.max(0, headerActions.visible ? headerActions.x - x - DesktopTokens.px(12) : parent.width - x)
+        height: DesktopTokens.px(22)
         spacing: DesktopTokens.px(9)
 
         Text {
@@ -101,9 +114,9 @@ Item {
             text: root.title
             color: DesktopTokens.text
             font.family: Theme.displayFont
-            font.pixelSize: DesktopTokens.px(16)
+            font.pixelSize: DesktopTokens.px(18)
             font.weight: Font.Black
-            font.letterSpacing: -0.16
+            font.letterSpacing: -0.24
         }
 
         Text {
@@ -118,31 +131,42 @@ Item {
         }
     }
 
-    Row {
+    Rectangle {
         id: headerActions
         visible: root.showSeeAll
         anchors.right: parent.right
-        y: 1
-        height: DesktopTokens.px(18)
-        spacing: DesktopTokens.px(5)
+        y: 0
+        width: root.showSeeAll ? seeAllRow.implicitWidth + DesktopTokens.px(22) : 0
+        height: DesktopTokens.px(24)
+        radius: DesktopTokens.radiusPill
+        color: seeAllHover.hovered ? DesktopTokens.fillRaised : DesktopTokens.fill
+        border.width: 1
+        border.color: DesktopTokens.hairlineSoft
+        Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
 
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.seeAllText
-            color: DesktopTokens.textMuted
-            font.family: Theme.bodyFont
-            font.pixelSize: DesktopTokens.smallSize
-            font.weight: Font.Bold
-        }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: "›"
-            color: DesktopTokens.textMuted
-            font.family: Theme.bodyFont
-            font.pixelSize: DesktopTokens.bodySize
-            font.weight: Font.Bold
+        Row {
+            id: seeAllRow
+            anchors.centerIn: parent
+            spacing: DesktopTokens.px(6)
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.seeAllText
+                color: seeAllHover.hovered ? DesktopTokens.text : DesktopTokens.textBody
+                font.family: Theme.bodyFont
+                font.pixelSize: DesktopTokens.smallSize
+                font.weight: Font.Bold
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "›"
+                color: seeAllHover.hovered ? DesktopTokens.focus : DesktopTokens.textMuted
+                font.family: Theme.bodyFont
+                font.pixelSize: DesktopTokens.bodySize
+                font.weight: Font.Bold
+            }
         }
 
+        HoverHandler { id: seeAllHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: root.seeAllRequested() }
     }
 
