@@ -170,13 +170,13 @@ FocusScope {
 
     DesktopLibraryHero {
         id: libraryHero
-        x: 24
-        y: 16
-        width: parent.width - 48
+        x: DesktopTokens.px(26)
+        y: DesktopTokens.px(18)
+        width: parent.width - DesktopTokens.px(52)
         height: root.heroHeight
         games: root.heroGames
         opacity: root.revealAt(0)
-        scale: 0.94 + 0.06 * root.revealAt(0)
+        scale: 0.97 + 0.03 * root.revealAt(0)
         transformOrigin: Item.TopLeft
         onPlayRequested: game => {
             ShellStore.selectedGame = game
@@ -190,9 +190,9 @@ FocusScope {
 
     DesktopLibraryMarquee {
         id: libraryMarquee
-        x: 24
-        y: libraryHero.y + libraryHero.height + (root.compactCinema ? 18 : 28)
-        width: parent.width - 48
+        x: DesktopTokens.px(26)
+        y: libraryHero.y + libraryHero.height + (root.compactCinema ? DesktopTokens.px(38) : DesktopTokens.px(46))
+        width: parent.width - DesktopTokens.px(52)
         height: root.marqueeHeight
         games: root.marqueeGames
         opacity: root.revealAt(0.12)
@@ -203,90 +203,118 @@ FocusScope {
         }
     }
 
-    Text {
-        x: 30
-        y: libraryMarquee.y - 18
-        text: qsTr("ARTWORK IN MOTION  /  HOVER TO PAUSE")
-        color: DesktopTokens.textFaint
-        font.family: DesktopTokens.monoFont
-        font.pixelSize: DesktopTokens.tinySize
-        font.weight: Font.DemiBold
-        font.letterSpacing: 1.1
+    Row {
+        x: DesktopTokens.px(28)
+        y: libraryMarquee.y - DesktopTokens.px(19)
+        spacing: DesktopTokens.px(7)
         opacity: root.revealAt(0.12)
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: DesktopTokens.px(14)
+            height: 1
+            color: DesktopTokens.hairline
+        }
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: qsTr("Artwork in motion · hover to pause")
+            color: DesktopTokens.textFaint
+            font.family: DesktopTokens.monoFont
+            font.pixelSize: DesktopTokens.tinySize
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.9
+        }
     }
 
-    Rectangle {
+    DesktopSurface {
         id: collectionToolbar
-        x: 24
-        y: libraryMarquee.y + libraryMarquee.height + (root.compactCinema ? 12 : 18)
-        width: parent.width - 48
-        height: root.compactCinema ? 52 : 76
-        radius: 18
+        x: DesktopTokens.px(26)
+        y: libraryMarquee.y + libraryMarquee.height + (root.compactCinema ? DesktopTokens.px(16) : DesktopTokens.px(24))
+        width: parent.width - DesktopTokens.px(52)
+        height: root.compactCinema ? DesktopTokens.px(56) : DesktopTokens.px(58)
+        corner: DesktopTokens.radiusLg
         opacity: root.revealAt(0.22)
-        color: DesktopTokens.surface
-        border.width: 1
-        border.color: DesktopTokens.seam
         transform: Translate { y: 24 * (1 - root.revealAt(0.22)) }
+        bloom: false
 
+        // Accent tick: wayfinding for the current shelf.
         Rectangle {
-            x: 16
+            x: DesktopTokens.px(18)
             anchors.verticalCenter: parent.verticalCenter
-            width: 4
-            height: 42
-            radius: 2
-            color: DesktopTokens.focus
+            width: DesktopTokens.px(3)
+            height: DesktopTokens.px(26)
+            radius: width / 2
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0; color: DesktopTokens.focus }
+                GradientStop { position: 1; color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.20) }
+            }
         }
-        Column {
+        Row {
             id: collectionHeading
-            x: 36
+            x: DesktopTokens.px(32)
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.max(80, parent.width - collectionActions.width - 82)
-            spacing: 4
+            width: Math.max(80, parent.width - collectionActions.width - DesktopTokens.px(104))
+            spacing: DesktopTokens.px(10)
             Text {
-                width: parent.width
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth, parent.width - counter.implicitWidth - DesktopTokens.px(18))
                 text: root.collection ? root.collection.name : qsTr("Your library")
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 color: DesktopTokens.textHigh
                 font.family: DesktopTokens.displayFont
-                font.pixelSize: DesktopTokens.titleSize
+                font.pixelSize: DesktopTokens.px(20)
                 font.weight: Font.Black
+                font.letterSpacing: -0.4
             }
             Text {
-                width: parent.width
+                id: counter
+                anchors.verticalCenter: parent.verticalCenter
                 text: qsTr("%1 games in view").arg(root.games.length)
                 color: DesktopTokens.textMuted
                 elide: Text.ElideRight
                 font.family: DesktopTokens.monoFont
-                font.pixelSize: DesktopTokens.smallSize
+                font.pixelSize: DesktopTokens.tinySize
                 font.weight: Font.DemiBold
+                font.letterSpacing: 0.4
             }
         }
         Row {
             id: collectionActions
             anchors.right: parent.right
-            anchors.rightMargin: 14
+            anchors.rightMargin: DesktopTokens.px(14)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
+            spacing: DesktopTokens.px(6)
             DesktopButton {
+                size: "sm"
+                variant: "ghost"
                 text: qsTr("All games")
                 visible: root.collection !== null
                 onClicked: ShellStore.activeCollectionId = ""
             }
             DesktopButton {
+                size: "sm"
+                variant: "ghost"
                 text: qsTr("Rename")
                 visible: root.collection !== null
                 enabled: !ShellStore.collectionsBusy
                 onClicked: root.editCollection("rename", null)
             }
             DesktopButton {
+                size: "sm"
+                variant: "ghost"
                 text: qsTr("Delete")
+                danger: true
                 visible: root.collection !== null
                 enabled: !ShellStore.collectionsBusy
                 onClicked: root.editCollection("delete", null)
             }
             DesktopButton {
                 objectName: "libraryNewCollectionButton"
+                size: "sm"
+                variant: "glass"
+                cornerRadius: DesktopTokens.radiusPill
+                glyph: "desktop-plus.svg"
                 text: qsTr("New collection")
                 enabled: !ShellStore.collectionsBusy
                 onClicked: root.editCollection("create", null)
@@ -297,16 +325,16 @@ FocusScope {
     Rectangle {
         id: catalogNotice
         objectName: "libraryCompletenessNotice"
-        x: 24
-        y: collectionToolbar.y + collectionToolbar.height + (root.compactCinema ? 10 : 14)
-        width: parent.width - 48
-        height: visible ? Math.max(58, noticeText.implicitHeight + 24) : 0
+        x: DesktopTokens.px(26)
+        y: collectionToolbar.y + collectionToolbar.height + DesktopTokens.px(10)
+        width: parent.width - DesktopTokens.px(52)
+        height: visible ? Math.max(52, noticeText.implicitHeight + DesktopTokens.px(26)) : 0
         visible: root.activeFilter === "cloud-favorites" || (ShellStore.catalogSource === "account-library" && ShellStore.catalogState !== "ready")
         opacity: root.revealAt(0.30)
-        radius: 12
-        color: DesktopTokens.surface
+        radius: DesktopTokens.radiusMd
+        color: Qt.rgba(1, 1, 1, Theme.lightMode ? 0.55 : 0.04)
         transform: Translate { y: 26 * (1 - root.revealAt(0.30)) }
-        border.color: DesktopTokens.seam
+        border.color: DesktopTokens.hairlineSoft
         Text {
             id: noticeText
             x: 14; y: 12; width: parent.width - noticeAction.width - 42
@@ -330,10 +358,10 @@ FocusScope {
 
     Flow {
         id: filterRow
-        x: 24
-        y: catalogNotice.y + catalogNotice.height + (catalogNotice.visible ? 12 : 0)
-        width: parent.width - 48
-        spacing: 8
+        x: DesktopTokens.px(26)
+        y: catalogNotice.y + catalogNotice.height + DesktopTokens.px(catalogNotice.visible ? 12 : 4)
+        width: parent.width - DesktopTokens.px(52)
+        spacing: DesktopTokens.px(6)
         opacity: root.revealAt(0.38)
         transform: Translate { y: 30 * (1 - root.revealAt(0.38)) }
         Repeater {
@@ -352,9 +380,9 @@ FocusScope {
                 id: filterButton
                 required property var modelData
                 visible: modelData.key !== "hidden" || root.countHidden() > 0
-                height: 40
-                implicitHeight: 40
-                implicitWidth: Math.max(84, chipRow.implicitWidth + 28)
+                height: DesktopTokens.px(34)
+                implicitHeight: DesktopTokens.px(34)
+                implicitWidth: chipRow.implicitWidth + DesktopTokens.px(24)
                 padding: 0
                 leftPadding: 0
                 rightPadding: 0
@@ -363,21 +391,35 @@ FocusScope {
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true
                 clip: false
-                background: Rectangle {
-                    radius: 12
-                    color: root.activeFilter === filterButton.modelData.key
-                        ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.16)
-                        : (filterButton.hovered ? DesktopTokens.raised : "transparent")
-                    border.width: 1
-                    border.color: root.activeFilter === filterButton.modelData.key
-                        ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.62)
-                        : DesktopTokens.seam
-                    Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
-                    Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                background: Item {
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: DesktopTokens.radiusPill
+                        color: root.activeFilter === filterButton.modelData.key
+                            ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.18)
+                            : Qt.rgba(1, 1, 1, Theme.lightMode
+                                ? (filterButton.hovered ? 0.72 : 0.5)
+                                : (filterButton.hovered ? 0.10 : 0.05))
+                        border.width: 1
+                        border.color: root.activeFilter === filterButton.modelData.key
+                            ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.55)
+                            : DesktopTokens.hairline
+                        Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                        Behavior on border.color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -DesktopTokens.px(3)
+                        radius: DesktopTokens.radiusPill + DesktopTokens.px(3)
+                        color: "transparent"
+                        border.width: 2
+                        border.color: DesktopTokens.focus
+                        visible: filterButton.activeFocus
+                    }
                 }
                 contentItem: Item {
                     implicitWidth: chipRow.implicitWidth
-                    implicitHeight: 40
+                    implicitHeight: DesktopTokens.px(34)
                     Row {
                         id: chipRow
                         anchors.centerIn: parent
@@ -394,20 +436,29 @@ FocusScope {
                         Text {
                             text: filterButton.modelData.label
                             anchors.verticalCenter: parent.verticalCenter
-                            color: root.activeFilter === filterButton.modelData.key ? DesktopTokens.text : DesktopTokens.textMuted
+                            color: root.activeFilter === filterButton.modelData.key ? DesktopTokens.textHigh : DesktopTokens.textMuted
                             font.family: DesktopTokens.bodyFont
-                            font.pixelSize: 14
-                            font.weight: Font.Bold
+                            font.pixelSize: DesktopTokens.px(12.5)
+                            font.weight: root.activeFilter === filterButton.modelData.key ? Font.Bold : Font.Medium
                             verticalAlignment: Text.AlignVCenter
                         }
-                        Text {
-                            text: filterButton.modelData.count
+                        Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
-                            color: DesktopTokens.textFaint
-                            font.family: DesktopTokens.monoFont
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                            verticalAlignment: Text.AlignVCenter
+                            width: Math.max(DesktopTokens.px(18), countText.implicitWidth + DesktopTokens.px(9))
+                            height: DesktopTokens.px(17)
+                            radius: height / 2
+                            color: root.activeFilter === filterButton.modelData.key
+                                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.24)
+                                : Qt.rgba(1, 1, 1, Theme.lightMode ? 0.35 : 0.07)
+                            Text {
+                                id: countText
+                                anchors.centerIn: parent
+                                text: filterButton.modelData.count
+                                color: root.activeFilter === filterButton.modelData.key ? DesktopTokens.textHigh : DesktopTokens.textMuted
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: DesktopTokens.tinySize
+                                font.weight: Font.Bold
+                            }
                         }
                     }
                 }
@@ -416,21 +467,21 @@ FocusScope {
         }
         Button {
             objectName: "libraryIconGuide"
-            height: 40
-            implicitHeight: 40
-            implicitWidth: guideRow.implicitWidth + 28
+            height: DesktopTokens.px(34)
+            implicitHeight: DesktopTokens.px(34)
+            implicitWidth: guideRow.implicitWidth + DesktopTokens.px(24)
             padding: 0
             focusPolicy: Qt.NoFocus
             hoverEnabled: true
             background: Rectangle {
-                radius: 11
-                color: parent.hovered ? "#0FFFFFFF" : "transparent"
+                radius: DesktopTokens.radiusPill
+                color: parent.hovered ? Qt.rgba(1, 1, 1, Theme.lightMode ? 0.7 : 0.08) : "transparent"
                 border.width: 1
-                border.color: DesktopTokens.seam
+                border.color: DesktopTokens.hairlineSoft
             }
             contentItem: Item {
                 implicitWidth: guideRow.implicitWidth
-                implicitHeight: 40
+                implicitHeight: DesktopTokens.px(34)
                 Row {
                     id: guideRow
                     anchors.centerIn: parent
@@ -446,9 +497,9 @@ FocusScope {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("Icon guide")
-                        color: Theme.focus
+                        color: DesktopTokens.focus
                         font.family: DesktopTokens.bodyFont
-                        font.pixelSize: 14
+                        font.pixelSize: DesktopTokens.px(12.5)
                         font.weight: Font.Bold
                     }
                 }
@@ -461,12 +512,12 @@ FocusScope {
         anchors.right: parent.right
         anchors.rightMargin: 24
         anchors.verticalCenter: filterRow.verticalCenter
-        visible: filterRow.height <= 40 && root.width - 24 - libraryHint.implicitWidth > 40 + filterRow.childrenRect.width
+        visible: filterRow.height <= DesktopTokens.px(34) && root.width - DesktopTokens.px(26) - libraryHint.implicitWidth > DesktopTokens.px(40) + filterRow.childrenRect.width
         opacity: root.revealAt(0.38)
         text: qsTr("RIGHT-CLICK A GAME FOR ACTIONS")
         color: DesktopTokens.textFaint
         font.family: DesktopTokens.monoFont
-        font.pixelSize: 10
+        font.pixelSize: DesktopTokens.px(9)
         font.weight: Font.DemiBold
         font.letterSpacing: 0.7
     }
@@ -475,9 +526,9 @@ FocusScope {
         id: grid
         // The delegate keeps a six-pixel focus/scale gutter. Offset the view by
         // that gutter so the artwork remains on Paper's 24/64 alignment lane.
-        x: 18
-        y: filterRow.y + filterRow.height + (root.compactCinema ? 10 : 14)
-        width: parent.width - 36
+        x: DesktopTokens.px(21)
+        y: filterRow.y + filterRow.height + DesktopTokens.px(root.compactCinema ? 12 : 16)
+        width: parent.width - DesktopTokens.px(42)
         height: parent.height - y
         clip: true
         opacity: root.revealAt(0.46)

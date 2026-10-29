@@ -50,11 +50,11 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.liftedBottom
         width: launcherRow.implicitWidth + root.pillPadding * 2
-        height: 22
-        radius: 7
-        color: "#D90B0F1A"
+        height: 20
+        radius: 10
+        color: "#8C05080F"
         border.width: 1
-        border.color: "#24FFFFFF"
+        border.color: "#2EFFFFFF"
 
         Row {
             id: launcherRow
@@ -114,11 +114,11 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.liftedBottom
         width: featureRow.implicitWidth + root.pillPadding * 2
-        height: 22
-        radius: 7
-        color: "#D90B0F1A"
+        height: 20
+        radius: 10
+        color: "#8C05080F"
         border.width: 1
-        border.color: "#24FFFFFF"
+        border.color: "#2EFFFFFF"
 
         Row {
             id: featureRow

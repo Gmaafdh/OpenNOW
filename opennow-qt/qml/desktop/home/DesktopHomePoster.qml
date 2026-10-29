@@ -102,35 +102,6 @@ Item {
             Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
         }
 
-        // Feature pips on the top-left edge.
-        Row {
-            x: DesktopTokens.px(8)
-            y: DesktopTokens.px(8)
-            spacing: DesktopTokens.px(3)
-            visible: root.featureKeys.length > 0
-            Repeater {
-                model: root.featureKeys
-                delegate: Rectangle {
-                    id: pip
-                    required property string modelData
-                    width: DesktopTokens.px(18)
-                    height: width
-                    radius: width / 2
-                    color: Qt.rgba(0, 0, 0, 0.44)
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.14)
-                    Image {
-                        anchors.centerIn: parent
-                        width: DesktopTokens.px(10)
-                        height: width
-                        source: DesktopTokens.featureIconUrl(pip.modelData)
-                        sourceSize: Qt.size(24, 24)
-                        fillMode: Image.PreserveAspectFit
-                    }
-                }
-            }
-        }
-
         // Title deck, on the artwork.
         Column {
             x: DesktopTokens.px(10)

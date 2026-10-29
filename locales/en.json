@@ -1,4 +1,21 @@
 {
+  "desktopShell": {
+    "slidePosition": "%1 / %2",
+    "libraryPulse": "%1 games · %2 pinned",
+    "sidebarHomeDetail": "Library picks",
+    "sidebarLibraryDetail": "All your games",
+    "sidebarStoreDetail": "Browse GeForce NOW",
+    "sidebarFriendsDetail": "Play together",
+    "sidebarSettingsDetail": "Stream and app",
+    "discoverKicker": "Discover",
+    "collectionInMotion": "The collection, in motion",
+    "artworkInMotion": "Artwork in motion · hover to pause",
+    "openDetails": "Open details",
+    "readyToLaunch": "Ready to launch",
+    "switching": "SWITCHING",
+    "nextAdventure": "Your next adventure is waiting. Play something to see it here.",
+    "emptyLibrary": "No games in this view"
+  },
   "updatesPage": {
     "versionUpgrade": "%1  →  %2 · %3",
     "downloadAmount": "%1 of %2 MB",

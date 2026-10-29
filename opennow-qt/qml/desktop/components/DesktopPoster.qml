@@ -17,9 +17,11 @@ ItemDelegate {
     property real revealProgress: AppController.reducedMotion ? 1 : 0
     property real hoverMorph: 0
     property real pressMorph: 0
-    readonly property int artGutter: 5
-    readonly property int framePadding: 0
-    readonly property int artWidth: Math.max(1, tileWidth - 2 * artGutter)
+    // The library view sizes cells from this same 24 px artwork inset, so the
+    // artwork, frame gutter and information deck always share one geometry.
+    readonly property int artGutter: 6
+    readonly property int framePadding: 6
+    readonly property int artWidth: Math.max(1, tileWidth - 2 * (artGutter + framePadding))
     readonly property int artHeight: Math.max(1, Math.round(artWidth * 198 / 132))
     readonly property bool cardLifted: hovered || activeFocus
     onDownChanged: {
@@ -87,8 +89,8 @@ ItemDelegate {
 
         // Contact shadow: one soft offset layer, no live blur per delegate.
         Rectangle {
-            x: root.artGutter
-            y: root.artGutter + DesktopTokens.px(8)
+            x: art.x
+            y: art.y + DesktopTokens.px(8)
             width: root.artWidth
             height: root.artHeight
             radius: DesktopTokens.radiusMd + 2
@@ -98,8 +100,8 @@ ItemDelegate {
 
         RoundedArtwork {
             id: art
-            x: root.artGutter
-            y: root.artGutter
+            x: root.artGutter + root.framePadding
+            y: root.artGutter + root.framePadding
             width: root.artWidth
             height: root.artHeight
             artwork: DesktopTokens.artworkUrl(root.game, false)
@@ -164,41 +166,6 @@ ItemDelegate {
                 font.pixelSize: DesktopTokens.px(8)
                 font.weight: Font.Black
                 font.letterSpacing: 0.8
-            }
-        }
-
-        // Feature pips, bottom-left of the artwork.
-        Row {
-            x: art.x + DesktopTokens.px(9)
-            anchors.bottom: art.bottom
-            anchors.bottomMargin: DesktopTokens.px(9)
-            spacing: DesktopTokens.px(4)
-            visible: root.featureKeys.length > 0
-
-            Repeater {
-                model: root.featureKeys
-                delegate: Rectangle {
-                    id: featurePip
-                    required property string modelData
-                    width: DesktopTokens.px(20)
-                    height: width
-                    radius: width / 2
-                    color: Qt.rgba(0, 0, 0, 0.46)
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.16)
-                    Image {
-                        anchors.centerIn: parent
-                        width: DesktopTokens.px(11)
-                        height: width
-                        source: DesktopTokens.featureIconUrl(featurePip.modelData)
-                        sourceSize: Qt.size(24, 24)
-                        fillMode: Image.PreserveAspectFit
-                    }
-                    ToolTip.visible: pipHover.hovered
-                    ToolTip.text: DesktopTokens.featureTip(featurePip.modelData)
-                    ToolTip.delay: 320
-                    HoverHandler { id: pipHover }
-                }
             }
         }
 
