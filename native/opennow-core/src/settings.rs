@@ -583,8 +583,12 @@ impl SettingsStore {
             &["Nunito", "Segoe UI", "Arial", "Verdana"],
             "Nunito",
         );
-        if !matches!(self.values["profileImageSize"].as_i64(), Some(128 | 256 | 512)) {
-            self.values.insert("profileImageSize".to_owned(), json!(256));
+        if !matches!(
+            self.values["profileImageSize"].as_i64(),
+            Some(128 | 256 | 512)
+        ) {
+            self.values
+                .insert("profileImageSize".to_owned(), json!(256));
         }
         normalize_choice(
             &mut self.values,
@@ -872,7 +876,11 @@ fn normalize_accent(values: &mut Map<String, Value>) {
             .all(|byte| byte.is_ascii_hexdigit());
     values.insert(
         "appAccentColor".to_owned(),
-        Value::String(if custom { accent.to_ascii_lowercase() } else { "green".to_owned() }),
+        Value::String(if custom {
+            accent.to_ascii_lowercase()
+        } else {
+            "green".to_owned()
+        }),
     );
 }
 
@@ -2244,10 +2252,16 @@ mod tests {
         assert_eq!(saved["appAccentColor"], json!("#a1b2c3"));
         assert_eq!(saved["profileImageSize"], json!(512));
         assert_eq!(saved["customProfileImages"].as_object().unwrap().len(), 1);
-        assert_eq!(saved["customProfileImages"]["account-1"], json!(avatar_url.clone()));
+        assert_eq!(
+            saved["customProfileImages"]["account-1"],
+            json!(avatar_url.clone())
+        );
 
         let reloaded = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
-        assert_eq!(reloaded.all()["customProfileImages"], saved["customProfileImages"]);
+        assert_eq!(
+            reloaded.all()["customProfileImages"],
+            saved["customProfileImages"]
+        );
         store.set("appFontFamily", json!("Unknown Font")).unwrap();
         store.set("appAccentColor", json!("not-a-color")).unwrap();
         store.set("profileImageSize", json!(1024)).unwrap();
@@ -2263,7 +2277,10 @@ mod tests {
             .set("customProfileImages", Value::Object(avatars))
             .unwrap();
         assert_eq!(
-            store.all()["customProfileImages"].as_object().unwrap().len(),
+            store.all()["customProfileImages"]
+                .as_object()
+                .unwrap()
+                .len(),
             MAXIMUM_CUSTOM_PROFILE_IMAGES
         );
         store.set("customProfileImages", json!({})).unwrap();
