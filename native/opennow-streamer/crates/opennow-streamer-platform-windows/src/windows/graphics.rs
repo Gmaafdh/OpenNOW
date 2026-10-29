@@ -39,10 +39,9 @@ use ::windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
 use ::windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_ALPHA_MODE_IGNORE, DXGI_ALPHA_MODE_PREMULTIPLIED,
-    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_FORMAT, DXGI_FORMAT_AYUV,
-    DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R10G10B10A2_UNORM,
-    DXGI_FORMAT_Y410, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+    DXGI_ALPHA_MODE_IGNORE, DXGI_ALPHA_MODE_PREMULTIPLIED, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+    DXGI_FORMAT, DXGI_FORMAT_AYUV, DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_Y410, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 use ::windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_FEATURE_PRESENT_ALLOW_TEARING, DXGI_MWA_NO_ALT_ENTER, DXGI_PRESENT,
@@ -1105,9 +1104,13 @@ fn create_composition_swap_chain(
             .CreateVisual()
             .map_err(|error| error.to_string())?;
         let content: IUnknown = swap_chain.cast().map_err(|error| error.to_string())?;
-        visual.SetContent(&content).map_err(|error| error.to_string())?;
+        visual
+            .SetContent(&content)
+            .map_err(|error| error.to_string())?;
         target.SetRoot(&visual).map_err(|error| error.to_string())?;
-        composition_device.Commit().map_err(|error| error.to_string())?;
+        composition_device
+            .Commit()
+            .map_err(|error| error.to_string())?;
         finalize_swap_chain(
             swap_chain,
             flags,
@@ -1656,7 +1659,12 @@ mod tests {
                 .expect("create synthetic NV12 decoder surface");
         }
         graphics
-            .present(&texture.expect("D3D11 returned an NV12 surface"), 0, 0, 83_333)
+            .present(
+                &texture.expect("D3D11 returned an NV12 surface"),
+                0,
+                0,
+                83_333,
+            )
             .expect("present through DirectComposition");
         unsafe {
             let _ = DestroyWindow(hwnd);
