@@ -3,7 +3,10 @@ import OpenNOW
 
 QtObject {
     function check(ok, message) {
-        if (!ok) throw new Error("Theme settings: " + message)
+        if (!ok) {
+            console.error("Theme settings: " + message)
+            throw new Error("Theme settings: " + message)
+        }
     }
 
     function find(parent, name) {
