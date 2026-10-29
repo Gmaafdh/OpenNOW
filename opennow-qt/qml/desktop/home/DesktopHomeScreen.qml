@@ -209,7 +209,7 @@ FocusScope {
         id: contentFlick
         anchors.fill: parent
         contentWidth: width
-        contentHeight: Math.max(height, homeColumn.implicitHeight + 28)
+        contentHeight: Math.max(height, homeColumn.implicitHeight + DesktopTokens.px(40))
         clip: true
         interactive: true
         boundsBehavior: Flickable.StopAtBounds
@@ -219,15 +219,15 @@ FocusScope {
 
         Column {
             id: homeColumn
-            x: 24
-            y: 18
-            width: contentFlick.width - 48
-            spacing: 18
+            x: DesktopTokens.px(26)
+            y: DesktopTokens.px(20)
+            width: contentFlick.width - DesktopTokens.px(52)
+            spacing: DesktopTokens.px(30)
 
             Item {
                 id: heroRow
                 width: parent.width
-                height: Math.max(DesktopTokens.px(400), Math.min(DesktopTokens.px(440), Math.round(width * 0.38)))
+                height: Math.max(DesktopTokens.px(392), Math.min(DesktopTokens.px(436), Math.round(width * 0.37)))
 
                 DesktopHomeShowcase {
                     anchors.fill: parent
@@ -247,33 +247,21 @@ FocusScope {
             Item {
                 id: discoveryRail
                 width: parent.width
-                height: 124
+                height: DesktopTokens.px(150)
 
-                Text {
-                    text: qsTr("THE COLLECTION / IN MOTION")
-                    color: DesktopTokens.mint
-                    font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.microSize
-                    font.weight: Font.Bold
-                    font.letterSpacing: 1.2
-                }
-                Text {
-                    anchors.right: parent.right
-                    y: 1
-                    text: qsTr("OPEN LIBRARY  ›")
-                    color: openCollectionHover.hovered ? DesktopTokens.textHigh : DesktopTokens.textMuted
-                    font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.tinySize
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.8
-                    HoverHandler { id: openCollectionHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.routeRequested("library") }
+                DesktopSectionHeader {
+                    width: parent.width
+                    title: qsTr("The collection, in motion")
+                    kicker: qsTr("Discover")
+                    titleSize: DesktopTokens.px(18)
+                    actionText: qsTr("Open library")
+                    onActionClicked: root.routeRequested("library")
                 }
                 DesktopLibraryMarquee {
                     x: 0
-                    y: 30
+                    y: DesktopTokens.px(38)
                     width: parent.width
-                    height: 94
+                    height: DesktopTokens.px(104)
                     games: root.takeGames(root.games, 0, 10)
                     active: root.active
                     onGameRequested: game => root.openGame(game)
@@ -283,37 +271,43 @@ FocusScope {
             Item {
                 id: jumpRail
                 width: parent.width
-                height: 30 + root.homeTileHeight
-                Text { text: qsTr("Jump back in"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
+                height: DesktopTokens.px(38) + root.homeTileHeight
+
+                DesktopSectionHeader {
+                    id: jumpHeader
+                    width: parent.width
+                    title: qsTr("Jump back in")
+                    count: root.jumpGames.length
+                    actionText: root.games.length > 0 ? qsTr("%1 games").arg(root.games.length) : qsTr("See all")
+                    onActionClicked: root.routeRequested("library")
+                }
                 Row {
                     objectName: "desktopHomeIconGuide"
-                    anchors.right: seeJumpLabel.left; anchors.rightMargin: 16; y: 1
-                    spacing: 5
+                    x: Math.max(0, jumpHeader.actionLeftEdge - width - DesktopTokens.px(12))
+                    y: DesktopTokens.px(8)
+                    spacing: DesktopTokens.px(5)
                     Image {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 12; height: 12
+                        width: DesktopTokens.px(12)
+                        height: width
                         source: "qrc:/qt/qml/OpenNOW/res/icons/desktop-info.svg"
                         sourceSize: Qt.size(32, 32)
                     }
                     Text {
+                        anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("What the icons mean")
-                        color: iconGuideHover.hovered ? Qt.lighter(Theme.focus, 1.2) : Theme.focus
-                        font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
+                        color: iconGuideHover.hovered ? Qt.lighter(DesktopTokens.focus, 1.15) : DesktopTokens.textMuted
+                        font.family: DesktopTokens.bodyFont
+                        font.pixelSize: DesktopTokens.smallSize
+                        font.weight: Font.Bold
                     }
                     HoverHandler { id: iconGuideHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: AppController.showOverlay("desktop-icon-guide") }
                 }
-                Text {
-                    id: seeJumpLabel
-                    anchors.right: parent.right; y: 1
-                    text: root.games.length > 0 ? qsTr("See all %1  ›").arg(root.games.length) : qsTr("See all  ›")
-                    color: seeJump.hovered ? "#B8FFFFFF" : "#80FFFFFF"
-                    font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
-                    HoverHandler { id: seeJump; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.routeRequested("library") }
-                }
                 Row {
-                    y: 30; width: parent.width; spacing: root.railGap
+                    y: DesktopTokens.px(38)
+                    width: parent.width
+                    spacing: root.railGap
                     Repeater {
                         model: root.takeGames(root.jumpGames, 0, root.homeTileCount)
                         DesktopHomePoster {
@@ -334,18 +328,19 @@ FocusScope {
             Item {
                 id: playingRail
                 width: parent.width
-                height: 30 + root.homeTileHeight
-                Text { text: qsTr("Favourites"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
-                Text {
-                    anchors.right: parent.right; y: 1
-                    text: qsTr("See all  ›")
-                    color: seeFriends.hovered ? "#B8FFFFFF" : "#80FFFFFF"
-                    font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
-                    HoverHandler { id: seeFriends; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.routeRequested("library") }
+                height: DesktopTokens.px(38) + root.homeTileHeight
+
+                DesktopSectionHeader {
+                    width: parent.width
+                    title: qsTr("Favourites")
+                    actionText: qsTr("See all")
+                    actionGlyph: "desktop-star.svg"
+                    onActionClicked: root.routeRequested("library")
                 }
                 Row {
-                    y: 30; width: parent.width; spacing: root.railGap
+                    y: DesktopTokens.px(38)
+                    width: parent.width
+                    spacing: root.railGap
                     Repeater {
                         model: root.takeGames(root.favoriteGames, 0, root.homeTileCount)
                         DesktopHomePoster {
@@ -366,18 +361,19 @@ FocusScope {
             Item {
                 id: newRail
                 width: parent.width
-                height: 30 + root.homeTileHeight
-                Text { text: qsTr("New in your library"); color: "#FFFFFF"; font.family: Theme.displayFont; font.pixelSize: 16; font.weight: Font.Black; font.letterSpacing: -0.2 }
-                Text {
-                    anchors.right: parent.right; y: 1
-                    text: qsTr("See all  ›")
-                    color: seeNew.hovered ? "#B8FFFFFF" : "#80FFFFFF"
-                    font.family: Theme.bodyFont; font.pixelSize: 11; font.weight: Font.Bold
-                    HoverHandler { id: seeNew; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.routeRequested("library") }
+                height: DesktopTokens.px(38) + root.homeTileHeight
+
+                DesktopSectionHeader {
+                    width: parent.width
+                    title: qsTr("New in your library")
+                    actionText: qsTr("See all")
+                    actionGlyph: "desktop-nav-library.svg"
+                    onActionClicked: root.routeRequested("library")
                 }
                 Row {
-                    y: 30; width: parent.width; spacing: root.railGap
+                    y: DesktopTokens.px(38)
+                    width: parent.width
+                    spacing: root.railGap
                     Repeater {
                         model: root.takeGames(root.newGames, 0, root.homeTileCount)
                         DesktopHomePoster {
@@ -396,6 +392,7 @@ FocusScope {
             }
         }
     }
+
 
     Component.onCompleted: {
         root.focusZone = 0

@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import OpenNOW
 
-// A gallery card for the desktop library. The view supplies the cell geometry;
-// the label and focus contracts stay inside the same interaction gutter.
+// Gallery card for the desktop library. Artwork is the card: a single rounded
+// image, a bottom scrim, and a type deck underneath with no heavy frame. Focus
+// and reveal contracts stay inside the same interaction gutter.
 ItemDelegate {
     id: root
     property var game: null
@@ -16,9 +17,9 @@ ItemDelegate {
     property real revealProgress: AppController.reducedMotion ? 1 : 0
     property real hoverMorph: 0
     property real pressMorph: 0
-    readonly property int artGutter: 6
-    readonly property int framePadding: 6
-    readonly property int artWidth: Math.max(1, tileWidth - 2 * (artGutter + framePadding))
+    readonly property int artGutter: 5
+    readonly property int framePadding: 0
+    readonly property int artWidth: Math.max(1, tileWidth - 2 * artGutter)
     readonly property int artHeight: Math.max(1, Math.round(artWidth * 198 / 132))
     readonly property bool cardLifted: hovered || activeFocus
     onDownChanged: {
@@ -65,6 +66,8 @@ ItemDelegate {
         return ""
     }
     readonly property string primaryStoreIcon: DesktopTokens.storeIconUrl(primaryStore)
+    readonly property var featureKeys: DesktopTokens.gameFeatures(game)
+    readonly property bool favorite: game && ShellStore.isFavorite(game)
     signal contextRequested(real sceneX, real sceneY)
     Accessible.name: root.title
     Accessible.description: labels.summary
@@ -82,96 +85,72 @@ ItemDelegate {
         transform: Translate { y: DesktopTokens.px(16) * (1 - root.revealProgress) - DesktopTokens.px(5) * root.hoverMorph }
         transformOrigin: Item.Center
 
-        // Two inexpensive offset surfaces create depth without a live blur on
-        // every delegate in a large library grid.
+        // Contact shadow: one soft offset layer, no live blur per delegate.
         Rectangle {
-            x: root.artGutter + 1
-            y: root.artGutter + DesktopTokens.px(7)
-            width: root.tileWidth - root.artGutter * 2 - 2
-            height: root.tileHeight - root.artGutter * 2 - DesktopTokens.px(5)
-            radius: DesktopTokens.px(20)
-            color: Theme.lightMode ? "#24445A78" : "#70000000"
-            opacity: 0.55 + 0.25 * root.hoverMorph
-        }
-        Rectangle {
-            x: root.artGutter + 3
-            y: root.artGutter + DesktopTokens.px(3)
-            width: root.tileWidth - root.artGutter * 2 - 6
-            height: root.tileHeight - root.artGutter * 2 - DesktopTokens.px(2)
-            radius: DesktopTokens.px(19)
-            color: Theme.lightMode ? "#18445A78" : "#48FFFFFF"
-            opacity: Theme.lightMode ? 0.8 : 0.16
-        }
-        Rectangle {
-            id: cardFrame
             x: root.artGutter
-            y: root.artGutter
-            width: root.tileWidth - root.artGutter * 2
-            height: root.tileHeight - root.artGutter * 2
-            radius: DesktopTokens.px(18 + 4 * root.hoverMorph)
-            color: Theme.lightMode ? "#F0F3F8" : "#D9141D2B"
-            gradient: Gradient {
-                GradientStop { position: 0; color: Theme.lightMode ? "#F8FAFD" : "#F0253145" }
-                GradientStop { position: 0.34; color: Theme.lightMode ? "#EDF2F8" : "#E6172232" }
-                GradientStop { position: 1; color: Theme.lightMode ? "#E2E9F2" : "#F0101724" }
-            }
-            border.width: 1
-            border.color: root.cardLifted
-                ? Qt.rgba(DesktopTokens.mint.r, DesktopTokens.mint.g, DesktopTokens.mint.b, 0.68)
-                : DesktopTokens.seamSoft
-            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
+            y: root.artGutter + DesktopTokens.px(8)
+            width: root.artWidth
+            height: root.artHeight
+            radius: DesktopTokens.radiusMd + 2
+            color: Theme.lightMode ? "#1F1E293B" : "#80000000"
+            opacity: 0.5 + 0.3 * root.hoverMorph
         }
 
         RoundedArtwork {
             id: art
-            x: root.artGutter + root.framePadding
-            y: root.artGutter + root.framePadding
+            x: root.artGutter
+            y: root.artGutter
             width: root.artWidth
             height: root.artHeight
             artwork: DesktopTokens.artworkUrl(root.game, false)
-            cornerRadius: DesktopTokens.px(14 + 4 * root.hoverMorph)
-            scrimStart: root.showPlay ? 0.42 : 0.68 - 0.22 * root.hoverMorph
+            cornerRadius: DesktopTokens.radiusMd + 2
+            scrimStart: 1
             fallbackColor: "#1A2232"
         }
 
-        // A quiet lower shade keeps the hover action readable without hiding
-        // the artwork or adding decorative objects on top of it.
+        // Bottom shade inside the artwork: seats the hover action and the
+        // store badge without hiding the key art.
         Rectangle {
             x: art.x
             y: art.y
             width: art.width
             height: art.height
             radius: art.cornerRadius
-            opacity: 0.42 + 0.28 * root.hoverMorph
             gradient: Gradient {
-                GradientStop { position: 0.38; color: "transparent" }
-                GradientStop { position: 1; color: "#B80B1220" }
+                GradientStop { position: 0.44; color: "transparent" }
+                GradientStop { position: 1; color: "#CC070B14" }
             }
         }
+        // Hairline that turns accent when the card is lifted.
         Rectangle {
-            x: art.x + 1
-            y: art.y + 1
-            width: art.width - 2
-            height: 1
-            color: "#44FFFFFF"
-            opacity: 0.65
+            x: art.x
+            y: art.y
+            width: art.width
+            height: art.height
+            radius: art.cornerRadius
+            color: "transparent"
+            border.width: root.cardLifted ? 2 : 1
+            border.color: root.cardLifted
+                ? DesktopTokens.focus
+                : (Theme.lightMode ? "#1F0B0F1A" : "#2BFFFFFF")
+            Behavior on border.color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
         }
 
+        // Store badge, top-left.
         Rectangle {
-            x: art.x + 10
-            y: art.y + 10
-            width: root.primaryStoreIcon !== "" ? 30 : 44
-            height: 26
-            radius: 8
-            color: "#E60B1220"
+            x: art.x + DesktopTokens.px(9)
+            y: art.y + DesktopTokens.px(9)
+            width: root.primaryStoreIcon !== "" ? DesktopTokens.px(26) : DesktopTokens.px(40)
+            height: DesktopTokens.px(23)
+            radius: DesktopTokens.radiusPill
+            color: Qt.rgba(0, 0, 0, 0.46)
             border.width: 1
-            border.color: root.cardLifted ? "#66FFFFFF" : "#38FFFFFF"
-            Behavior on border.color { ColorAnimation { duration: 160 } }
+            border.color: Qt.rgba(1, 1, 1, 0.16)
             Image {
                 anchors.centerIn: parent
                 visible: root.primaryStoreIcon !== ""
-                width: 16
-                height: 16
+                width: DesktopTokens.px(14)
+                height: width
                 source: root.primaryStoreIcon
                 sourceSize: Qt.size(32, 32)
                 fillMode: Image.PreserveAspectFit
@@ -182,107 +161,106 @@ ItemDelegate {
                 text: "GFN"
                 color: DesktopTokens.mint
                 font.family: DesktopTokens.monoFont
-                font.pixelSize: DesktopTokens.tinySize
+                font.pixelSize: DesktopTokens.px(8)
                 font.weight: Font.Black
-                font.letterSpacing: 1
+                font.letterSpacing: 0.8
             }
         }
+
+        // Feature pips, bottom-left of the artwork.
+        Row {
+            x: art.x + DesktopTokens.px(9)
+            anchors.bottom: art.bottom
+            anchors.bottomMargin: DesktopTokens.px(9)
+            spacing: DesktopTokens.px(4)
+            visible: root.featureKeys.length > 0
+
+            Repeater {
+                model: root.featureKeys
+                delegate: Rectangle {
+                    id: featurePip
+                    required property string modelData
+                    width: DesktopTokens.px(20)
+                    height: width
+                    radius: width / 2
+                    color: Qt.rgba(0, 0, 0, 0.46)
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.16)
+                    Image {
+                        anchors.centerIn: parent
+                        width: DesktopTokens.px(11)
+                        height: width
+                        source: DesktopTokens.featureIconUrl(featurePip.modelData)
+                        sourceSize: Qt.size(24, 24)
+                        fillMode: Image.PreserveAspectFit
+                    }
+                    ToolTip.visible: pipHover.hovered
+                    ToolTip.text: DesktopTokens.featureTip(featurePip.modelData)
+                    ToolTip.delay: 320
+                    HoverHandler { id: pipHover }
+                }
+            }
+        }
+
+        // Favourite marker, top-right.
         Rectangle {
             anchors.right: art.right
-            anchors.rightMargin: 10
-            y: art.y + 10
-            width: 24
-            height: 24
-            radius: 12
-            visible: root.game && ShellStore.isFavorite(root.game)
-                && !ShellStore.gameLockedByMembership(root.game)
-            color: "#D90B1220"
-            border.width: 1
-            border.color: "#48FFFFFF"
+            anchors.rightMargin: DesktopTokens.px(9)
+            y: art.y + DesktopTokens.px(9)
+            width: DesktopTokens.px(22)
+            height: width
+            radius: width / 2
+            visible: root.favorite && !ShellStore.gameLockedByMembership(root.game)
+            color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.86)
             DesktopGlyph {
                 anchors.centerIn: parent
-                width: 13
-                height: 13
+                width: DesktopTokens.px(11)
+                height: width
                 icon: "desktop-star.svg"
             }
         }
 
-        Rectangle {
-            x: art.x - DesktopTokens.cardOutlinePad
-            y: art.y - DesktopTokens.cardOutlinePad
-            width: art.width + DesktopTokens.cardOutlinePad * 2
-            height: art.height + DesktopTokens.cardOutlinePad * 2
-            radius: DesktopTokens.px(16 + 4 * root.hoverMorph)
-            color: "transparent"
-            border.width: root.cardLifted ? 2 : 1
-            border.color: root.cardLifted ? DesktopTokens.mint : DesktopTokens.cardOutlineIdle
-            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
-        }
-
         DesktopPosterOverlay {
             id: posterOverlay
-            x: art.x + 9
+            x: art.x + DesktopTokens.px(9)
             anchors.bottom: art.bottom
-            anchors.bottomMargin: DesktopTokens.px(12)
-            width: Math.max(0, art.width - 18)
+            anchors.bottomMargin: DesktopTokens.px(10)
+            width: Math.max(0, art.width - DesktopTokens.px(18))
             game: root.game
-            visible: root.cardLifted
+            visible: root.cardLifted && root.showPlay
         }
         DesktopGameLabels {
             id: labels
-            x: art.x + 8
-            y: art.y + 8
-            width: Math.max(1, art.width - 16)
-            height: Math.max(1, art.height - 16)
+            x: art.x + DesktopTokens.px(8)
+            y: art.y + DesktopTokens.px(8)
+            width: Math.max(1, art.width - DesktopTokens.px(16))
+            height: Math.max(1, art.height - DesktopTokens.px(16))
             game: root.game
-            liftedBottom: posterOverlay.visible ? posterOverlay.height + 10 : 0
+            liftedBottom: posterOverlay.visible ? posterOverlay.height + DesktopTokens.px(10) : 0
         }
 
-        Rectangle {
-            id: infoDeck
-            visible: root.showTitle
-            x: art.x
-            y: art.y + art.height + 6
-            width: art.width
-            height: Math.max(0, root.tileHeight - y - 12)
-            radius: 12
-            color: Theme.lightMode ? "#E8EDF4" : "#901B2636"
-            border.width: 1
-            border.color: root.cardLifted ? "#48FFFFFF" : DesktopTokens.seamSoft
-            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
-            Rectangle {
-                x: 10
-                y: 0
-                width: DesktopTokens.px(34)
-                height: 2
-                radius: 1
-                color: DesktopTokens.mint
-                opacity: root.cardLifted ? 0.95 : 0.32
-                Behavior on opacity { NumberAnimation { duration: 180 } }
-            }
-        }
+        // Type deck: title, publisher, then a live meta line.
         Column {
             id: titleColumn
             visible: root.showTitle
-            x: art.x + 10
-            y: art.y + art.height + 14
-            width: art.width - 20
-            height: Math.max(0, root.tileHeight - y - 10)
-            spacing: DesktopTokens.px(4)
+            x: art.x + DesktopTokens.px(3)
+            y: art.y + art.height + DesktopTokens.px(11)
+            width: art.width - DesktopTokens.px(6)
+            height: Math.max(0, root.tileHeight - y - DesktopTokens.px(8))
+            spacing: DesktopTokens.px(3)
 
             Text {
                 width: parent.width
-                height: DesktopTokens.px(34)
                 text: root.title
                 textFormat: Text.PlainText
-                color: DesktopTokens.textHigh
+                color: root.cardLifted ? DesktopTokens.textHigh : DesktopTokens.textBody
                 elide: Text.ElideRight
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: DesktopTokens.captionSize
                 font.weight: Font.Bold
-                verticalAlignment: Text.AlignTop
+                lineHeight: 1.12
             }
             Text {
                 width: parent.width
@@ -293,37 +271,37 @@ ItemDelegate {
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: DesktopTokens.smallSize
             }
-            Item {
+            Row {
                 width: parent.width
                 height: DesktopTokens.px(18)
+                spacing: DesktopTokens.px(5)
                 Rectangle {
-                    anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    width: DesktopTokens.px(6)
+                    width: DesktopTokens.px(5)
                     height: width
                     radius: width / 2
                     color: root.cardLifted ? DesktopTokens.mint : DesktopTokens.green
-                    opacity: root.cardLifted ? 1 : 0.65
+                    opacity: root.cardLifted ? 1 : 0.7
                 }
                 Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: DesktopTokens.px(11)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Math.max(0, parent.width - DesktopTokens.px(33))
+                    width: Math.max(0, parent.width - DesktopTokens.px(22))
                     text: root.game && root.game.price ? String(root.game.price) : qsTr("Ready to play")
                     color: root.cardLifted ? DesktopTokens.mint : DesktopTokens.textMuted
                     elide: Text.ElideRight
                     font.family: DesktopTokens.monoFont
                     font.pixelSize: DesktopTokens.microSize
                     font.weight: Font.DemiBold
+                    font.letterSpacing: 0.3
                 }
                 DesktopGlyph {
-                    anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    width: DesktopTokens.px(14)
+                    width: DesktopTokens.px(11)
                     height: width
                     visible: root.cardLifted
-                    icon: "desktop-play.svg"
+                    opacity: 0.9
+                    rotation: -90
+                    icon: "desktop-chevron-down.svg"
                 }
             }
         }
@@ -367,7 +345,7 @@ ItemDelegate {
         id: morphAnimation
         target: root
         property: "hoverMorph"
-        duration: 260
+        duration: 240
         easing.type: Easing.OutCubic
     }
     Component.onCompleted: if (!AppController.reducedMotion) revealAnimation.start()

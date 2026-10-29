@@ -75,36 +75,84 @@ FocusScope {
         width: root.width - root.contentInset
         height: root.height
 
-        Rectangle {
+        // Halo header: a frosted strip with one hairline, a display title and a
+        // command-grade search field. Nothing is boxed twice.
+        Item {
             id: header
-            width: parent.width; height: root.headerHeight
+            width: parent.width
+            height: root.headerHeight
             readonly property real availableWidth: Math.max(0, width - DesktopTokens.px(48))
-            color: DesktopTokens.topBar
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesktopTokens.seam }
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0
+                        color: Qt.rgba(DesktopTokens.shell.r, DesktopTokens.shell.g, DesktopTokens.shell.b,
+                                       Theme.lightMode ? 0.92 : 0.80)
+                    }
+                    GradientStop {
+                        position: 1
+                        color: Qt.rgba(DesktopTokens.shell.r, DesktopTokens.shell.g, DesktopTokens.shell.b,
+                                       Theme.lightMode ? 0.74 : 0.52)
+                    }
+                }
+            }
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: DesktopTokens.hairline
+            }
+
             Item {
                 id: heading
                 objectName: "desktopHeaderHeading"
-                x: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(0, (search.visible ? search.x : activeSessionButton.visible ? activeSessionButton.x : parent.width - DesktopTokens.px(14)) - x - DesktopTokens.px(10))
+                x: DesktopTokens.px(24)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(0, (search.visible ? search.x : activeSessionButton.visible ? activeSessionButton.x : parent.width - DesktopTokens.px(14)) - x - DesktopTokens.px(12))
                 height: headerTitle.implicitHeight
+
+                Rectangle {
+                    // Accent tick before the page title: wayfinding, not decoration.
+                    width: DesktopTokens.px(3)
+                    height: Math.min(DesktopTokens.px(22), headerTitle.implicitHeight)
+                    radius: width / 2
+                    x: -DesktopTokens.px(13)
+                    anchors.verticalCenter: parent.verticalCenter
+                    gradient: Gradient {
+                        orientation: Gradient.Vertical
+                        GradientStop { position: 0; color: DesktopTokens.focus }
+                        GradientStop { position: 1; color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.15) }
+                    }
+                }
+
                 Text {
                     id: headerTitle
                     width: Math.min(implicitWidth, parent.width)
-                    text: root.title; elide: Text.ElideRight
-                    color: DesktopTokens.text; font.family: DesktopTokens.displayFont
-                    font.pixelSize: root.settingsPage ? DesktopTokens.px(22) : DesktopTokens.titleSize
-                    font.weight: Font.Black; font.letterSpacing: -0.4
+                    text: root.title
+                    elide: Text.ElideRight
+                    color: DesktopTokens.text
+                    font.family: DesktopTokens.displayFont
+                    font.pixelSize: root.settingsPage ? DesktopTokens.px(21) : DesktopTokens.px(24)
+                    font.weight: Font.Black
+                    font.letterSpacing: -0.5
                 }
                 Text {
                     x: headerTitle.width + DesktopTokens.px(10)
                     width: Math.max(0, parent.width - x)
-                    visible: width >= DesktopTokens.px(90)
+                    visible: width >= DesktopTokens.px(80)
                     anchors.baseline: headerTitle.baseline
-                    text: root.subtitle; elide: Text.ElideRight
-                    color: DesktopTokens.textMuted; font.family: DesktopTokens.monoFont
-                    font.pixelSize: DesktopTokens.captionSize; font.weight: Font.DemiBold; font.letterSpacing: 0.45
+                    text: root.subtitle
+                    elide: Text.ElideRight
+                    color: DesktopTokens.textMuted
+                    font.family: DesktopTokens.bodyFont
+                    font.pixelSize: DesktopTokens.captionSize
+                    font.weight: Font.Medium
+                    font.letterSpacing: 0.1
                 }
             }
+
             TextField {
                 id: search
                 objectName: "desktopHeaderSearch"
@@ -112,20 +160,50 @@ FocusScope {
                 anchors.right: activeSessionButton.visible ? activeSessionButton.left : parent.right
                 anchors.rightMargin: activeSessionButton.visible ? DesktopTokens.px(10) : DesktopTokens.px(24)
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(DesktopTokens.px(300), header.availableWidth * (activeSessionButton.visible ? 0.34 : 0.48))
-                height: DesktopTokens.controlHeight
-                leftPadding: DesktopTokens.px(34); rightPadding: DesktopTokens.px(34); topPadding: 0; bottomPadding: 0
-                color: DesktopTokens.textBody
+                width: Math.min(DesktopTokens.px(320), header.availableWidth * (activeSessionButton.visible ? 0.34 : 0.48))
+                height: DesktopTokens.px(36)
+                leftPadding: DesktopTokens.px(36)
+                rightPadding: DesktopTokens.px(38)
+                topPadding: 0
+                bottomPadding: 0
+                color: DesktopTokens.textHigh
                 placeholderText: root.route === "friends" ? qsTr("Search friends") : root.route === "store" ? qsTr("Search the store") : qsTr("Search your library")
-                placeholderTextColor: DesktopTokens.textMuted
-                font.family: DesktopTokens.bodyFont; font.pixelSize: DesktopTokens.bodySize; font.weight: Font.DemiBold
+                placeholderTextColor: DesktopTokens.textFaint
+                font.family: DesktopTokens.bodyFont
+                font.pixelSize: DesktopTokens.captionSize
+                font.weight: Font.Medium
                 text: root.searchText
                 selectByMouse: true
-                background: Rectangle { radius: DesktopTokens.px(10); color: Theme.lightMode ? DesktopTokens.raised : "#59000000"; border.width: 1; border.color: DesktopTokens.seam }
+                verticalAlignment: TextInput.AlignVCenter
+                background: Rectangle {
+                    radius: DesktopTokens.radiusPill
+                    color: search.activeFocus
+                        ? Qt.rgba(1, 1, 1, Theme.lightMode ? 0.92 : 0.10)
+                        : Qt.rgba(1, 1, 1, Theme.lightMode ? 0.62 : 0.055)
+                    border.width: 1
+                    border.color: search.activeFocus ? DesktopTokens.focus : DesktopTokens.hairline
+                    Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                    Behavior on border.color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                }
                 onTextChanged: root.searchText = text
-                DesktopGlyph { x: DesktopTokens.px(11); anchors.verticalCenter: parent.verticalCenter; width: DesktopTokens.px(14); height: DesktopTokens.px(14); icon: "desktop-search.svg" }
-                KeyboardGlyph { anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(8); anchors.verticalCenter: parent.verticalCenter; shortcut: "/"; keySize: DesktopTokens.px(20); ink: DesktopTokens.textBody }
+                DesktopGlyph {
+                    x: DesktopTokens.px(13)
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: DesktopTokens.px(14)
+                    height: width
+                    icon: "desktop-search.svg"
+                    opacity: 0.75
+                }
+                KeyboardGlyph {
+                    anchors.right: parent.right
+                    anchors.rightMargin: DesktopTokens.px(12)
+                    anchors.verticalCenter: parent.verticalCenter
+                    shortcut: "/"
+                    keySize: DesktopTokens.px(18)
+                    ink: DesktopTokens.textMuted
+                }
             }
+
             DesktopButton {
                 id: activeSessionButton
                 objectName: "desktopHeaderResume"
@@ -134,8 +212,9 @@ FocusScope {
                 anchors.rightMargin: DesktopTokens.px(24)
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.min(DesktopTokens.px(260), header.availableWidth * (search.visible ? 0.34 : 0.48))
-                height: DesktopTokens.controlHeight
-                primary: true
+                height: DesktopTokens.px(36)
+                variant: "primary"
+                cornerRadius: DesktopTokens.radiusPill
                 glyph: "desktop-play.svg"
                 glyphSize: DesktopTokens.px(11)
                 font.pixelSize: DesktopTokens.smallSize
@@ -145,8 +224,10 @@ FocusScope {
                 ToolTip.delay: 700
                 contentItem: Item {
                     DesktopGlyph {
-                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                        width: activeSessionButton.glyphSize; height: width
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: activeSessionButton.glyphSize
+                        height: width
                         icon: "desktop-play.svg"
                     }
                     Text {
@@ -155,7 +236,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         text: activeSessionButton.text
                         elide: Text.ElideRight
-                        color: "#0A0D14"
+                        color: DesktopTokens.inkOnAccent
                         font: activeSessionButton.font
                     }
                 }
@@ -171,16 +252,41 @@ FocusScope {
             clip: true
         }
 
-        Rectangle {
+        // Status rail: input hints on the left, live telemetry on the right.
+        Item {
             id: footer
             anchors.bottom: parent.bottom
             width: parent.width
             height: root.footerHeight
-            color: DesktopTokens.statusBar
             clip: true
             readonly property bool compactHints: true
-            Rectangle { width: parent.width; height: 1; color: DesktopTokens.seam }
-            Row { id: shortcutHints; x: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter; spacing: DesktopTokens.px(footer.compactHints ? 8 : 16)
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0
+                        color: Qt.rgba(DesktopTokens.shell.r, DesktopTokens.shell.g, DesktopTokens.shell.b,
+                                       Theme.lightMode ? 0.72 : 0.44)
+                    }
+                    GradientStop {
+                        position: 1
+                        color: Qt.rgba(DesktopTokens.shell.r, DesktopTokens.shell.g, DesktopTokens.shell.b,
+                                       Theme.lightMode ? 0.90 : 0.78)
+                    }
+                }
+            }
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: DesktopTokens.hairlineSoft
+            }
+
+            Row {
+                id: shortcutHints
+                x: DesktopTokens.px(24)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: DesktopTokens.px(footer.compactHints ? 8 : 16)
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Arrows"); shortcut: "Arrows"; label: qsTr("Move") }
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Enter"); shortcut: "Enter"; label: qsTr("Play") }
                 DesktopKeyHint { compact: footer.compactHints; keyText: "/"; label: qsTr("Search") }
@@ -202,22 +308,64 @@ FocusScope {
                     onSettingsRequested: root.routeRequested("settings-updates")
                 }
             }
-            Row { id: sessionStatus; anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter; spacing: DesktopTokens.px(10)
+            Row {
+                id: sessionStatus
+                anchors.right: parent.right
+                anchors.rightMargin: DesktopTokens.px(24)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: DesktopTokens.px(12)
                 visible: footer.width - DesktopTokens.px(24) - implicitWidth
                     - (updateChip.visible ? updateChip.width + DesktopTokens.px(14) : 0)
                     >= shortcutHints.x + shortcutHints.width + DesktopTokens.px(16)
                 Text {
                     objectName: "desktopRemainingPlaytime"
                     visible: text !== ""
+                    anchors.verticalCenter: parent.verticalCenter
                     text: ShellStore.remainingPlaytimeHours === null ? ""
                         : qsTr("%1 h playtime left").arg(ShellStore.remainingPlaytimeHours.toFixed(1)).toUpperCase()
-                    color: DesktopTokens.textBody; font.family: DesktopTokens.monoFont; font.pixelSize: DesktopTokens.px(11); font.weight: Font.DemiBold; font.letterSpacing: 0.4
+                    color: DesktopTokens.textBody
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.px(10)
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.5
                 }
-                Rectangle { visible: ShellStore.remainingPlaytimeHours !== null; width: 1; height: DesktopTokens.px(16); color: DesktopTokens.seam }
-                Rectangle { width: 8; height: 8; radius: 4; color: DesktopTokens.green }
-                Text { text: root.regionStatusText(); color: DesktopTokens.textBody; font.family: DesktopTokens.monoFont; font.pixelSize: DesktopTokens.px(11); font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
-                Rectangle { width: 1; height: DesktopTokens.px(16); color: DesktopTokens.seam }
-                Text { text: String(ShellStore.settings.themePack || "nocturne").toUpperCase() + qsTr(" THEME"); color: DesktopTokens.textMuted; font.family: DesktopTokens.monoFont; font.pixelSize: DesktopTokens.px(11); font.weight: Font.DemiBold; font.letterSpacing: 0.4 }
+                Rectangle { visible: ShellStore.remainingPlaytimeHours !== null; width: 1; height: DesktopTokens.px(14); color: DesktopTokens.hairline }
+                Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: DesktopTokens.px(6)
+                    Rectangle {
+                        width: DesktopTokens.px(6)
+                        height: width
+                        radius: width / 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: DesktopTokens.green
+                        SequentialAnimation on opacity {
+                            running: !AppController.reducedMotion
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.45; duration: 1600; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: 1; duration: 1600; easing.type: Easing.InOutQuad }
+                        }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.regionStatusText()
+                        color: DesktopTokens.textBody
+                        font.family: DesktopTokens.monoFont
+                        font.pixelSize: DesktopTokens.px(10)
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.5
+                    }
+                }
+                Rectangle { width: 1; height: DesktopTokens.px(14); color: DesktopTokens.hairline }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(ShellStore.settings.themePack || "nocturne").toUpperCase() + qsTr(" THEME")
+                    color: DesktopTokens.textMuted
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.px(10)
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.5
+                }
             }
         }
     }

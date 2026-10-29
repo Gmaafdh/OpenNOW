@@ -278,6 +278,9 @@ qt_add_qml_module(opennow-qt
         qml/desktop/components/DesktopBackdrop.qml
         qml/desktop/components/DesktopBrandLockup.qml
         qml/desktop/components/DesktopButton.qml
+        qml/desktop/components/DesktopChip.qml
+        qml/desktop/components/DesktopSectionHeader.qml
+        qml/desktop/components/DesktopSurface.qml
         qml/desktop/components/DesktopGameModal.qml
         qml/desktop/components/DesktopGameDlss.qml
         qml/desktop/components/DesktopGameDlssChips.qml

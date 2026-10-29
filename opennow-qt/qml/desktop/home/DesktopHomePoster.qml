@@ -3,6 +3,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import OpenNOW
 
+// Home rail tile. Artwork only: the title lives on the art in a bottom scrim so
+// the rail reads as one continuous strip of posters rather than a wall of boxes.
 Item {
     id: root
 
@@ -16,6 +18,7 @@ Item {
     readonly property string artwork: DesktopTokens.artworkUrl(game, false)
     readonly property int infoHeight: DesktopTokens.px(46)
     readonly property int artHeight: Math.max(1, tileHeight - infoHeight)
+    readonly property var featureKeys: DesktopTokens.gameFeatures(game)
     property real hoverMorph: highlighted && !AppController.reducedMotion ? 1 : 0
 
     signal activated()
@@ -39,101 +42,138 @@ Item {
     Accessible.description: labels.summary
 
     Behavior on hoverMorph {
-        NumberAnimation { duration: AppController.reducedMotion ? 0 : 260; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: AppController.reducedMotion ? 0 : 240; easing.type: Easing.OutCubic }
     }
 
     Item {
         id: visual
         anchors.fill: parent
         scale: 1 + 0.03 * root.hoverMorph
-        transform: Translate { y: -DesktopTokens.px(4) * root.hoverMorph }
+        transform: Translate { y: -DesktopTokens.px(6) * root.hoverMorph }
         transformOrigin: Item.Center
 
+        // Contact shadow under the card.
         Rectangle {
-            x: 1
-            y: DesktopTokens.px(6)
-            width: parent.width - 2
-            height: parent.height - DesktopTokens.px(4)
-            radius: DesktopTokens.px(16)
-            color: Theme.lightMode ? "#28445A78" : "#80000000"
-            opacity: 0.55 + 0.25 * root.hoverMorph
+            x: 2
+            y: DesktopTokens.px(7)
+            width: parent.width - 4
+            height: parent.height - DesktopTokens.px(9)
+            radius: DesktopTokens.radiusMd + 2
+            color: Theme.lightMode ? "#241E293B" : "#8C000000"
+            opacity: 0.5 + 0.3 * root.hoverMorph
         }
+
         RoundedArtwork {
             id: artworkView
             x: 0
             y: 0
             width: root.tileWidth
-            height: root.artHeight
+            height: root.height - DesktopTokens.px(2)
             artwork: root.artwork
             fallbackColor: "#171B27"
-            cornerRadius: 12 + 4 * root.hoverMorph
-            scrimStart: root.highlighted ? 0.38 : 0.86
+            cornerRadius: DesktopTokens.radiusMd + 2
+            scrimStart: 1
         }
 
+        // Bottom scrim carries the title and meta over the art.
         Rectangle {
-            id: infoDeck
             x: 0
-            y: root.artHeight - 1
-            width: root.tileWidth
-            height: root.infoHeight + 1
-            radius: 12 + 4 * root.hoverMorph
-            color: Theme.lightMode ? "#F0F3F8" : "#E617202D"
-            border.width: 1
-            border.color: root.highlighted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
-            Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
-
-            Rectangle {
-                x: 1
-                y: 0
-                width: parent.width - 2
-                height: 12
-                color: parent.color
-            }
-            Text {
-                x: 10
-                y: 7
-                width: parent.width - 20
-                text: root.game ? String(root.game.title || qsTr("Game")) : qsTr("Game")
-                color: DesktopTokens.textHigh
-                font.family: DesktopTokens.bodyFont
-                font.pixelSize: DesktopTokens.captionSize
-                font.weight: Font.Bold
-                elide: Text.ElideRight
-            }
-            Text {
-                x: 10
-                y: 27
-                width: parent.width - 48
-                text: root.game && (root.game.publisherName || root.game.publisher)
-                    ? String(root.game.publisherName || root.game.publisher)
-                    : qsTr("Ready to stream")
-                color: DesktopTokens.textMuted
-                font.family: DesktopTokens.bodyFont
-                font.pixelSize: DesktopTokens.tinySize
-                elide: Text.ElideRight
-            }
-            Rectangle {
-                anchors.right: parent.right
-                anchors.rightMargin: 10
-                anchors.verticalCenter: parent.verticalCenter
-                width: 6 + 8 * root.hoverMorph
-                height: 6 + 8 * root.hoverMorph
-                radius: width / 2
-                color: DesktopTokens.focus
-                opacity: 0.45 + 0.55 * root.hoverMorph
+            y: 0
+            width: artworkView.width
+            height: artworkView.height
+            radius: artworkView.cornerRadius
+            gradient: Gradient {
+                GradientStop { position: 0.42; color: "transparent" }
+                GradientStop { position: 0.76; color: "#73070B14" }
+                GradientStop { position: 1; color: "#E6070B14" }
             }
         }
 
+        // Focus / hover ring, drawn outside the art so nothing is cropped.
         Rectangle {
             x: -DesktopTokens.cardOutlinePad
             y: -DesktopTokens.cardOutlinePad
-            width: root.tileWidth + DesktopTokens.cardOutlinePad * 2
-            height: root.tileHeight + DesktopTokens.cardOutlinePad * 2
-            radius: 14 + 4 * root.hoverMorph
+            width: artworkView.width + DesktopTokens.cardOutlinePad * 2
+            height: artworkView.height + DesktopTokens.cardOutlinePad * 2
+            radius: artworkView.cornerRadius + DesktopTokens.cardOutlinePad
             color: "transparent"
             border.width: root.highlighted ? 2 : 1
-            border.color: root.highlighted ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
+            border.color: root.highlighted ? DesktopTokens.focus : (Theme.lightMode ? "#1A0B0F1A" : "#24FFFFFF")
             Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
+        }
+
+        // Feature pips on the top-left edge.
+        Row {
+            x: DesktopTokens.px(8)
+            y: DesktopTokens.px(8)
+            spacing: DesktopTokens.px(3)
+            visible: root.featureKeys.length > 0
+            Repeater {
+                model: root.featureKeys
+                delegate: Rectangle {
+                    id: pip
+                    required property string modelData
+                    width: DesktopTokens.px(18)
+                    height: width
+                    radius: width / 2
+                    color: Qt.rgba(0, 0, 0, 0.44)
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.14)
+                    Image {
+                        anchors.centerIn: parent
+                        width: DesktopTokens.px(10)
+                        height: width
+                        source: DesktopTokens.featureIconUrl(pip.modelData)
+                        sourceSize: Qt.size(24, 24)
+                        fillMode: Image.PreserveAspectFit
+                    }
+                }
+            }
+        }
+
+        // Title deck, on the artwork.
+        Column {
+            x: DesktopTokens.px(10)
+            anchors.bottom: artworkView.bottom
+            anchors.bottomMargin: DesktopTokens.px(10)
+            width: artworkView.width - DesktopTokens.px(20)
+            spacing: DesktopTokens.px(1)
+
+            Text {
+                width: parent.width
+                text: root.game ? String(root.game.title || qsTr("Game")) : qsTr("Game")
+                color: "#FFFFFF"
+                font.family: DesktopTokens.bodyFont
+                font.pixelSize: DesktopTokens.px(12)
+                font.weight: Font.Bold
+                elide: Text.ElideRight
+                maximumLineCount: 1
+                style: Text.Raised
+                styleColor: "#80000000"
+            }
+            Row {
+                spacing: DesktopTokens.px(5)
+                width: parent.width
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: DesktopTokens.px(4)
+                    height: width
+                    radius: width / 2
+                    color: DesktopTokens.focus
+                    opacity: 0.65 + 0.35 * root.hoverMorph
+                }
+                Text {
+                    width: Math.max(0, parent.width - DesktopTokens.px(10))
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.game && (root.game.publisherName || root.game.publisher)
+                        ? String(root.game.publisherName || root.game.publisher)
+                        : qsTr("Ready to stream")
+                    color: Qt.rgba(1, 1, 1, 0.68)
+                    font.family: DesktopTokens.bodyFont
+                    font.pixelSize: DesktopTokens.tinySize
+                    elide: Text.ElideRight
+                }
+            }
         }
 
         DesktopPosterOverlay {
@@ -141,21 +181,21 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: artworkView.bottom
-            anchors.leftMargin: 9
-            anchors.rightMargin: 9
-            anchors.bottomMargin: 12
+            anchors.leftMargin: DesktopTokens.px(9)
+            anchors.rightMargin: DesktopTokens.px(9)
+            anchors.bottomMargin: DesktopTokens.px(46)
             game: root.game
             visible: root.highlighted
         }
 
         DesktopGameLabels {
             id: labels
-            x: 8
-            y: 8
-            width: root.tileWidth - 16
-            height: root.artHeight - 16
+            x: DesktopTokens.px(8)
+            y: DesktopTokens.px(8)
+            width: root.tileWidth - DesktopTokens.px(16)
+            height: artworkView.height - DesktopTokens.px(16)
             game: root.game
-            liftedBottom: overlay.visible ? overlay.height + 10 : 0
+            liftedBottom: overlay.visible ? overlay.height + DesktopTokens.px(46) : 0
         }
     }
 
@@ -163,7 +203,7 @@ Item {
         x: 0
         y: 0
         width: root.tileWidth
-        height: root.artHeight
+        height: artworkView.height
         game: root.game
         requested: root.highlighted
     }

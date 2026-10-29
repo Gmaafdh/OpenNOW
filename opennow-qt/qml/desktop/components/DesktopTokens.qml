@@ -39,6 +39,36 @@ QtObject {
     readonly property color textMuted: Theme.textMuted
     readonly property color textFaint: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.32) : "#52FFFFFF"
     readonly property color focus: Theme.focus
+
+    // ---- Halo surfaces -------------------------------------------------------
+    // The shell is built from translucent layers rather than outlined boxes:
+    // a soft fill, a brighter top edge (light falls from above), and a hairline
+    // that only appears where two layers meet.
+    readonly property color fill: Theme.lightMode ? Qt.rgba(1, 1, 1, 0.74) : Qt.rgba(1, 1, 1, 0.055)
+    readonly property color fillRaised: Theme.lightMode ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(1, 1, 1, 0.085)
+    readonly property color fillSunken: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.045) : Qt.rgba(0, 0, 0, 0.26)
+    readonly property color fillTop: Theme.lightMode ? Qt.rgba(0, 0, 0, 0.015) : Qt.rgba(1, 1, 1, 0.055)
+    readonly property color fillBottom: Theme.lightMode ? Qt.rgba(0, 0, 0, 0.04) : Qt.rgba(0, 0, 0, 0.10)
+    readonly property color hairline: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.10) : Qt.rgba(1, 1, 1, 0.10)
+    readonly property color hairlineSoft: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.06) : Qt.rgba(1, 1, 1, 0.06)
+    readonly property color hairlineStrong: Theme.lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.16) : Qt.rgba(1, 1, 1, 0.18)
+    readonly property color sheen: Theme.lightMode ? Qt.rgba(1, 1, 1, 0.9) : Qt.rgba(1, 1, 1, 0.22)
+    readonly property color glow: Qt.rgba(focus.r, focus.g, focus.b, Theme.lightMode ? 0.20 : 0.30)
+    readonly property color glowSoft: Qt.rgba(focus.r, focus.g, focus.b, Theme.lightMode ? 0.12 : 0.16)
+    readonly property color inkOnAccent: Theme.focusText
+    readonly property color shadow: Qt.rgba(0, 0, 0, Theme.lightMode ? 0.14 : 0.45)
+
+    // Radius ramp. Cards, controls, and pills come from one scale so nested
+    // corners stay concentric (inner radius = outer - inset).
+    readonly property int radiusXs: px(8)
+    readonly property int radiusSm: px(11)
+    readonly property int radiusMd: px(14)
+    readonly property int radiusLg: px(20)
+    readonly property int radiusXl: px(28)
+    readonly property int radiusPill: px(999)
+    readonly property int controlHeightSm: px(30)
+    readonly property int controlHeightLg: px(46)
+    readonly property int railGutter: px(14)
     readonly property color green: "#1DB954"
     readonly property color mint: "#56E6A5"
     readonly property color amber: "#FFD166"
@@ -87,6 +117,14 @@ QtObject {
     readonly property int quickDuration: AppController.reducedMotion ? 0 : 120
     readonly property int motionDuration: AppController.reducedMotion ? 0 : 220
     readonly property int revealDuration: AppController.reducedMotion ? 0 : 320
+    // Motion ramp for the shell: feedback is instant, surfaces glide.
+    readonly property int pressDuration: AppController.reducedMotion ? 0 : 90
+    readonly property int hoverDuration: AppController.reducedMotion ? 0 : 160
+    readonly property int morphDuration: AppController.reducedMotion ? 0 : 320
+    readonly property var easeSleek: [0.22, 1.0, 0.36, 1.0]
+    readonly property int displaySize: px(42)
+    readonly property int heroTitleSize: px(34)
+    readonly property int sectionSize: px(19)
     readonly property real cardHoverScale: 1.025
     readonly property int cardOutlinePad: 2
     readonly property color cardOutlineIdle: Theme.seam
