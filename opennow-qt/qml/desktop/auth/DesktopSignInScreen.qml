@@ -244,10 +244,12 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.min(DesktopTokens.px(440), parent.width)
                 height: cardColumn.implicitHeight + 2
-                radius: DesktopTokens.px(22)
-                color: Theme.lightMode ? Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.92) : "#D10B0F1A"
+                radius: DesktopTokens.radiusXl
+                color: Theme.lightMode
+                    ? Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.96)
+                    : Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.95)
                 border.width: 1
-                border.color: root.cardSeam
+                border.color: DesktopTokens.hairlineStrong
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     shadowEnabled: true
@@ -255,6 +257,23 @@ FocusScope {
                     shadowBlur: 1
                     shadowVerticalOffset: DesktopTokens.px(24)
                     shadowHorizontalOffset: 0
+                }
+
+                // Accent hairline along the top edge ties sign-in to the shell.
+                Rectangle {
+                    z: 2
+                    anchors.top: parent.top
+                    anchors.topMargin: 1
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - DesktopTokens.px(120)
+                    height: DesktopTokens.px(2)
+                    radius: 1
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "transparent" }
+                        GradientStop { position: 0.5; color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.7) }
+                        GradientStop { position: 1; color: "transparent" }
+                    }
                 }
 
                 Column {
@@ -353,10 +372,15 @@ FocusScope {
                             padding: 0
                             Accessible.name: String(root.selectedProvider.displayName || "NVIDIA · GeForce NOW")
                             background: Rectangle {
-                                radius: DesktopTokens.px(12)
-                                color: providerButton.hovered || providerButton.activeFocus ? DesktopTokens.raisedStrong : DesktopTokens.raised
+                                radius: DesktopTokens.radiusMd
+                                color: providerButton.hovered || providerButton.activeFocus
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.12)
+                                    : DesktopTokens.fill
                                 border.width: 1
-                                border.color: providerButton.activeFocus ? DesktopTokens.focus : root.cardSeam
+                                border.color: providerButton.activeFocus
+                                    ? DesktopTokens.focus
+                                    : providerButton.hovered ? DesktopTokens.hairlineStrong : DesktopTokens.hairlineSoft
+                                Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
                             }
                             contentItem: Item {
                                 Rectangle {
