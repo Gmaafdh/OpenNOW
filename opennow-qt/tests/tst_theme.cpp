@@ -21,10 +21,7 @@ public:
     Q_INVOKABLE bool streamOverlayBlocksGameplayInput(const QString &overlay) const { return !overlay.isEmpty(); }
     Q_INVOKABLE QString customProfileImageFor(const QVariant &account) const
     {
-        const auto userId = account.toMap().value(QStringLiteral("userId")).toString();
-        const auto key = userId.isEmpty() ? QStringLiteral("guest") : userId;
-        return value(QStringLiteral("settings")).toMap()
-            .value(QStringLiteral("customProfileImages")).toMap().value(key).toString();
+        return account.toMap().value(QStringLiteral("customProfileImage")).toString();
     }
 
 signals:

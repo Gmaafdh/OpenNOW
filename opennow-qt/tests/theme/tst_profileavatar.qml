@@ -29,7 +29,7 @@ TestCase {
     }
 
     function init() {
-        ShellStore.settings = {customProfileImages:{}}
+        avatar.account = {userId:"profile-avatar-test",displayName:"Maya"}
     }
 
     function test_initialFallback() {
@@ -44,9 +44,7 @@ TestCase {
 
     function test_localImageAndRemovalFallback() {
         const source = Qt.resolvedUrl("../../res/brand/opennow-mark.png")
-        const images = {}
-        images["profile-avatar-test"] = source
-        ShellStore.settings = {customProfileImages:images}
+        avatar.account = {userId:"profile-avatar-test",displayName:"Maya",customProfileImage:source}
         const image = namedChild(avatar, "profileAvatarImage")
         const fallback = namedChild(avatar, "profileAvatarFallback")
         compare(avatar.customImage, source)
@@ -55,7 +53,7 @@ TestCase {
         compare(avatar.imageReady, true)
         compare(fallback.visible, false)
 
-        ShellStore.settings = {customProfileImages:{}}
+        avatar.account = {userId:"profile-avatar-test",displayName:"Maya"}
         compare(avatar.customImage, "")
         compare(image.source.toString(), "")
         tryCompare(fallback, "visible", true, 1000)
