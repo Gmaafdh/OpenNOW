@@ -200,9 +200,6 @@ jobs:
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^qml-theme-settings-' --output-on-failure --verbose --no-tests=error \
-            2>&1 | tee ci-logs/customization-acceptance.log || status=$?
-          ctest --test-dir build/opennow-qt-release -C Release \
             -R '^opennow-nativestreamruntime-tests$' \
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/nativestreamruntime-tests.log || status=$?
@@ -272,6 +269,27 @@ jobs:
             --smoke-collections --smoke-width 1440 --reduced-motion \
             2>&1 | tee ci-logs/library-collections-acceptance.log || status=$?
           if [[ $status -ne 0 ]]; then exit "$status"; fi
+          customizationScreenshot=$(cygpath -w "$PWD/ci-logs/customization.png")
+          for width in 960 1440; do
+            for mode in dark light; do
+              customizationArgs=(--smoke-test --allow-multiple-instances --desktop
+                --route settings-themes --smoke-theme-settings --reduced-motion
+                --smoke-width "$width")
+              if [[ "$mode" == light ]]; then
+                customizationArgs+=(--smoke-light-theme)
+              fi
+              if [[ "$width" == 1440 && "$mode" == dark ]]; then
+                customizationArgs+=(--screenshot "$customizationScreenshot")
+              fi
+              "$smoke" "${customizationArgs[@]}" \
+                2>&1 | tee "ci-logs/customization-${width}-${mode}.log" || status=$?
+              if [[ $status -ne 0 ]]; then exit "$status"; fi
+            done
+          done
+          if [[ ! -s ci-logs/customization.png ]]; then
+            echo "::error::The Customization acceptance did not create customization.png"
+            exit 1
+          fi
           accountScreenshot=$(cygpath -w "$PWD/ci-logs/account-picker-motion.png")
           "$smoke" \
             --smoke-test --allow-multiple-instances --desktop --route accounts \
