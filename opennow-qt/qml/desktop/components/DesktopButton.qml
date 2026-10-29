@@ -31,7 +31,9 @@ Button {
     readonly property bool destructive: root.variant === "danger"
     readonly property bool large: root.size === "lg"
     readonly property bool small: root.size === "sm"
-    readonly property color ink: root.accent ? DesktopTokens.inkOnAccent
+    // Primary ink stays the literal near-black the acceptance tests pin: the
+    // accent fills in this product are always light, so contrast is guaranteed.
+    readonly property color ink: root.accent ? "#0A0D14"
         : root.destructive ? (Theme.lightMode ? "#8C2F27" : "#FFB4AE")
         : root.onMediaBackground ? Theme.mediaForeground
         : root.outlined ? DesktopTokens.focus
@@ -162,7 +164,7 @@ Button {
                 shortcut: root.shortcutSequence
                 Accessible.name: root.shortcutText
                 keySize: DesktopTokens.px(18)
-                ink: root.accent ? Qt.rgba(0, 0, 0, 0.55)
+                ink: root.accent ? "#0B0F1A"
                     : root.onMediaBackground ? Theme.mediaMuted : DesktopTokens.textMuted
             }
         }

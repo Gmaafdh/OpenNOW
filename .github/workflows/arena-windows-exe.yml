@@ -222,6 +222,13 @@ jobs:
           if [[ -f "$results" ]]; then
             cp "$results" ci-logs/theme-results.log
             cat "$results"
+            # Surface failing Qt Quick assertions as check annotations: the job
+            # log itself is not always retrievable from the API.
+            while IFS= read -r line; do
+              if [[ "$line" == *"FAIL!"* ]]; then
+                echo "::error title=Qt theme test::${line}"
+              fi
+            done < "$results"
           fi
           exit "$status"
 
