@@ -323,15 +323,27 @@ FocusScope {
                                     color: root.friendsAvailable ? DesktopTokens.mint : DesktopTokens.textFaint
                                 }
 
+                                // Selected route marker: a small accent dot reads
+                                // as a state, where an edge bar reads as a
+                                // scrollbar.
                                 Rectangle {
                                     anchors.right: parent.right
-                                    anchors.rightMargin: DesktopTokens.px(8)
+                                    anchors.rightMargin: DesktopTokens.px(13)
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: navButton.selected && !root.compact
-                                    width: DesktopTokens.px(3)
-                                    height: DesktopTokens.px(16)
+                                    width: DesktopTokens.px(6)
+                                    height: width
                                     radius: width / 2
                                     color: DesktopTokens.focus
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: DesktopTokens.px(12)
+                                        height: width
+                                        radius: width / 2
+                                        z: -1
+                                        color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g,
+                                                       DesktopTokens.focus.b, 0.22)
+                                    }
                                 }
                             }
 

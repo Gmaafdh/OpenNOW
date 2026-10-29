@@ -452,10 +452,9 @@ FocusScope {
                         contentItem: Item {
                             RoundedArtwork {
                                 x: 8; anchors.verticalCenter: parent.verticalCenter
-                                cornerRadius: DesktopTokens.px(10)
                                 width: 40; height: 40
                                 artwork: gameRow.modelData.imageUrl || gameRow.modelData.heroImageUrl || ""
-                                cornerRadius: 8
+                                cornerRadius: DesktopTokens.px(9)
                                 fallbackColor: Theme.glassStrong
                             }
                             Column {
