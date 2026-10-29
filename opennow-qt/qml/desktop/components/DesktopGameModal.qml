@@ -231,7 +231,10 @@ FocusScope {
         transformOrigin: Item.Center
         anchors.centerIn: parent
         width: root.dialogWidth; height: root.dialogHeight
-        radius: DesktopTokens.px(24); color: Theme.shell; border.width: 1; border.color: Theme.seam
+        radius: DesktopTokens.radiusXl
+        color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.97)
+        border.width: 1
+        border.color: DesktopTokens.hairlineStrong
         // Swallow blank-space clicks inside the modal, never activate its scrim.
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
         Flickable {
@@ -256,7 +259,7 @@ FocusScope {
                         Math.min(DesktopTokens.px(280), root.maximumDialogHeight * 0.38))
                     RoundedArtwork {
                         anchors.fill: parent; artwork: DesktopTokens.artworkUrl(root.game, true)
-                        cornerRadius: DesktopTokens.px(24); scrimStart: 0.1; fallbackColor: Theme.shell
+                        cornerRadius: DesktopTokens.radiusXl; scrimStart: 0.1; fallbackColor: Theme.shell
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -271,22 +274,40 @@ FocusScope {
                         width: parent.width - DesktopTokens.px(48); spacing: DesktopTokens.px(8)
                         Text {
                             width: parent.width; text: root.game ? String(root.game.title || qsTr("Game")) : qsTr("Game")
-                            color: Theme.label; font.family: Theme.displayFont
-                            font.pixelSize: DesktopTokens.px(34); font.weight: Font.Black
+                            color: "#FFFFFF"; font.family: Theme.displayFont
+                            font.pixelSize: DesktopTokens.px(36); font.weight: Font.Black
+                            font.letterSpacing: -1.1
+                            style: Text.Raised; styleColor: "#66000000"
                             wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
                         }
                         Flow {
                             width: parent.width; spacing: DesktopTokens.px(10)
                             Rectangle {
-                                width: Math.min(parent.width, ownedText.implicitWidth + DesktopTokens.px(20))
-                                height: DesktopTokens.px(26); radius: DesktopTokens.px(13); color: DesktopTokens.raisedStrong
-                                Text { id: ownedText; anchors.centerIn: parent; width: parent.width - DesktopTokens.px(20); elide: Text.ElideRight; text: root.ownershipText; color: Theme.label; font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.captionSize; font.weight: Font.Bold }
+                                width: Math.min(parent.width, ownedText.implicitWidth + DesktopTokens.px(24))
+                                height: DesktopTokens.px(26)
+                                radius: DesktopTokens.radiusPill
+                                color: Qt.rgba(1, 1, 1, 0.16)
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, 0.24)
+                                Text {
+                                    id: ownedText
+                                    anchors.centerIn: parent
+                                    width: parent.width - DesktopTokens.px(22)
+                                    elide: Text.ElideRight
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: root.ownershipText
+                                    color: "#FFFFFF"
+                                    font.family: Theme.monoFont
+                                    font.pixelSize: DesktopTokens.tinySize
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 0.7
+                                }
                             }
                             Text {
                                 width: Math.min(implicitWidth, parent.width)
                                 wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
                                 text: [root.game && (root.game.publisherName || root.game.publisher) || "", root.lastPlayedText, root.game && root.game.hoursPlayed ? qsTr("%1 h").arg(root.game.hoursPlayed) : ""].filter(Boolean).join(" · ")
-                                color: Theme.textMuted; font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.captionSize
+                                color: Qt.rgba(1, 1, 1, 0.74); font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.captionSize
                             }
                         }
                         DesktopGameDlssChips {

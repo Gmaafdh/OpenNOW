@@ -76,11 +76,13 @@ Item {
         }
         DesktopGlyph {
             anchors.verticalCenter: parent.verticalCenter
-            width: DesktopTokens.px(10)
+            width: DesktopTokens.px(11)
             height: width
-            rotation: -90
-            icon: "desktop-chevron-down.svg"
+            rotation: root.actionGlyph === "" ? -90 : 0
+            icon: root.actionGlyph === "" ? "desktop-chevron-down.svg" : root.actionGlyph
+            active: root.actionGlyph !== ""
             opacity: actionHover.hovered ? 1 : 0.6
+            Behavior on opacity { NumberAnimation { duration: DesktopTokens.hoverDuration } }
         }
         HoverHandler {
             id: actionHover

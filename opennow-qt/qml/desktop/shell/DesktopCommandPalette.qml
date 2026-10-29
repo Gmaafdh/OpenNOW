@@ -321,26 +321,52 @@ FocusScope {
         y: root.panelTop
         width: root.panelWidth
         height: root.panelHeight
-        radius: 18
-        color: DesktopTokens.shell
+        radius: DesktopTokens.radiusXl
+        color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.965)
         border.width: 1
-        border.color: DesktopTokens.seam
+        border.color: DesktopTokens.hairlineStrong
         TapHandler { }
+
+        // Accent glow along the top edge: the palette reads as the app's
+        // quickest surface, not a generic dialog.
+        Rectangle {
+            z: 2
+            anchors.top: parent.top
+            anchors.topMargin: 1
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width - DesktopTokens.px(80)
+            height: DesktopTokens.px(2)
+            radius: 1
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: "transparent" }
+                GradientStop { position: 0.5; color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.75) }
+                GradientStop { position: 1; color: "transparent" }
+            }
+        }
 
         Item {
             x: 0; y: 0; width: parent.width; height: 58
-            DesktopGlyph { x: 18; anchors.verticalCenter: parent.verticalCenter; width: 17; height: 17; icon: "desktop-search.svg" }
+            DesktopGlyph {
+                x: 20
+                anchors.verticalCenter: parent.verticalCenter
+                width: 17
+                height: width
+                icon: "desktop-search.svg"
+                opacity: 0.8
+            }
             TextField {
                 id: field
                 objectName: "commandSearchField"
-                x: 47; y: 12; width: parent.width - 47 - 90; height: 34
+                x: 50; y: 12; width: parent.width - 50 - 92; height: 34
                 leftPadding: 0; rightPadding: 0
                 placeholderText: qsTr("Search games, commands and settings…")
                 placeholderTextColor: DesktopTokens.textMuted
                 color: DesktopTokens.text
                 font.family: DesktopTokens.bodyFont
-                font.pixelSize: DesktopTokens.headingSize
-                font.weight: Font.DemiBold
+                font.pixelSize: DesktopTokens.px(16)
+                font.weight: Font.Medium
+                verticalAlignment: TextInput.AlignVCenter
                 background: Item {}
                 onTextChanged: root.query = text
                 onAccepted: root.acceptCurrent()
@@ -351,7 +377,12 @@ FocusScope {
                 shortcut: "Ctrl K"; keySize: 22; ink: DesktopTokens.textMuted
                 Accessible.name: qsTr("Ctrl K")
             }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#14FFFFFF" }
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: DesktopTokens.hairlineSoft
+            }
         }
 
         Flickable {
@@ -408,14 +439,20 @@ FocusScope {
                         height: 56
                         padding: 0
                         background: Rectangle {
-                            radius: 11
-                            color: gameRow.current ? DesktopTokens.raisedStrong : (gameRow.hovered ? DesktopTokens.raised : "transparent")
-                            border.width: gameRow.current ? 1 : 0
-                            border.color: DesktopTokens.seam
+                            radius: DesktopTokens.radiusSm + 1
+                            color: gameRow.current
+                                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.14)
+                                : (gameRow.hovered ? DesktopTokens.fill : "transparent")
+                            border.width: 1
+                            border.color: gameRow.current
+                                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.32)
+                                : "transparent"
+                            Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
                         }
                         contentItem: Item {
                             RoundedArtwork {
                                 x: 8; anchors.verticalCenter: parent.verticalCenter
+                                cornerRadius: DesktopTokens.px(10)
                                 width: 40; height: 40
                                 artwork: gameRow.modelData.imageUrl || gameRow.modelData.heroImageUrl || ""
                                 cornerRadius: 8
@@ -490,19 +527,37 @@ FocusScope {
                         height: 40
                         padding: 0
                         background: Rectangle {
-                            radius: 11
-                            color: command.current ? DesktopTokens.raisedStrong : (command.hovered ? DesktopTokens.raised : "transparent")
-                            border.width: command.current ? 1 : 0
-                            border.color: DesktopTokens.seam
+                            radius: DesktopTokens.radiusSm + 1
+                            color: command.current
+                                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.14)
+                                : (command.hovered ? DesktopTokens.fill : "transparent")
+                            border.width: 1
+                            border.color: command.current
+                                ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.32)
+                                : "transparent"
+                            Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
                         }
                         contentItem: Item {
                             Rectangle {
-                                x: 8; anchors.verticalCenter: parent.verticalCenter
-                                width: 20; height: 20; radius: 7; color: DesktopTokens.raised
-                                DesktopGlyph { anchors.centerIn: parent; width: 13; height: 13; icon: command.modelData.icon }
+                                x: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 24
+                                height: width
+                                radius: DesktopTokens.radiusXs
+                                color: command.current
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.22)
+                                    : DesktopTokens.fill
+                                border.width: 1
+                                border.color: DesktopTokens.hairlineSoft
+                                DesktopGlyph {
+                                    anchors.centerIn: parent
+                                    width: 13
+                                    height: width
+                                    icon: command.modelData.icon
+                                }
                             }
                             Text {
-                                x: 40; anchors.verticalCenter: parent.verticalCenter
+                                x: 42; anchors.verticalCenter: parent.verticalCenter
                                 text: command.modelData.name
                                 color: DesktopTokens.textHigh
                                 font.family: DesktopTokens.bodyFont
@@ -538,8 +593,8 @@ FocusScope {
 
         Rectangle {
             x: 0; y: parent.height - 42; width: parent.width; height: 42
-            color: Theme.lightMode ? DesktopTokens.raised : "#8A04060A"
-            Rectangle { width: parent.width; height: 1; color: "#14FFFFFF" }
+            color: Theme.lightMode ? DesktopTokens.raised : "#6604060A"
+            Rectangle { width: parent.width; height: 1; color: DesktopTokens.hairlineSoft }
             Row {
                 x: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 15
                 DesktopKeyHint { keyText: qsTr("↑ ↓"); shortcut: "↑ ↓"; label: qsTr("Move") }
