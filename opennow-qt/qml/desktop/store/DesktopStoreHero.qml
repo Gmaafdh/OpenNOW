@@ -102,10 +102,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: 16
+        radius: DesktopTokens.radiusXl + 2
         color: "transparent"
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.12)
+        border.color: DesktopTokens.hairlineStrong
     }
 
     HoverHandler { id: heroHover }
@@ -116,13 +116,35 @@ Item {
         width: Math.min(520, Math.max(300, root.width * 0.42))
         spacing: 10
 
-        Text {
-            text: root.slide && root.slide.kind === "marketing" ? qsTr("GEFORCE NOW") : qsTr("FEATURED")
-            color: DesktopTokens.mint
-            font.family: Theme.monoFont
-            font.pixelSize: DesktopTokens.microSize
-            font.weight: Font.Bold
-            font.letterSpacing: 1.1
+        Rectangle {
+            width: featuredRow.implicitWidth + DesktopTokens.px(20)
+            height: DesktopTokens.px(24)
+            radius: DesktopTokens.radiusPill
+            color: Qt.rgba(0, 0, 0, 0.34)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.18)
+            Row {
+                id: featuredRow
+                anchors.centerIn: parent
+                spacing: DesktopTokens.px(7)
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: DesktopTokens.px(5)
+                    height: width
+                    radius: width / 2
+                    color: DesktopTokens.mint
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.slide && root.slide.kind === "marketing" ? qsTr("GeForce NOW") : qsTr("Featured")
+                    color: "#FFFFFF"
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: DesktopTokens.microSize
+                    font.weight: Font.Bold
+                    font.letterSpacing: 1.0
+                    font.capitalization: Font.AllUppercase
+                }
+            }
         }
 
         Text {
@@ -130,9 +152,11 @@ Item {
             text: root.slide ? String(root.slide.title || "") : ""
             color: "#FFFFFF"
             font.family: Theme.displayFont
-            font.pixelSize: DesktopTokens.px(30)
+            font.pixelSize: DesktopTokens.px(36)
             font.weight: Font.Black
-            font.letterSpacing: -0.9
+            font.letterSpacing: -1.2
+            style: Text.Raised
+            styleColor: "#66000000"
             elide: Text.ElideRight
             maximumLineCount: 2
             wrapMode: Text.WordWrap
@@ -173,17 +197,19 @@ Item {
             onHoveredChanged: if (hovered) root.actionPointed(0)
             onClicked: if (root.slideGame) root.playRequested(root.slideGame)
             background: Rectangle {
-                radius: 10
-                color: playButton.down ? Qt.rgba(1, 1, 1, 0.82) : Qt.rgba(1, 1, 1, 0.95)
+                radius: DesktopTokens.radiusPill
+                color: playButton.down
+                    ? Qt.tint(DesktopTokens.focus, Qt.rgba(1, 1, 1, 0))
+                    : Qt.tint(DesktopTokens.focus, Qt.rgba(1, 1, 1, playButton.hovered ? 0.10 : 0.04))
                 border.width: root.selectedAction === 0 ? 2 : 0
-                border.color: DesktopTokens.focus
+                border.color: Qt.rgba(1, 1, 1, 0.85)
             }
             contentItem: Text {
                 text: playButton.text
-                color: "#0B0F1A"
+                color: DesktopTokens.inkOnAccent
                 font.family: Theme.bodyFont
                 font.pixelSize: DesktopTokens.captionSize
-                font.weight: Font.ExtraBold
+                font.weight: Font.Black
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
@@ -201,10 +227,10 @@ Item {
             onHoveredChanged: if (hovered) root.actionPointed(1)
             onClicked: if (root.slideGame) root.detailsRequested(root.slideGame)
             background: Rectangle {
-                radius: 10
-                color: detailsButton.down ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.10)
+                radius: DesktopTokens.radiusPill
+                color: Qt.rgba(1, 1, 1, detailsButton.down ? 0.20 : detailsButton.hovered ? 0.18 : 0.12)
                 border.width: root.selectedAction === 1 ? 2 : 1
-                border.color: root.selectedAction === 1 ? DesktopTokens.focus : Qt.rgba(1, 1, 1, 0.18)
+                border.color: root.selectedAction === 1 ? DesktopTokens.focus : Qt.rgba(1, 1, 1, 0.22)
             }
             contentItem: Text {
                 text: detailsButton.text
@@ -227,10 +253,10 @@ Item {
             model: root.slides.length
             Rectangle {
                 required property int index
-                width: index === root.currentSlide ? 18 : 6
-                height: 6
-                radius: 3
-                color: index === root.currentSlide ? DesktopTokens.mint : Qt.rgba(1, 1, 1, 0.28)
+                width: index === root.currentSlide ? 26 : 6
+                height: 5
+                radius: height / 2
+                color: index === root.currentSlide ? DesktopTokens.focus : Qt.rgba(1, 1, 1, 0.32)
                 Behavior on width { NumberAnimation { duration: AppController.reducedMotion ? 0 : 180; easing.type: Easing.OutCubic } }
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: root.currentSlide = index }

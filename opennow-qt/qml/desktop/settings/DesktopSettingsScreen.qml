@@ -428,9 +428,23 @@ FocusScope {
             placeholderTextColor: Theme.textMuted
             font.family: Theme.bodyFont
             font.pixelSize: DesktopTokens.bodySize
-            leftPadding: 42
-            DesktopGlyph { x: 16; anchors.verticalCenter: parent.verticalCenter; width: 16; height: 16; icon: "desktop-search.svg" }
-            background: Rectangle { radius: 10; color: Theme.glass; border.width: 1; border.color: settingsSearch.activeFocus ? Theme.focus : Theme.seam }
+            leftPadding: 40
+            verticalAlignment: TextInput.AlignVCenter
+            background: Rectangle {
+                radius: DesktopTokens.radiusPill
+                color: Qt.rgba(1, 1, 1, Theme.lightMode ? 0.66 : 0.055)
+                border.width: 1
+                border.color: settingsSearch.activeFocus ? Theme.focus : DesktopTokens.hairline
+                Behavior on border.color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+            }
+            DesktopGlyph {
+                x: 14
+                anchors.verticalCenter: parent.verticalCenter
+                width: 15
+                height: width
+                icon: "desktop-search.svg"
+                opacity: 0.7
+            }
             onAccepted: {
                 for (let i = 0; i < root.sections.length; ++i) {
                     if (root.matchesSection(root.sections[i])) {
@@ -487,25 +501,73 @@ FocusScope {
                                                              bottom - railFlick.height + DesktopTokens.px(8))
                             }
                         }
-                        background: Rectangle {
-                            radius: 16
-                            color: root.selectedGroup === index ? DesktopTokens.raisedStrong : parent.hovered ? DesktopTokens.raised : "transparent"
-                            border.width: parent.activeFocus ? 2 : 0
-                            border.color: Theme.focus
+                        background: Item {
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: DesktopTokens.radiusMd
+                                color: root.selectedGroup === index
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.12)
+                                    : Qt.rgba(1, 1, 1, parent.hovered ? (Theme.lightMode ? 0.55 : 0.05) : 0)
+                                border.width: 1
+                                border.color: root.selectedGroup === index
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.30)
+                                    : (parent.hovered ? DesktopTokens.hairlineSoft : "transparent")
+                                Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                                Behavior on border.color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -DesktopTokens.px(3)
+                                radius: DesktopTokens.radiusMd + DesktopTokens.px(3)
+                                color: "transparent"
+                                border.width: 2
+                                border.color: Theme.focus
+                                visible: parent.parent.activeFocus
+                            }
                         }
                         contentItem: RowLayout {
                             spacing: 14
                             Rectangle {
                                 visible: !root.compactNavigation
-                                Layout.preferredWidth: 40; Layout.preferredHeight: 40
-                                radius: 12; color: root.selectedGroup === index ? Theme.focus : DesktopTokens.raised
-                                DesktopSettingsIcon { anchors.centerIn: parent; width: 20; height: 20; glyph: modelData.icon; ink: root.selectedGroup === index ? Theme.focusText : Theme.label }
+                                Layout.preferredWidth: 38; Layout.preferredHeight: 38
+                                radius: DesktopTokens.radiusSm + 1
+                                color: root.selectedGroup === index
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.20)
+                                    : DesktopTokens.fill
+                                border.width: 1
+                                border.color: root.selectedGroup === index
+                                    ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.44)
+                                    : DesktopTokens.hairlineSoft
+                                Behavior on color { ColorAnimation { duration: DesktopTokens.hoverDuration } }
+                                DesktopSettingsIcon {
+                                    anchors.centerIn: parent
+                                    width: 19; height: 19
+                                    glyph: modelData.icon
+                                    ink: DesktopTokens.focus
+                                }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-                                Text { id: navLabel; Layout.fillWidth: true; text: modelData.label; color: Theme.label; font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.bodySize; font.weight: root.selectedGroup === index ? Font.ExtraBold : Font.Bold; elide: Text.ElideRight }
-                                Text { visible: !root.compactNavigation; Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.captionSize; elide: Text.ElideRight }
+                                Text {
+                                    id: navLabel
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    color: root.selectedGroup === index ? DesktopTokens.textHigh : DesktopTokens.textBody
+                                    font.family: Theme.bodyFont
+                                    font.pixelSize: DesktopTokens.px(12.5)
+                                    font.weight: root.selectedGroup === index ? Font.Bold : Font.Medium
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    visible: !root.compactNavigation
+                                    Layout.fillWidth: true
+                                    text: modelData.detail
+                                    color: root.selectedGroup === index ? DesktopTokens.textMuted : DesktopTokens.textFaint
+                                    font.family: Theme.bodyFont
+                                    font.pixelSize: DesktopTokens.microSize
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }

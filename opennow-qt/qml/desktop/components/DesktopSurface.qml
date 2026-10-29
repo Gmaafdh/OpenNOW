@@ -21,6 +21,11 @@ Rectangle {
     property color bloomColor: DesktopTokens.focus
     property bool interactive: false
     property bool highlighted: false
+    // Shell-tinted backing layer. Panels that sit on artwork raise this so type
+    // stays readable no matter which key art is behind the glass.
+    property real tint: 0
+    property color tintColor: Qt.rgba(DesktopTokens.shell.r, DesktopTokens.shell.g,
+                                      DesktopTokens.shell.b, root.tint)
 
     radius: corner
     color: "transparent"
@@ -39,6 +44,14 @@ Rectangle {
         GradientStop { position: 0; color: root.fillTop }
         GradientStop { position: 0.55; color: root.fill }
         GradientStop { position: 1; color: root.fillBottom }
+    }
+
+    Rectangle {
+        visible: root.tint > 0
+        anchors.fill: parent
+        anchors.margins: root.strokeWidth
+        radius: root.corner - root.strokeWidth
+        color: root.tintColor
     }
 
     // A one-pixel highlight along the top edge sells the "glass" material.

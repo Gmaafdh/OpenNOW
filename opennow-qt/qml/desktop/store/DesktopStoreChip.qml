@@ -16,18 +16,24 @@ Button {
     Accessible.role: Accessible.Button
     Accessible.name: text
 
+    // Halo shelf chip: accent halo when selected, frosted wash otherwise.
     background: Rectangle {
-        radius: DesktopTokens.px(9)
-        color: root.selected || root.down ? DesktopTokens.raisedStrong
-                                          : root.hovered ? DesktopTokens.raised : DesktopTokens.seamSoft
+        radius: DesktopTokens.radiusPill
+        color: root.selected
+            ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.18)
+            : Qt.rgba(1, 1, 1, Theme.lightMode
+                ? (root.hovered ? 0.72 : 0.5)
+                : (root.hovered ? 0.10 : 0.05))
         border.width: 1
-        border.color: root.selected || root.hovered ? DesktopTokens.seam : DesktopTokens.seamSoft
+        border.color: root.selected
+            ? Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g, DesktopTokens.focus.b, 0.55)
+            : DesktopTokens.hairline
 
         Behavior on color {
-            ColorAnimation { duration: Theme.focusDuration }
+            ColorAnimation { duration: DesktopTokens.hoverDuration }
         }
         Behavior on border.color {
-            ColorAnimation { duration: Theme.focusDuration }
+            ColorAnimation { duration: DesktopTokens.hoverDuration }
         }
     }
 

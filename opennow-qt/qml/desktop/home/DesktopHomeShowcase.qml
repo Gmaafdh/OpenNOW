@@ -54,6 +54,7 @@ Item {
             fillBottom: Theme.lightMode ? Qt.rgba(0.96, 0.97, 1, 0.86) : Qt.rgba(0, 0, 0, 0.18)
             stroke: DesktopTokens.hairline
             bloom: true
+            tint: Theme.lightMode ? 0.62 : 0.46
         }
 
         // Header: library pulse
