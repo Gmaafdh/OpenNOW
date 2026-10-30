@@ -62,7 +62,7 @@ QtObject {
     readonly property real cornerScale: cornerStyle === "sharp" ? 0.35 : cornerStyle === "round" ? 1.65 : 1
     readonly property string accent: String(ShellStore.settings.appAccentColor || "blue")
 
-    Timer {
+    property Timer scheduleTimer: Timer {
         interval: 30000
         repeat: true
         running: true
