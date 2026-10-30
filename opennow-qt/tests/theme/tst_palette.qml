@@ -202,20 +202,6 @@ TestCase {
         compare(Theme.backgroundFillMode, Image.PreserveAspectFit)
     }
 
-    function test_portableLookValidation() {
-        ShellStore.settings = {themePack:"lagoon", appTheme:"dark", desktopBackground:"custom",
-            desktopBackgroundImage:"file:///C:/private/wallpaper.png", appearanceScheduleEnabled:true}
-        const exported = JSON.parse(ShellStore.portableLookCode())
-        compare(exported.kind, "opennow-appearance")
-        compare(exported.look.desktopBackground, "gradient")
-        compare(exported.look.desktopBackgroundImage, "")
-        verify(JSON.stringify(exported).indexOf("private") < 0)
-        verify(ShellStore.validatedLook(exported.look, true) !== null)
-        verify(ShellStore.validatedLook({version:1, themePack:"not-a-pack"}) === null)
-        verify(ShellStore.validatedLook({version:1, themePack:"lagoon", glassDepth:500}) === null)
-        verify(ShellStore.validatedLook({version:1, themePack:"lagoon", appearanceDayStart:"morning"}) === null)
-    }
-
     function test_customHexAccentAndFont() {
         compare(Theme.accentColor("#A1B2C3"), "#a1b2c3")
         ShellStore.settings = {themePack:"nocturne",appTheme:"dark",appAccentColor:"#12ABEF",themeAccentOverride:true,appFontFamily:"Verdana"}

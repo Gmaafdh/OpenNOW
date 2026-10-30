@@ -209,6 +209,11 @@ QtObject {
         check(!ShellStore.importLookCode('{"kind":"opennow-appearance","version":1,"look":{"version":1,"themePack":"lagoon","glassDepth":"invalid"}}'),
             "malformed portable look is rejected")
         check(ShellStore.settings.themePack === beforeInvalid, "invalid import does not change appearance")
+        check(!ShellStore.importLookCode('{"kind":"opennow-appearance","version":1,"look":{"version":1,"themePack":"not-a-pack"}}'),
+            "unknown theme packs are rejected")
+        check(!ShellStore.importLookCode('{"kind":"opennow-appearance","version":1,"look":{"version":1,"themePack":"lagoon","appearanceDayStart":"morning"}}'),
+            "invalid schedule times are rejected")
+        check(ShellStore.settings.themePack === beforeInvalid, "rejected look codes leave the active look unchanged")
         studio.copyLook()
         check(AppController.readClipboardText().indexOf("opennow-appearance") >= 0, "studio copy action writes a look code")
 
