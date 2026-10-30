@@ -594,12 +594,7 @@ impl SettingsStore {
             "system",
         );
         normalize_choice(&mut self.values, "themePack", THEME_PACKS, "nocturne");
-        normalize_choice(
-            &mut self.values,
-            "themeFusionPack",
-            THEME_PACKS,
-            "aurora",
-        );
+        normalize_choice(&mut self.values, "themeFusionPack", THEME_PACKS, "aurora");
         clamp_integer(&mut self.values, "themeFusionBalance", 0, 100, 50);
         normalize_accent(&mut self.values);
         normalize_choice(
