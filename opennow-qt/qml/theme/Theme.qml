@@ -10,7 +10,19 @@ QtObject {
         {id:"bone", name:"Bone", author:"OPENNOW", category:"Light", detail:"WARM MINIMAL", bg:"#EEE7DB", darkBg:"#201D18", mid:"#A89578", accent:"#7F6A4D", darkAccent:"#D3BA91"},
         {id:"cobalt", name:"Cobalt", author:"OPENNOW", category:"Light", detail:"COBALT PAPER", bg:"#F7F9FF", darkBg:"#0E1730", mid:"#ADC4FF", accent:"#245BDB", darkAccent:"#93B5FF"},
         {id:"hibiscus", name:"Hibiscus", author:"OPENNOW", category:"Dark", detail:"ROSE GLASS", bg:"#1F0C18", lightBg:"#FAEDF3", mid:"#642343", accent:"#FF6F9F", lightAccent:"#AA285B"},
-        {id:"chapel", name:"Chapel", author:"OPENNOW", category:"Dark", detail:"GOLD GLASS", bg:"#151225", lightBg:"#F3EFF9", mid:"#40355D", accent:"#FFD166", lightAccent:"#806017"}
+        {id:"chapel", name:"Chapel", author:"OPENNOW", category:"Dark", detail:"GOLD GLASS", bg:"#151225", lightBg:"#F3EFF9", mid:"#40355D", accent:"#FFD166", lightAccent:"#806017"},
+        {id:"celestial", name:"Celestial", author:"OPENNOW", category:"Dark", detail:"STARLIGHT LILAC", bg:"#0D1026", lightBg:"#F0F0FF", mid:"#403A78", accent:"#B9A7FF", lightAccent:"#5B3FA8"},
+        {id:"sakura", name:"Sakura", author:"OPENNOW", category:"Dark", detail:"CHERRY NIGHT", bg:"#21101D", lightBg:"#FFF0F6", mid:"#71314F", accent:"#FFB3D1", lightAccent:"#9E285D"},
+        {id:"lagoon", name:"Lagoon", author:"OPENNOW", category:"Dark", detail:"ABYSSAL CYAN", bg:"#071E2B", lightBg:"#E9F8FC", mid:"#14536B", accent:"#69E3F2", lightAccent:"#0C6675"},
+        {id:"ember", name:"Ember", author:"OPENNOW", category:"Dark", detail:"WARM AFTERGLOW", bg:"#241310", lightBg:"#FFF2E9", mid:"#74392B", accent:"#FFB07C", lightAccent:"#9A421F"},
+        {id:"evergreen", name:"Evergreen", author:"OPENNOW", category:"Dark", detail:"FOREST SAGE", bg:"#0D1C17", lightBg:"#EDF7F0", mid:"#285844", accent:"#A8D5A2", lightAccent:"#356B45"},
+        {id:"ultraviolet", name:"Ultraviolet", author:"OPENNOW", category:"Dark", detail:"ELECTRIC ORCHID", bg:"#170D2B", lightBg:"#F4EFFF", mid:"#522A85", accent:"#C39AFF", lightAccent:"#6537A5"},
+        {id:"rosewood", name:"Rosewood", author:"OPENNOW", category:"Dark", detail:"ROSE GOLD", bg:"#251419", lightBg:"#FCF0F1", mid:"#75404B", accent:"#F2A6A6", lightAccent:"#934147"},
+        {id:"porcelain", name:"Porcelain", author:"OPENNOW", category:"Light", detail:"PORCELAIN SLATE", bg:"#F4F6F8", darkBg:"#171B21", mid:"#B7C3CF", accent:"#40566F", darkAccent:"#AFC6DE"},
+        {id:"daybreak", name:"Daybreak", author:"OPENNOW", category:"Light", detail:"IVORY CORAL", bg:"#FFF4E8", darkBg:"#2A1917", mid:"#E5B49D", accent:"#A64732", darkAccent:"#FFB08E"},
+        {id:"meadow", name:"Meadow", author:"OPENNOW", category:"Light", detail:"MINT PAPER", bg:"#F1F8EC", darkBg:"#172217", mid:"#ACC9A1", accent:"#3D6C35", darkAccent:"#B3D99A"},
+        {id:"lavender", name:"Lavender", author:"OPENNOW", category:"Light", detail:"LILAC PAPER", bg:"#F7F2FC", darkBg:"#21182C", mid:"#C8B4DD", accent:"#67458D", darkAccent:"#D1B4F0"},
+        {id:"monochrome", name:"Monochrome", author:"OPENNOW", category:"High contrast", detail:"MONO SIGNAL", bg:"#050505", lightBg:"#FFFFFF", mid:"#4A4A4A", accent:"#FFFFFF", lightAccent:"#111111"}
     ]
     readonly property string mode: String(ShellStore.settings.appTheme || "auto")
     readonly property string themePack: ShellStore.previewThemePack !== ""
@@ -43,6 +55,7 @@ QtObject {
     }
     readonly property color customAccent: accentColor(accent)
     readonly property color packAccent: lightMode ? (pack.lightAccent || pack.accent) : (pack.darkAccent || pack.accent)
+    readonly property color atmosphere: pack.mid || packAccent
     readonly property bool accentOverridden: ShellStore.previewThemePack === "" && ShellStore.settings.themeAccentOverride === true
     readonly property color focus: accentOverridden ? customAccent : packAccent
     readonly property color focusText: contrastText(focus)

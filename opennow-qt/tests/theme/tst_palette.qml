@@ -56,7 +56,24 @@ TestCase {
         verify(contrast(Theme.focus, Theme.shell) >= 3)
         verify(contrast(Theme.focusText, Theme.focus) >= 4.5)
         compare(Theme.glass.r.toFixed(2), Theme.shell.r.toFixed(2))
+        compare(Theme.atmosphere.toString(), Qt.color(Theme.pack.mid).toString())
         compare(Theme.focus, data.accent === "pack" ? Theme.packAccent : Theme.customAccent)
+    }
+
+    function test_themeCollection() {
+        verify(Theme.packs.length >= 20)
+        const ids = []
+        for (const pack of Theme.packs) {
+            verify(ids.indexOf(pack.id) < 0, "Duplicate theme id: " + pack.id)
+            ids.push(pack.id)
+            verify(pack.name.length > 0)
+            verify(["Dark", "Light", "High contrast"].indexOf(pack.category) >= 0)
+            verify(/^#[0-9A-Fa-f]{6}$/.test(pack.bg), pack.id + " background")
+            verify(/^#[0-9A-Fa-f]{6}$/.test(pack.lightBg || pack.darkBg), pack.id + " alternate background")
+            verify(/^#[0-9A-Fa-f]{6}$/.test(pack.mid), pack.id + " atmosphere")
+            verify(/^#[0-9A-Fa-f]{6}$/.test(pack.accent), pack.id + " accent")
+            verify(/^#[0-9A-Fa-f]{6}$/.test(pack.lightAccent || pack.darkAccent), pack.id + " alternate accent")
+        }
     }
 
     function test_customHexAccentAndFont() {

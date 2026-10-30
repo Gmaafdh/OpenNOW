@@ -173,7 +173,19 @@ Column {
             objectName: "renewThemeChoice"
             width: parent.width; glyph: "moon"; title: qsTr("Theme")
             description: qsTr("Applies the pack's appearance, accent and surfaces")
-            items: ["aurora","nocturne","kraft","phosphor","hibiscus","chapel","bone","cobalt"].map(id => ({label:page.settingsScreen.themeMeta(id).name,detail:page.settingsScreen.themeMeta(id).blurb,value:id}))
+            items: {
+                const options = []
+                for (const category of ["Dark", "Light", "High contrast"]) {
+                    const packs = Theme.packs.filter(pack => pack.category === category)
+                    if (packs.length === 0) continue
+                    options.push({kind:"heading", label:category === "Dark" ? qsTr("Dark") : category === "Light" ? qsTr("Light") : qsTr("High contrast")})
+                    for (const pack of packs) {
+                        const meta = page.settingsScreen.themeMeta(pack.id)
+                        options.push({label:meta.name, detail:meta.blurb, value:pack.id})
+                    }
+                }
+                return options
+            }
             value: page.settingsScreen.valueSetting("themePack","nocturne")
             onSelected: value => page.settingsScreen.setChoice("themePack",value)
         }

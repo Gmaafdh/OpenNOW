@@ -154,9 +154,10 @@ FocusScope {
                 height: parent.height - 121
                 model: root.visibleThemes
                 cellWidth: width / 4
-                cellHeight: height / Math.max(1, Math.ceil(count / 4))
+                cellHeight: Math.max(180, height / Math.max(1, Math.min(2, Math.ceil(count / 4))))
                 clip: true
-                interactive: count > 8
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
                 currentIndex: root.selectedIndex
                 keyNavigationWraps: false
                 Accessible.name: qsTr("Theme collection")

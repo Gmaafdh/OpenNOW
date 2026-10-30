@@ -51,6 +51,7 @@ Rectangle {
         gradient: Gradient {
             orientation: Gradient.Vertical
             GradientStop { position: 0; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.07) }
+            GradientStop { position: 0.55; color: Qt.rgba(Theme.atmosphere.r, Theme.atmosphere.g, Theme.atmosphere.b, 0.06) }
             GradientStop { position: 1; color: "transparent" }
         }
     }

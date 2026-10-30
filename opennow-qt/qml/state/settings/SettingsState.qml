@@ -756,7 +756,8 @@ QtObject {
     function settingValues(key, value) {
         const updated = {[key]:value}
         if (key === "themePack") {
-            updated.appTheme = value === "bone" || value === "cobalt" ? "light" : "dark"
+            const lightPacks = ["bone", "cobalt", "porcelain", "daybreak", "meadow", "lavender"]
+            updated.appTheme = lightPacks.indexOf(value) >= 0 ? "light" : "dark"
             updated.themeAccentOverride = false
         } else if (key === "appAccentColor") {
             updated.themeAccentOverride = true

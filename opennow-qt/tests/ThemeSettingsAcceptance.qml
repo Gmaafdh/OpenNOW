@@ -21,6 +21,12 @@ QtObject {
     function run(parent) {
         const screen = find(parent, "desktopSettingsScreen")
         check(screen !== null, "desktop settings exists")
+        const picker = find(parent, "renewThemeChoice")
+        check(picker !== null, "theme picker exists")
+        const options = picker.items.filter(item => item.kind !== "heading")
+        check(options.length === Theme.packs.length, "every theme appears in the desktop picker")
+        for (const pack of Theme.packs)
+            check(options.some(item => item.value === pack.id), "picker contains " + pack.id)
         const light = Qt.application.arguments.indexOf("--smoke-light-theme") >= 0
         for (const pack of Theme.packs) {
             screen.setChoice("themePack", pack.id)
@@ -59,8 +65,7 @@ QtObject {
         check(ShellStore.customProfileImageFor(second) === "file:///C:/tmp/second.png", "removal does not clear another account")
         ShellStore.setCustomProfileImage(second, "")
 
-        screen.setChoice("themePack", light ? "bone" : "aurora")
-        if (!light) find(parent, "themeAccent-violet").clicked()
+        screen.setChoice("themePack", light ? "porcelain" : "celestial")
         ShellStore.lastError = ""
         return true
     }

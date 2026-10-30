@@ -78,6 +78,8 @@ Item {
             GradientStop { position: 0; color: Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,
                 String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.22 : 0.07) }
             GradientStop { position: 0.4; color: "transparent" }
+            GradientStop { position: 1; color: Qt.rgba(Theme.atmosphere.r,Theme.atmosphere.g,Theme.atmosphere.b,
+                String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.16 : 0.05) }
         }
     }
     Rectangle {

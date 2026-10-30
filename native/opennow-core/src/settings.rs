@@ -256,7 +256,10 @@ impl SettingsStore {
                 .insert("microphoneDeviceId".to_owned(), json!(""));
         }
         if key == "themePack" {
-            let light = matches!(self.values[key].as_str(), Some("bone" | "cobalt"));
+            let light = matches!(
+                self.values[key].as_str(),
+                Some("bone" | "cobalt" | "porcelain" | "daybreak" | "meadow" | "lavender")
+            );
             self.values.insert(
                 "appTheme".to_owned(),
                 json!(if light { "light" } else { "dark" }),
@@ -572,7 +575,8 @@ impl SettingsStore {
             "themePack",
             &[
                 "default", "nocturne", "aurora", "kraft", "phosphor", "bone", "cobalt", "hibiscus",
-                "chapel",
+                "chapel", "celestial", "sakura", "lagoon", "ember", "evergreen", "ultraviolet",
+                "rosewood", "porcelain", "daybreak", "meadow", "lavender", "monochrome",
             ],
             "nocturne",
         );
@@ -2191,6 +2195,8 @@ mod tests {
         let mut store = SettingsStore::load(Some(directory.clone())).unwrap();
         for pack in [
             "nocturne", "aurora", "kraft", "phosphor", "bone", "cobalt", "hibiscus", "chapel",
+            "celestial", "sakura", "lagoon", "ember", "evergreen", "ultraviolet", "rosewood",
+            "porcelain", "daybreak", "meadow", "lavender", "monochrome",
         ] {
             store.set("appAccentColor", json!("rose")).unwrap();
             assert_eq!(store.all()["themeAccentOverride"], json!(true));
@@ -2200,7 +2206,10 @@ mod tests {
             assert_eq!(loaded.all()["themeAccentOverride"], json!(false));
             assert_eq!(
                 loaded.all()["appTheme"],
-                json!(if matches!(pack, "bone" | "cobalt") {
+                json!(if matches!(
+                    pack,
+                    "bone" | "cobalt" | "porcelain" | "daybreak" | "meadow" | "lavender"
+                ) {
                     "light"
                 } else {
                     "dark"

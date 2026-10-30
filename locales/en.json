@@ -542,7 +542,21 @@
     "layoutSection": "LAYOUT & MOTION",
     "densityDescription": "Choose compact, cozy or large artwork density",
     "tileLabels": "Game tile labels",
-    "tileLabelsDescription": "Hide titles and information decks for an artwork-only library"
+    "tileLabelsDescription": "Hide titles and information decks for an artwork-only library",
+    "themes": {
+      "celestial": { "name": "Celestial", "description": "Midnight indigo with a starlight lavender glow." },
+      "sakura": { "name": "Sakura", "description": "Night plum softened by cherry-blossom pink." },
+      "lagoon": { "name": "Lagoon", "description": "Abyssal blue with a clear lagoon-cyan glow." },
+      "ember": { "name": "Ember", "description": "Smoked umber with a warm firelight glow." },
+      "evergreen": { "name": "Evergreen", "description": "Deep forest green with a soft sage highlight." },
+      "ultraviolet": { "name": "Ultraviolet", "description": "Velvet violet with an electric orchid highlight." },
+      "rosewood": { "name": "Rosewood", "description": "Burnished plum with a soft rose-gold glow." },
+      "porcelain": { "name": "Porcelain", "description": "Porcelain white with a quiet slate-blue accent." },
+      "daybreak": { "name": "Daybreak", "description": "Warm ivory with a sunrise-coral accent." },
+      "meadow": { "name": "Meadow", "description": "Soft mint paper with a meadow-green accent." },
+      "lavender": { "name": "Lavender", "description": "Pale lilac with a refined violet accent." },
+      "monochrome": { "name": "Monochrome", "description": "Near-black monochrome with crisp white focus." }
+    }
   },
   "queueExperience": {
     "cloudQueue": "CLOUD QUEUE",

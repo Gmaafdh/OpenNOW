@@ -237,7 +237,19 @@ FocusScope {
             hibiscus: { name: qsTr("Sunset"), blurb: qsTr("Wine shell with a rose focus ring."), accent: "#FF8A80" },
             chapel: { name: qsTr("Chapel"), blurb: qsTr("Violet night shell with a gold focus ring."), accent: "#FFD166" },
             bone: { name: qsTr("Bone"), blurb: qsTr("Light paper shell for daytime use."), accent: "#C6A46A" },
-            cobalt: { name: qsTr("Cobalt"), blurb: qsTr("Light blue-white shell with a cobalt focus ring."), accent: "#7FD4FF" }
+            cobalt: { name: qsTr("Cobalt"), blurb: qsTr("Light blue-white shell with a cobalt focus ring."), accent: "#7FD4FF" },
+            celestial: { name: qsTr("Celestial"), blurb: qsTr("Midnight indigo with a starlight lavender glow."), accent: "#B9A7FF" },
+            sakura: { name: qsTr("Sakura"), blurb: qsTr("Night plum softened by cherry-blossom pink."), accent: "#FFB3D1" },
+            lagoon: { name: qsTr("Lagoon"), blurb: qsTr("Abyssal blue with a clear lagoon-cyan glow."), accent: "#69E3F2" },
+            ember: { name: qsTr("Ember"), blurb: qsTr("Smoked umber with a warm firelight glow."), accent: "#FFB07C" },
+            evergreen: { name: qsTr("Evergreen"), blurb: qsTr("Deep forest green with a soft sage highlight."), accent: "#A8D5A2" },
+            ultraviolet: { name: qsTr("Ultraviolet"), blurb: qsTr("Velvet violet with an electric orchid highlight."), accent: "#C39AFF" },
+            rosewood: { name: qsTr("Rosewood"), blurb: qsTr("Burnished plum with a soft rose-gold glow."), accent: "#F2A6A6" },
+            porcelain: { name: qsTr("Porcelain"), blurb: qsTr("Porcelain white with a quiet slate-blue accent."), accent: "#40566F" },
+            daybreak: { name: qsTr("Daybreak"), blurb: qsTr("Warm ivory with a sunrise-coral accent."), accent: "#A64732" },
+            meadow: { name: qsTr("Meadow"), blurb: qsTr("Soft mint paper with a meadow-green accent."), accent: "#3D6C35" },
+            lavender: { name: qsTr("Lavender"), blurb: qsTr("Pale lilac with a refined violet accent."), accent: "#67458D" },
+            monochrome: { name: qsTr("Monochrome"), blurb: qsTr("Near-black monochrome with crisp white focus."), accent: "#FFFFFF" }
         }
         return packs[id] || { name: String(id || qsTr("Theme")), blurb: qsTr("Installed theme pack.") }
     }
