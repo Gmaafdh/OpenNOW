@@ -57,7 +57,7 @@ jobs:
     permissions:
       contents: write
     if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow'
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: never

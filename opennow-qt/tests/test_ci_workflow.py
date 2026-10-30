@@ -298,7 +298,7 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2025"],
+            ["ubuntu-24.04", "windows-2022"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
