@@ -16,6 +16,7 @@ class ProfileImageStoreTest final : public QObject
 private slots:
     void importsCenterCroppedPngAtRequestedDimensions();
     void rejectsInvalidSourcesAndDimensions();
+    void extractsDominantColorFromLocalImages();
 
 private:
     QByteArray previousDirectory;
@@ -112,6 +113,28 @@ void ProfileImageStoreTest::rejectsInvalidSourcesAndDimensions()
     QVERIFY(QFile::copy(unsupported, corrupt));
     QCOMPARE(store.importImage(corrupt).value(QStringLiteral("error")).toString(),
         QStringLiteral("decode-failed"));
+}
+
+void ProfileImageStoreTest::extractsDominantColorFromLocalImages()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ProfileImageStore store;
+    const auto source = directory.filePath(QStringLiteral("wallpaper.png"));
+    QImage image(QSize(64, 64), QImage::Format_ARGB32);
+    image.fill(QColor("#E63946"));
+    QVERIFY(image.save(source, "PNG"));
+
+    const auto extracted = store.dominantColor(QUrl::fromLocalFile(source).toString());
+    QCOMPARE(extracted.value(QStringLiteral("ok")).toBool(), true);
+    QCOMPARE(extracted.value(QStringLiteral("color")).toString(), QStringLiteral("#e63946"));
+    QCOMPARE(store.dominantColor(QStringLiteral("https://example.com/wallpaper.png"))
+        .value(QStringLiteral("error")).toString(), QStringLiteral("invalid-source"));
+
+    image.fill(Qt::transparent);
+    QVERIFY(image.save(source, "PNG"));
+    QCOMPARE(store.dominantColor(source).value(QStringLiteral("error")).toString(),
+        QStringLiteral("no-visible-pixels"));
 }
 
 QTEST_MAIN(ProfileImageStoreTest)

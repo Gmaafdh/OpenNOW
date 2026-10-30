@@ -41,7 +41,7 @@ Item {
     Rectangle {
         id: roundedMask
         anchors.fill: parent
-        radius: root.cornerRadius
+        radius: Theme.radius(root.cornerRadius)
         color: "white"
         visible: false
         layer.enabled: true

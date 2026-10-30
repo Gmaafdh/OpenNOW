@@ -52,7 +52,7 @@ ItemDelegate {
                     x: 1; y: 1
                     width: root.width - 2
                     height: root.height - 2
-                    radius: root.cornerRadius
+                    radius: Theme.radius(root.cornerRadius)
                 }
             }
         }
@@ -121,7 +121,7 @@ ItemDelegate {
         visible: !root.addTile || root.highlighted
         focused: root.highlighted
         parked: root.parked
-        frameRadius: root.cornerRadius
+        frameRadius: Theme.radius(root.cornerRadius)
     }
 
     TapHandler {

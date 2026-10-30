@@ -2,6 +2,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
+    id: root
     readonly property var packs: [
         {id:"nocturne", name:"Nocturne", author:"OPENNOW", category:"Dark", detail:"SKY GLASS", bg:"#0B0F1A", lightBg:"#EEF3FA", mid:"#252A48", accent:"#7FD4FF", lightAccent:"#12638C"},
         {id:"aurora", name:"Aurora", author:"OPENNOW", category:"Dark", detail:"MINT AURORA", bg:"#071A20", lightBg:"#EAF5F2", mid:"#16434A", accent:"#6EE7B7", lightAccent:"#126B4E"},
@@ -24,23 +25,49 @@ QtObject {
         {id:"lavender", name:"Lavender", author:"OPENNOW", category:"Light", detail:"LILAC PAPER", bg:"#F7F2FC", darkBg:"#21182C", mid:"#C8B4DD", accent:"#67458D", darkAccent:"#D1B4F0"},
         {id:"monochrome", name:"Monochrome", author:"OPENNOW", category:"High contrast", detail:"MONO SIGNAL", bg:"#050505", lightBg:"#FFFFFF", mid:"#4A4A4A", accent:"#FFFFFF", lightAccent:"#111111"}
     ]
+    property date studioNow: new Date()
     readonly property string mode: String(ShellStore.settings.appTheme || "auto")
+    readonly property bool scheduleEnabled: ShellStore.settings.appearanceScheduleEnabled === true
+    readonly property int dayStart: settingNumber("appearanceDayStart", 420, 0, 1439)
+    readonly property int nightStart: settingNumber("appearanceNightStart", 1140, 0, 1439)
+    readonly property bool scheduledLight: isScheduledDay(studioNow)
+    readonly property string scheduledPack: scheduledLight
+        ? String(ShellStore.settings.appearanceDayPack || "porcelain")
+        : String(ShellStore.settings.appearanceNightPack || "nocturne")
     readonly property string themePack: ShellStore.previewThemePack !== ""
                                         ? ShellStore.previewThemePack
+                                        : scheduleEnabled ? scheduledPack
                                         : String(ShellStore.settings.themePack || "nocturne")
     readonly property var pack: packs.find(item => item.id === themePack) || packs[0]
     readonly property var fusionPack: packs.find(item => item.id === String(ShellStore.settings.themeFusionPack || "aurora")) || packs[1]
     readonly property bool fusionEnabled: ShellStore.settings.themeFusionEnabled === true
-    readonly property real fusionBalance: {
-        const value = Number(ShellStore.settings.themeFusionBalance)
-        return isFinite(value) ? Math.max(0, Math.min(100, value)) : 50
-    }
+    readonly property real fusionBalance: settingNumber("themeFusionBalance", 50, 0, 100)
     readonly property bool packLight: pack.category === "Light"
     readonly property bool systemLight: Qt.styleHints.colorScheme === Qt.Light
     readonly property bool lightMode: ShellStore.previewThemePack !== "" ? packLight
-        : mode === "light" || (mode === "auto" && systemLight)
+        : scheduleEnabled ? scheduledLight : mode === "light" || (mode === "auto" && systemLight)
     readonly property bool translucent: Boolean(ShellStore.settings.translucentUI)
+    readonly property real contrastLevel: settingNumber("interfaceContrast", 0, 0, 100) / 100
+    readonly property real glassLevel: settingNumber("glassDepth", 50, 0, 100) / 100
+    readonly property real glowLevel: settingNumber("ambientGlow", 60, 0, 100) / 100
+    readonly property real patternOpacity: settingNumber("ambientPatternOpacity", 25, 0, 100) / 100
+    readonly property real backgroundDim: settingNumber("backgroundDim", 0, 0, 100) / 100
+    readonly property string ambientPattern: String(ShellStore.settings.ambientPattern || "none")
+    readonly property int backgroundFillMode: String(ShellStore.settings.backgroundFit || "cover") === "fit"
+        ? Image.PreserveAspectFit : String(ShellStore.settings.backgroundFit || "cover") === "stretch"
+        ? Image.Stretch : Image.PreserveAspectCrop
+    readonly property string motionTempo: String(ShellStore.settings.motionTempo || "standard")
+    readonly property real motionMultiplier: motionTempo === "calm" ? 1.5 : motionTempo === "swift" ? 0.6 : 1
+    readonly property string cornerStyle: String(ShellStore.settings.cornerStyle || "soft")
+    readonly property real cornerScale: cornerStyle === "sharp" ? 0.35 : cornerStyle === "round" ? 1.65 : 1
     readonly property string accent: String(ShellStore.settings.appAccentColor || "blue")
+
+    Timer {
+        interval: 30000
+        repeat: true
+        running: true
+        onTriggered: root.studioNow = new Date()
+    }
     readonly property color shell: fusionEnabled ? mixColors(surfaceForPack(pack), surfaceForPack(fusionPack)) : surfaceForPack(pack)
     readonly property color face: lightMode ? "#111827" : "#FFFFFF"
     readonly property color faceText: lightMode ? "#FFFFFF" : "#111827"
@@ -51,10 +78,43 @@ QtObject {
     readonly property color mediaAccent: accentOverridden ? accentColor(accent, false)
         : fusionEnabled ? fusedAccent(pack.darkAccent || pack.accent, fusionPack.darkAccent || fusionPack.accent, "#04060A", 4.5)
         : (pack.darkAccent || pack.accent)
-    readonly property color seam: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.14) : Qt.rgba(1, 1, 1, 0.14)
+    readonly property color seam: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.14 + 0.30 * contrastLevel)
+        : Qt.rgba(1, 1, 1, 0.14 + 0.30 * contrastLevel)
     readonly property color label: lightMode ? "#111827" : "#FFFFFF"
-    readonly property color textMuted: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.64) : Qt.rgba(1, 1, 1, 0.64)
+    readonly property color textMuted: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.64 + 0.30 * contrastLevel)
+        : Qt.rgba(1, 1, 1, 0.64 + 0.30 * contrastLevel)
+    readonly property color textFaint: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.32 + 0.50 * contrastLevel)
+        : Qt.rgba(1, 1, 1, 0.32 + 0.50 * contrastLevel)
     readonly property var accentChoices: ["green", "blue", "violet", "rose", "coral", "amber", "white"]
+
+    function settingNumber(key, fallbackValue, minimum, maximum) {
+        const raw = ShellStore.settings[key]
+        if (raw === undefined || raw === null || raw === "") return fallbackValue
+        const value = Number(raw)
+        return isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallbackValue
+    }
+
+    function isScheduledDay(date) {
+        const when = date === undefined ? studioNow : date
+        if (!when || isNaN(when.getTime())) return true
+        if (dayStart === nightStart) return true
+        const minutes = when.getHours() * 60 + when.getMinutes()
+        return dayStart < nightStart ? minutes >= dayStart && minutes < nightStart
+            : minutes >= dayStart || minutes < nightStart
+    }
+
+    function glow(alpha) {
+        return Math.max(0, Math.min(1, Number(alpha) * glowLevel / 0.6))
+    }
+
+    function duration(milliseconds) {
+        return AppController.reducedMotion ? 0 : Math.max(0, Math.round(Number(milliseconds) * motionMultiplier))
+    }
+
+    function radius(value) {
+        return Math.max(0, Number(value) * cornerScale)
+    }
+
     function accentColor(value, forLightMode = lightMode) {
         if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase()
         const dark = {green:"#6EE7B7", blue:"#7FD4FF", violet:"#A78BFA", rose:"#FF8A9A", coral:"#FF8A80", amber:"#FFD166", white:"#FFFFFF"}
@@ -134,8 +194,10 @@ QtObject {
     readonly property color violet: "#A78BFA"
     readonly property color yellow: "#FFD166"
     readonly property color coral: "#FF8A80"
-    readonly property color glass: Qt.rgba(shell.r, shell.g, shell.b, translucent ? 0.52 : 0.72)
-    readonly property color glassStrong: Qt.rgba(shell.r, shell.g, shell.b, translucent ? 0.74 : 0.94)
+    readonly property color glass: Qt.rgba(shell.r, shell.g, shell.b,
+        (translucent ? 0.32 : 0.52) + 0.40 * glassLevel)
+    readonly property color glassStrong: Qt.rgba(shell.r, shell.g, shell.b,
+        Math.min(0.99, (translucent ? 0.54 : 0.74) + 0.40 * glassLevel))
     readonly property color cartSteam: "#26364A"
     readonly property color cartEpic: "#1B1B1F"
     readonly property color cartUbisoft: "#3A5BD9"
@@ -148,16 +210,78 @@ QtObject {
         return (value + 0.05) / 0.0592 > 1.05 / (value + 0.05) ? "#111827" : "#FFFFFF"
     }
 
+    function hslFromColor(value) {
+        const color = Qt.color(value)
+        const maximum = Math.max(color.r, color.g, color.b)
+        const minimum = Math.min(color.r, color.g, color.b)
+        const delta = maximum - minimum
+        const lightness = (maximum + minimum) / 2
+        let hue = 0
+        if (delta > 0) {
+            if (maximum === color.r) hue = ((color.g - color.b) / delta) % 6
+            else if (maximum === color.g) hue = (color.b - color.r) / delta + 2
+            else hue = (color.r - color.g) / delta + 4
+        }
+        hue = ((hue / 6) % 1 + 1) % 1
+        const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1))
+        return {h:hue, s:saturation, l:lightness}
+    }
+
+    function colorFromHsl(hue, saturation, lightness) {
+        const h = ((Number(hue) % 1) + 1) % 1
+        const s = Math.max(0, Math.min(1, Number(saturation)))
+        const l = Math.max(0, Math.min(1, Number(lightness)))
+        if (s === 0) return Qt.rgba(l, l, l, 1)
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+        const p = 2 * l - q
+        const channel = offset => {
+            const t = ((h + offset) % 1 + 1) % 1
+            if (t < 1 / 6) return p + (q - p) * 6 * t
+            if (t < 1 / 2) return q
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+            return p
+        }
+        return Qt.rgba(channel(1 / 3), channel(0), channel(-1 / 3), 1)
+    }
+
+    function accentHarmonies(value) {
+        const base = hslFromColor(value)
+        const saturation = Math.max(0.55, base.s)
+        const lightness = lightMode ? Math.min(0.42, base.l) : Math.max(0.62, base.l)
+        return [180, 30, -30, 120, 240].map(angle =>
+            colorFromHsl(base.h + angle / 360, saturation, lightness).toString())
+    }
+
+    function readableAccent(value, surface) {
+        const normalized = Qt.color(value).toString()
+        if (usableAccent(normalized, surface)) return normalized
+        const base = hslFromColor(value)
+        const saturation = base.s > 0.08 ? Math.max(0.35, base.s) : base.s
+        let best = ""
+        let bestDistance = 2
+        for (let index = 0; index <= 100; ++index) {
+            const lightness = index / 100
+            const candidate = colorFromHsl(base.h, saturation, lightness).toString()
+            const distance = Math.abs(lightness - base.l)
+            if (distance < bestDistance && usableAccent(candidate, surface)) {
+                best = candidate
+                bestDistance = distance
+            }
+        }
+        if (best !== "") return best
+        return contrastRatio("#FFFFFF", surface) >= contrastRatio("#111827", surface) ? "#FFFFFF" : "#111827"
+    }
+
     readonly property string fontFamily: String(ShellStore.settings.appFontFamily || "Nunito")
     readonly property string displayFont: fontFamily
     readonly property string bodyFont: fontFamily
     readonly property string monoFont: "IBM Plex Mono"
 
-    readonly property int focusDuration: AppController.reducedMotion ? 0 : 140
-    readonly property int enterDuration: AppController.reducedMotion ? 0 : 260
-    readonly property int heroDuration: AppController.reducedMotion ? 0 : 200
-    readonly property int overlayDuration: AppController.reducedMotion ? 0 : 180
-    readonly property int panelDuration: AppController.reducedMotion ? 0 : 220
+    readonly property int focusDuration: duration(140)
+    readonly property int enterDuration: duration(260)
+    readonly property int heroDuration: duration(200)
+    readonly property int overlayDuration: duration(180)
+    readonly property int panelDuration: duration(220)
     readonly property var easeOut: [0.16, 1.0, 0.3, 1.0]
     readonly property var easeEmphasized: [0.2, 0.9, 0.1, 1.0]
 

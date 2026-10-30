@@ -759,6 +759,7 @@ QtObject {
             const lightPacks = ["bone", "cobalt", "porcelain", "daybreak", "meadow", "lavender"]
             updated.appTheme = lightPacks.indexOf(value) >= 0 ? "light" : "dark"
             updated.themeAccentOverride = false
+            updated.appearanceScheduleEnabled = false
         } else if (key === "appAccentColor") {
             updated.themeAccentOverride = true
         }

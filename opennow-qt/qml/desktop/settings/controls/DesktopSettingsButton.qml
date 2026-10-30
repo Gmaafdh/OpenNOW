@@ -23,7 +23,7 @@ Button {
     bottomPadding: 0
 
     background: Rectangle {
-        radius: control.menu ? height / 2 : DesktopTokens.px(compact ? 9 : 10)
+        radius: control.menu ? height / 2 : DesktopTokens.radius(compact ? 9 : 10)
         color: control.primary ? Theme.focus
              : control.danger ? Qt.rgba(1, 0.32, 0.32, control.down ? 0.18 : 0.09)
              : control.menu ? (Theme.lightMode ? Qt.rgba(0,0,0,0.04) : Qt.rgba(0,0,0,0.35))

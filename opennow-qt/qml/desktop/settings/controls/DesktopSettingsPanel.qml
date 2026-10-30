@@ -8,7 +8,7 @@ Rectangle {
     default property alias content: body.data
 
     implicitHeight: body.implicitHeight + padding * 2
-    radius: DesktopTokens.px(14)
+    radius: DesktopTokens.radius(14)
     color: Theme.glass
     border.width: 1
     border.color: paperStyle ? DesktopTokens.seamSoft : Theme.seam

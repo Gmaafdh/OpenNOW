@@ -50,9 +50,18 @@ Rectangle {
         height: Math.round(parent.height * 0.4)
         gradient: Gradient {
             orientation: Gradient.Vertical
-            GradientStop { position: 0; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.07) }
-            GradientStop { position: 0.55; color: Qt.rgba(Theme.atmosphere.r, Theme.atmosphere.g, Theme.atmosphere.b, 0.06) }
+            GradientStop { position: 0; color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, Theme.glow(0.07)) }
+            GradientStop { position: 0.55; color: Qt.rgba(Theme.atmosphere.r, Theme.atmosphere.g, Theme.atmosphere.b, Theme.glow(0.06)) }
             GradientStop { position: 1; color: "transparent" }
         }
+    }
+    Rectangle {
+        objectName: "consoleBackgroundDimmer"
+        visible: Theme.backgroundDim > 0
+        anchors.fill: parent
+        color: "#000000"
+        opacity: Theme.backgroundDim * 0.72
+    }
+    AmbientPattern {
     }
 }

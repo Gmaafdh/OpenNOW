@@ -47,7 +47,7 @@ Button {
             id: halo
             anchors.fill: parent
             anchors.margins: -9
-            radius: root.cornerRadius + 9
+            radius: Theme.radius(root.cornerRadius + 9)
             color: "transparent"
             border.width: 5
             border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.55)
@@ -57,7 +57,7 @@ Button {
         Rectangle {
             anchors.fill: parent
             anchors.margins: -4
-            radius: root.cornerRadius + 4
+            radius: Theme.radius(root.cornerRadius + 4)
             color: "transparent"
             border.width: 4
             border.color: Theme.shell
@@ -65,7 +65,7 @@ Button {
         }
         Rectangle {
             anchors.fill: parent
-            radius: root.cornerRadius
+            radius: Theme.radius(root.cornerRadius)
             color: root.fillColor
             opacity: root.enabled ? 1 : 0.42
             border.width: root.ringVisible ? 3 : root.danger ? 1.5 : 1

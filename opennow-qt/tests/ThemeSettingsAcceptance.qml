@@ -123,7 +123,114 @@ QtObject {
         find(parent, "clearLookMemory").clicked()
         check(ShellStore.lookMemoryData() === null && ShellStore.settings.themePack === "lagoon",
             "Forget clears memory without changing the current look")
+        const studio = find(parent, "appearanceStudio")
+        check(studio !== null, "Appearance Studio exists")
+        check(find(parent, "matchWallpaperAccent") !== null, "wallpaper color extraction action exists")
+        screen.setSetting("appearanceDayPack", "porcelain")
+        screen.setSetting("appearanceNightPack", "celestial")
+        screen.setSetting("appearanceDayStart", 420)
+        screen.setSetting("appearanceNightStart", 1140)
+        screen.setSetting("appearanceScheduleEnabled", true)
+        Theme.studioNow = new Date(2026, 9, 30, 12, 0)
+        check(Theme.themePack === "porcelain" && Theme.lightMode, "schedule applies the day look")
+        Theme.studioNow = new Date(2026, 9, 30, 23, 0)
+        check(Theme.themePack === "celestial" && !Theme.lightMode, "schedule applies the night look")
+        screen.setSetting("appearanceScheduleEnabled", false)
+
+        const expectedHarmony = Theme.accentHarmonies(Theme.customAccent)[0]
+        const harmonyButton = find(parent, "accentHarmony-0")
+        check(harmonyButton !== null, "accent harmony swatch exists")
+        harmonyButton.clicked()
+        check(ShellStore.settings.appAccentColor.toLowerCase() === expectedHarmony.toLowerCase(),
+            "harmony swatch applies its generated color")
+        screen.setChoice("appAccentColor", "#444444")
+        find(parent, "repairAccent").clicked()
+        check(Theme.usableAccent(Theme.focus, Theme.shell), "smart repair produces a readable accent")
+
+        const contrastSlider = find(parent, "interfaceContrast")
+        contrastSlider.moved(80)
+        check(Theme.contrastLevel === 0.8, "contrast slider previews live")
+        contrastSlider.committed(80)
+        const glassSlider = find(parent, "glassDepth")
+        glassSlider.moved(75)
+        check(Theme.glassLevel === 0.75, "glass slider previews live")
+        glassSlider.committed(75)
+        screen.setSetting("ambientPattern", "constellation")
+        screen.setSetting("ambientPatternOpacity", 45)
+        check(Theme.ambientPattern === "constellation" && Theme.patternOpacity === 0.45,
+            "procedural pattern reaches the shared renderer")
+        screen.setSetting("backgroundDim", 55)
+        screen.setSetting("backgroundFit", "fit")
+        screen.setSetting("motionTempo", "calm")
+        screen.setSetting("cornerStyle", "round")
+        check(Theme.backgroundDim === 0.55 && Theme.backgroundFillMode === Image.PreserveAspectFit,
+            "wallpaper controls reach the theme")
+        check(Theme.motionMultiplier === 1.5 && Theme.cornerScale === 1.65,
+            "motion and corner geometry reach shared components")
+
+        screen.setChoice("themePack", "lagoon")
+        screen.setSetting("glassDepth", 85)
+        find(parent, "captureLookSlot-1").clicked()
+        check(ShellStore.lookSlotData(1) !== null, "first look slot captures")
+        screen.setChoice("themePack", "bone")
+        screen.setSetting("glassDepth", 15)
+        find(parent, "captureLookSlot-2").clicked()
+        check(ShellStore.lookSlotData(2) !== null, "second look slot captures independently")
+        find(parent, "restoreLookSlot-1").clicked()
+        check(ShellStore.settings.themePack === "lagoon" && ShellStore.settings.glassDepth === 85,
+            "first slot restores its complete look")
+        check(ShellStore.lookSlotData(2) !== null, "restoring one slot preserves another")
+        find(parent, "clearLookSlot-1").clicked()
+        check(ShellStore.lookSlotData(1) === null && ShellStore.lookSlotData(2) !== null,
+            "forget removes only the selected slot")
+        for (const slot of [3, 4]) {
+            find(parent, "captureLookSlot-" + slot).clicked()
+            check(ShellStore.lookSlotData(slot) !== null, "additional look slot captures: " + slot)
+            find(parent, "clearLookSlot-" + slot).clicked()
+            check(ShellStore.lookSlotData(slot) === null, "additional look slot clears: " + slot)
+        }
+
+        screen.setChoice("themePack", "ember")
+        screen.setSetting("desktopBackground", "custom")
+        screen.setSetting("desktopBackgroundImage", "file:///C:/private/appearance-wallpaper.png")
+        screen.setSetting("appearanceScheduleEnabled", true)
+        const lookCode = ShellStore.portableLookCode()
+        check(lookCode.indexOf("private") < 0 && lookCode.indexOf("wallpaper") < 0,
+            "portable look excludes local wallpaper paths")
+        check(AppController.writeClipboardText(lookCode), "portable look can be copied")
+        screen.setChoice("themePack", "bone")
+        screen.setSetting("desktopBackground", "art")
+        screen.setSetting("appearanceScheduleEnabled", false)
+        studio.pasteLook()
+        check(ShellStore.settings.themePack === "ember" && ShellStore.settings.desktopBackground === "gradient"
+            && ShellStore.settings.desktopBackgroundImage === "" && ShellStore.settings.appearanceScheduleEnabled === true,
+            "clipboard look imports with portable background fallback")
+        const beforeInvalid = ShellStore.settings.themePack
+        check(!ShellStore.importLookCode('{"kind":"opennow-appearance","version":1,"look":{"version":1,"themePack":"lagoon","glassDepth":"invalid"}}'),
+            "malformed portable look is rejected")
+        check(ShellStore.settings.themePack === beforeInvalid, "invalid import does not change appearance")
+        studio.copyLook()
+        check(AppController.readClipboardText().indexOf("opennow-appearance") >= 0, "studio copy action writes a look code")
+
         appearance.lookStatus = ""
+        studio.status = ""
+        Theme.studioNow = new Date()
+        for (const slot of [1, 2, 3, 4]) ShellStore.clearLookSlot(slot)
+        screen.setSetting("appearanceScheduleEnabled", false)
+        screen.setSetting("appearanceDayPack", "porcelain")
+        screen.setSetting("appearanceNightPack", "nocturne")
+        screen.setSetting("appearanceDayStart", 420)
+        screen.setSetting("appearanceNightStart", 1140)
+        screen.setSetting("interfaceContrast", 0)
+        screen.setSetting("glassDepth", 50)
+        screen.setSetting("ambientGlow", 60)
+        screen.setSetting("ambientPattern", "none")
+        screen.setSetting("ambientPatternOpacity", 25)
+        screen.setSetting("backgroundDim", 0)
+        screen.setSetting("backgroundFit", "cover")
+        screen.setSetting("motionTempo", "standard")
+        screen.setSetting("cornerStyle", "soft")
+        screen.setSetting("desktopBackgroundImage", "")
         screen.setSetting("themeFusionEnabled", false)
         screen.setSetting("appFontFamily", "Nunito")
         screen.setSetting("posterSizeScale", 1.05)

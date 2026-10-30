@@ -3667,65 +3667,199 @@ QtObject {
         return setSetting("customProfileImages", updated, "custom-profile-image")
     }
 
+    function lookFieldDefinitions() {
+        const packs = Theme.packs.map(pack => pack.id)
+        const fonts = ["Nunito", "Segoe UI", "Arial", "Verdana"]
+        return [
+            {key:"themePack", type:"string", choices:packs},
+            {key:"appTheme", type:"string", choices:["light", "dark", "auto"]},
+            {key:"appAccentColor", type:"string", accent:true},
+            {key:"themeAccentOverride", type:"boolean"},
+            {key:"appFontFamily", type:"string", choices:fonts},
+            {key:"posterSizeScale", type:"number", minimum:0.75, maximum:1.5},
+            {key:"translucentUI", type:"boolean"},
+            {key:"showTileLabels", type:"boolean"},
+            {key:"desktopBackground", type:"string", choices:["art", "gradient", "solid", "custom"]},
+            {key:"desktopBackgroundImage", type:"string", image:true},
+            {key:"desktopBackgroundOpacity", type:"number", minimum:0, maximum:100},
+            {key:"themeFusionPack", type:"string", choices:packs},
+            {key:"themeFusionBalance", type:"number", minimum:0, maximum:100},
+            {key:"appearanceDayPack", type:"string", choices:packs},
+            {key:"appearanceNightPack", type:"string", choices:packs},
+            {key:"appearanceDayStart", type:"number", minimum:0, maximum:1439},
+            {key:"appearanceNightStart", type:"number", minimum:0, maximum:1439},
+            {key:"interfaceContrast", type:"number", minimum:0, maximum:100},
+            {key:"glassDepth", type:"number", minimum:0, maximum:100},
+            {key:"ambientGlow", type:"number", minimum:0, maximum:100},
+            {key:"ambientPattern", type:"string", choices:["none", "grid", "constellation", "contour"]},
+            {key:"ambientPatternOpacity", type:"number", minimum:0, maximum:100},
+            {key:"backgroundDim", type:"number", minimum:0, maximum:100},
+            {key:"backgroundFit", type:"string", choices:["cover", "fit", "stretch"]},
+            {key:"motionTempo", type:"string", choices:["calm", "standard", "swift"]},
+            {key:"cornerStyle", type:"string", choices:["sharp", "soft", "round"]},
+            {key:"themeFusionEnabled", type:"boolean"},
+            {key:"appearanceScheduleEnabled", type:"boolean"}
+        ]
+    }
+
+    function validatedLook(candidate, portable = false) {
+        if (!candidate || typeof candidate !== "object" || candidate.version !== 1
+                || !Theme.packs.some(pack => pack.id === candidate.themePack)) return null
+        const clean = {version:1}
+        for (const field of lookFieldDefinitions()) {
+            const key = field.key
+            if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue
+            const value = candidate[key]
+            if (typeof value !== field.type || (field.type === "number" && !isFinite(value))) return null
+            if (field.choices && field.choices.indexOf(value) < 0) return null
+            if (field.type === "number" && (value < field.minimum || value > field.maximum)) return null
+            if (field.accent && Theme.accentChoices.indexOf(value) < 0
+                    && !/^#[0-9a-fA-F]{6}$/.test(value)) return null
+            if (field.image && (value.length > 8192 || (value !== "" && value.indexOf("file://") !== 0))) return null
+            clean[key] = value
+        }
+        if (portable) {
+            clean.desktopBackgroundImage = ""
+            if (clean.desktopBackground === "custom") clean.desktopBackground = "gradient"
+        }
+        return clean
+    }
+
+    function currentLook(portable = false) {
+        const source = settings || ({})
+        const number = (key, fallbackValue) => Number(source[key] === undefined ? fallbackValue : source[key])
+        const text = (key, fallbackValue) => String(source[key] || fallbackValue)
+        const customBackground = text("desktopBackground", "art")
+        return {
+            version:1,
+            themePack:text("themePack", "nocturne"),
+            appTheme:text("appTheme", "auto"),
+            appAccentColor:text("appAccentColor", "blue"),
+            themeAccentOverride:source.themeAccentOverride === true,
+            appFontFamily:text("appFontFamily", "Nunito"),
+            posterSizeScale:number("posterSizeScale", 1.05),
+            translucentUI:source.translucentUI === true,
+            showTileLabels:source.showTileLabels !== false,
+            desktopBackground:portable && customBackground === "custom" ? "gradient" : customBackground,
+            desktopBackgroundImage:portable ? "" : String(source.desktopBackgroundImage || ""),
+            desktopBackgroundOpacity:number("desktopBackgroundOpacity", 30),
+            themeFusionPack:text("themeFusionPack", "aurora"),
+            themeFusionBalance:number("themeFusionBalance", 50),
+            appearanceDayPack:text("appearanceDayPack", "porcelain"),
+            appearanceNightPack:text("appearanceNightPack", "nocturne"),
+            appearanceDayStart:number("appearanceDayStart", 420),
+            appearanceNightStart:number("appearanceNightStart", 1140),
+            interfaceContrast:number("interfaceContrast", 0),
+            glassDepth:number("glassDepth", 50),
+            ambientGlow:number("ambientGlow", 60),
+            ambientPattern:text("ambientPattern", "none"),
+            ambientPatternOpacity:number("ambientPatternOpacity", 25),
+            backgroundDim:number("backgroundDim", 0),
+            backgroundFit:text("backgroundFit", "cover"),
+            motionTempo:text("motionTempo", "standard"),
+            cornerStyle:text("cornerStyle", "soft"),
+            themeFusionEnabled:source.themeFusionEnabled === true,
+            appearanceScheduleEnabled:source.appearanceScheduleEnabled === true
+        }
+    }
+
+    function applyLook(memory, source) {
+        const clean = validatedLook(memory)
+        if (!clean) return false
+        let succeeded = true
+        for (const field of lookFieldDefinitions()) {
+            const key = field.key
+            if (!Object.prototype.hasOwnProperty.call(clean, key)) continue
+            const request = setSetting(key, clean[key], source || "look-restore")
+            if (request === false || request === "") succeeded = false
+        }
+        return succeeded
+    }
+
     function lookMemoryData() {
         const raw = String(settings && settings.lookMemory || "")
         if (raw === "") return null
         try {
-            const memory = JSON.parse(raw)
-            return memory && memory.version === 1 && typeof memory.themePack === "string" ? memory : null
+            return validatedLook(JSON.parse(raw))
         } catch (error) {
             return null
         }
     }
 
     function captureLookMemory() {
-        const source = settings || ({})
-        const memory = {
-            version:1,
-            themePack:String(source.themePack || "nocturne"),
-            appTheme:String(source.appTheme || "auto"),
-            appAccentColor:String(source.appAccentColor || "blue"),
-            themeAccentOverride:source.themeAccentOverride === true,
-            appFontFamily:String(source.appFontFamily || "Nunito"),
-            posterSizeScale:Number(source.posterSizeScale === undefined ? 1.05 : source.posterSizeScale),
-            translucentUI:source.translucentUI === true,
-            showTileLabels:source.showTileLabels !== false,
-            desktopBackground:String(source.desktopBackground || "art"),
-            desktopBackgroundImage:String(source.desktopBackgroundImage || ""),
-            desktopBackgroundOpacity:Number(source.desktopBackgroundOpacity === undefined ? 30 : source.desktopBackgroundOpacity),
-            themeFusionEnabled:source.themeFusionEnabled === true,
-            themeFusionPack:String(source.themeFusionPack || "aurora"),
-            themeFusionBalance:Number(source.themeFusionBalance === undefined ? 50 : source.themeFusionBalance)
-        }
-        return setSetting("lookMemory", JSON.stringify(memory), "look-memory-capture")
+        return setSetting("lookMemory", JSON.stringify(currentLook(false)), "look-memory-capture")
     }
 
     function restoreLookMemory() {
         const memory = lookMemoryData()
-        if (!memory) return false
-        const fields = [
-            ["themePack", "string"], ["appTheme", "string"],
-            ["appAccentColor", "string"], ["themeAccentOverride", "boolean"],
-            ["appFontFamily", "string"], ["posterSizeScale", "number"],
-            ["translucentUI", "boolean"], ["showTileLabels", "boolean"],
-            ["desktopBackground", "string"], ["desktopBackgroundImage", "string"],
-            ["desktopBackgroundOpacity", "number"], ["themeFusionPack", "string"],
-            ["themeFusionBalance", "number"], ["themeFusionEnabled", "boolean"]
-        ]
-        let succeeded = true
-        for (const field of fields) {
-            const key = field[0]
-            const value = memory[key]
-            if (value === undefined || typeof value !== field[1]
-                    || (field[1] === "number" && !isFinite(value))) continue
-            const request = setSetting(key, value, "look-memory-restore")
-            if (request === false || request === "") succeeded = false
-        }
-        return succeeded
+        return memory ? applyLook(memory, "look-memory-restore") : false
     }
 
     function clearLookMemory() {
         return setSetting("lookMemory", "", "look-memory-clear")
+    }
+
+    function lookSlotLibrary() {
+        const empty = {version:1, slots:({})}
+        const raw = String(settings && settings.lookSlots || "")
+        if (raw === "") return empty
+        try {
+            const parsed = JSON.parse(raw)
+            if (!parsed || parsed.version !== 1 || !parsed.slots || typeof parsed.slots !== "object") return empty
+            const slots = ({})
+            for (let slot = 1; slot <= 4; ++slot) {
+                const entry = parsed.slots[String(slot)]
+                if (!entry || typeof entry !== "object") continue
+                const look = validatedLook(entry.look)
+                if (!look) continue
+                slots[String(slot)] = {capturedAt:String(entry.capturedAt || "").slice(0, 64), look:look}
+            }
+            return {version:1, slots:slots}
+        } catch (error) {
+            return empty
+        }
+    }
+
+    function lookSlotData(slot) {
+        return lookSlotLibrary().slots[String(slot)] || null
+    }
+
+    function captureLookSlot(slot) {
+        const index = Number(slot)
+        if (!Number.isInteger(index) || index < 1 || index > 4) return false
+        const library = lookSlotLibrary()
+        library.slots[String(index)] = {capturedAt:new Date().toISOString(), look:currentLook(false)}
+        return setSetting("lookSlots", JSON.stringify(library), "look-slot-capture")
+    }
+
+    function restoreLookSlot(slot) {
+        const entry = lookSlotData(slot)
+        return entry ? applyLook(entry.look, "look-slot-restore") : false
+    }
+
+    function clearLookSlot(slot) {
+        const index = Number(slot)
+        if (!Number.isInteger(index) || index < 1 || index > 4) return false
+        const library = lookSlotLibrary()
+        delete library.slots[String(index)]
+        return setSetting("lookSlots", JSON.stringify(library), "look-slot-clear")
+    }
+
+    function portableLookCode() {
+        return JSON.stringify({kind:"opennow-appearance", version:1, look:currentLook(true)})
+    }
+
+    function importLookCode(code) {
+        const raw = String(code || "")
+        if (raw.length < 2 || raw.length > 60000) return false
+        try {
+            const parsed = JSON.parse(raw)
+            if (!parsed || parsed.kind !== "opennow-appearance" || parsed.version !== 1) return false
+            const look = validatedLook(parsed.look, true)
+            return look ? applyLook(look, "look-code-import") : false
+        } catch (error) {
+            return false
+        }
     }
 
     function resetSettings() {

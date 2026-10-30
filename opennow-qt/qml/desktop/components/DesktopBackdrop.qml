@@ -44,7 +44,7 @@ Item {
         source: root.visible && root.customBackground ? String(ShellStore.settings.desktopBackgroundImage || "") : ""
         sourceSize: Qt.size(1920, 1080)
         asynchronous: true
-        fillMode: Image.PreserveAspectCrop
+        fillMode: Theme.backgroundFillMode
         opacity: status === Image.Ready ? Number(ShellStore.settings.desktopBackgroundOpacity ?? 30) / 100 : 0
     }
 
@@ -76,10 +76,10 @@ Item {
         z: String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 1 : 0
         gradient: Gradient {
             GradientStop { position: 0; color: Qt.rgba(Theme.focus.r,Theme.focus.g,Theme.focus.b,
-                String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.22 : 0.07) }
+                Theme.glow(String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.22 : 0.07)) }
             GradientStop { position: 0.4; color: "transparent" }
             GradientStop { position: 1; color: Qt.rgba(Theme.atmosphere.r,Theme.atmosphere.g,Theme.atmosphere.b,
-                String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.16 : 0.05) }
+                Theme.glow(String(ShellStore.settings.desktopBackground || "art") === "gradient" ? 0.16 : 0.05)) }
         }
     }
     Rectangle {
@@ -99,5 +99,15 @@ Item {
             GradientStop { position: 0; color: "#00000000" }
             GradientStop { position: 1; color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, root.customBackground ? 0.18 : 0.55) }
         }
+    }
+    Rectangle {
+        objectName: "desktopBackgroundDimmer"
+        visible: !root.signIn && Theme.backgroundDim > 0
+        anchors.fill: parent
+        color: "#000000"
+        opacity: Theme.backgroundDim * 0.72
+    }
+    AmbientPattern {
+        active: !root.signIn
     }
 }

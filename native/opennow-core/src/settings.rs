@@ -289,6 +289,8 @@ impl SettingsStore {
             );
             self.values
                 .insert("themeAccentOverride".to_owned(), json!(false));
+            self.values
+                .insert("appearanceScheduleEnabled".to_owned(), json!(false));
         } else if key == "appAccentColor" {
             self.values
                 .insert("themeAccentOverride".to_owned(), json!(true));
@@ -596,6 +598,39 @@ impl SettingsStore {
         normalize_choice(&mut self.values, "themePack", THEME_PACKS, "nocturne");
         normalize_choice(&mut self.values, "themeFusionPack", THEME_PACKS, "aurora");
         clamp_integer(&mut self.values, "themeFusionBalance", 0, 100, 50);
+        normalize_choice(&mut self.values, "appearanceDayPack", THEME_PACKS, "porcelain");
+        normalize_choice(&mut self.values, "appearanceNightPack", THEME_PACKS, "nocturne");
+        clamp_integer(&mut self.values, "appearanceDayStart", 0, 1439, 420);
+        clamp_integer(&mut self.values, "appearanceNightStart", 0, 1439, 1140);
+        clamp_integer(&mut self.values, "interfaceContrast", 0, 100, 0);
+        clamp_integer(&mut self.values, "glassDepth", 0, 100, 50);
+        clamp_integer(&mut self.values, "ambientGlow", 0, 100, 60);
+        clamp_integer(&mut self.values, "ambientPatternOpacity", 0, 100, 25);
+        clamp_integer(&mut self.values, "backgroundDim", 0, 100, 0);
+        normalize_choice(
+            &mut self.values,
+            "ambientPattern",
+            &["none", "grid", "constellation", "contour"],
+            "none",
+        );
+        normalize_choice(
+            &mut self.values,
+            "backgroundFit",
+            &["cover", "fit", "stretch"],
+            "cover",
+        );
+        normalize_choice(
+            &mut self.values,
+            "motionTempo",
+            &["calm", "standard", "swift"],
+            "standard",
+        );
+        normalize_choice(
+            &mut self.values,
+            "cornerStyle",
+            &["sharp", "soft", "round"],
+            "soft",
+        );
         normalize_accent(&mut self.values);
         normalize_choice(
             &mut self.values,
@@ -1049,7 +1084,8 @@ fn normalize_bounded_strings(values: &mut Map<String, Value>) {
         ("microphoneDeviceId", 512),
         ("telemetryInstallId", 128),
         ("lastSeenReleaseHighlightsVersion", 128),
-        ("lookMemory", 4_096),
+        ("lookMemory", 16_384),
+        ("lookSlots", 65_536),
     ] {
         let value = values
             .get(key)
@@ -1305,7 +1341,12 @@ fn defaults() -> Map<String, Value> {
         "statsShowPacketLoss":true, "statsShowDecode":true, "statsShowLatency":true,
         "statsShowVideo":true, "statsShowClock":true, "statsShowGraphs":true,
         "appAccentColor":"green", "appTheme":"auto", "appLanguage":"system", "themePack":"nocturne", "translucentUI":false,
-        "themeFusionEnabled":false, "themeFusionPack":"aurora", "themeFusionBalance":50, "lookMemory":"",
+        "themeFusionEnabled":false, "themeFusionPack":"aurora", "themeFusionBalance":50, "lookMemory":"", "lookSlots":"",
+        "appearanceScheduleEnabled":false, "appearanceDayStart":420, "appearanceNightStart":1140,
+        "appearanceDayPack":"porcelain", "appearanceNightPack":"nocturne",
+        "interfaceContrast":0, "glassDepth":50, "ambientGlow":60,
+        "ambientPattern":"none", "ambientPatternOpacity":25, "backgroundDim":0, "backgroundFit":"cover",
+        "motionTempo":"standard", "cornerStyle":"soft",
         "appFontFamily":"Nunito", "showTileLabels":true,
         "customProfileImages":{}, "profileImageSize":256,
         "controllerMode":true, "controllerModePromptDismissed":false, "forwardFlightControls":true,
@@ -2298,13 +2339,80 @@ mod tests {
         assert_eq!(loaded.all()["themeFusionPack"], json!("aurora"));
         loaded.set("themeFusionEnabled", json!("yes")).unwrap();
         assert_eq!(loaded.all()["themeFusionEnabled"], json!(false));
-        loaded.set("lookMemory", json!("x".repeat(5_000))).unwrap();
+        loaded.set("lookMemory", json!("x".repeat(20_000))).unwrap();
         assert_eq!(
             loaded.all()["lookMemory"].as_str().unwrap().chars().count(),
-            4_096
+            16_384
         );
         loaded.set("lookMemory", Value::Null).unwrap();
         assert_eq!(loaded.all()["lookMemory"], json!(""));
+    }
+
+    #[test]
+    fn appearance_studio_settings_are_bounded_and_persisted() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        for (key, value) in [
+            ("appearanceScheduleEnabled", json!(true)),
+            ("appearanceDayStart", json!(390)),
+            ("appearanceNightStart", json!(1_170)),
+            ("appearanceDayPack", json!("daybreak")),
+            ("appearanceNightPack", json!("celestial")),
+            ("interfaceContrast", json!(72)),
+            ("glassDepth", json!(84)),
+            ("ambientGlow", json!(91)),
+            ("ambientPattern", json!("constellation")),
+            ("ambientPatternOpacity", json!(38)),
+            ("backgroundDim", json!(44)),
+            ("backgroundFit", json!("fit")),
+            ("motionTempo", json!("calm")),
+            ("cornerStyle", json!("round")),
+            ("lookSlots", json!(r#"{"version":1,"slots":{}}"#)),
+        ] {
+            store.set(key, value).unwrap();
+        }
+        let loaded = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        assert_eq!(loaded.all()["appearanceScheduleEnabled"], json!(true));
+        assert_eq!(loaded.all()["appearanceDayStart"], json!(390));
+        assert_eq!(loaded.all()["appearanceNightStart"], json!(1_170));
+        assert_eq!(loaded.all()["appearanceDayPack"], json!("daybreak"));
+        assert_eq!(loaded.all()["appearanceNightPack"], json!("celestial"));
+        assert_eq!(loaded.all()["interfaceContrast"], json!(72));
+        assert_eq!(loaded.all()["glassDepth"], json!(84));
+        assert_eq!(loaded.all()["ambientGlow"], json!(91));
+        assert_eq!(loaded.all()["ambientPattern"], json!("constellation"));
+        assert_eq!(loaded.all()["ambientPatternOpacity"], json!(38));
+        assert_eq!(loaded.all()["backgroundDim"], json!(44));
+        assert_eq!(loaded.all()["backgroundFit"], json!("fit"));
+        assert_eq!(loaded.all()["motionTempo"], json!("calm"));
+        assert_eq!(loaded.all()["cornerStyle"], json!("round"));
+        assert_eq!(loaded.all()["lookSlots"], json!(r#"{"version":1,"slots":{}}"#));
+
+        let mut repaired = loaded;
+        for (key, value, expected) in [
+            ("appearanceDayStart", json!(9_999), json!(1_439)),
+            ("appearanceNightStart", json!(-1), json!(0)),
+            ("interfaceContrast", json!(-5), json!(0)),
+            ("glassDepth", json!(500), json!(100)),
+            ("ambientGlow", json!(-2), json!(0)),
+            ("ambientPatternOpacity", json!(200), json!(100)),
+            ("backgroundDim", json!(-1), json!(0)),
+            ("appearanceDayPack", json!("unknown"), json!("porcelain")),
+            ("appearanceNightPack", json!("unknown"), json!("nocturne")),
+            ("ambientPattern", json!("unknown"), json!("none")),
+            ("backgroundFit", json!("unknown"), json!("cover")),
+            ("motionTempo", json!("unknown"), json!("standard")),
+            ("cornerStyle", json!("unknown"), json!("soft")),
+        ] {
+            repaired.set(key, value).unwrap();
+            assert_eq!(repaired.all()[key], expected);
+        }
+        repaired.set("lookSlots", json!("x".repeat(80_000))).unwrap();
+        assert_eq!(repaired.all()["lookSlots"].as_str().unwrap().chars().count(), 65_536);
+        repaired.set("lookSlots", Value::Null).unwrap();
+        assert_eq!(repaired.all()["lookSlots"], json!(""));
+        repaired.set("themePack", json!("chapel")).unwrap();
+        assert_eq!(repaired.all()["appearanceScheduleEnabled"], json!(false));
     }
 
     #[test]

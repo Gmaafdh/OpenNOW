@@ -253,6 +253,7 @@ qt_add_qml_module(opennow-qt
         qml/overlays/ConsoleSessionConflict.qml
         qml/overlays/ConsoleSessionReport.qml
         qml/overlays/ConsoleQueueAd.qml
+        qml/components/AmbientPattern.qml
         qml/components/GlassPanel.qml
         qml/components/HintBar.qml
         qml/components/HomeTileMenu.qml
@@ -338,6 +339,7 @@ qt_add_qml_module(opennow-qt
         qml/desktop/settings/pages/DesktopSettingsControlsPage.qml
         qml/desktop/settings/controls/DesktopSettingsFlightControlsPanel.qml
         qml/desktop/settings/pages/DesktopSettingsInterfacePage.qml
+        qml/desktop/settings/pages/DesktopSettingsAppearanceStudio.qml
         qml/desktop/settings/pages/DesktopSettingsLookPage.qml
         qml/desktop/settings/pages/DesktopSettingsNetworkPage.qml
         qml/desktop/settings/pages/DesktopSettingsProfilePage.qml

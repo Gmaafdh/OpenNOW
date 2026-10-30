@@ -9,5 +9,5 @@ Rectangle {
     color: strong ? Theme.glassStrong : Theme.glass
     border.color: Theme.seam
     border.width: 1
-    radius: panelRadius
+    radius: Theme.radius(panelRadius)
 }

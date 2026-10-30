@@ -82,7 +82,11 @@ fn settings_events_precede_acknowledgements_and_other_events_keep_their_order() 
             (
                 "themePack",
                 json!("bone"),
-                Some(json!({"appTheme":"light","themeAccentOverride":false})),
+                Some(json!({
+                    "appTheme":"light",
+                    "themeAccentOverride":false,
+                    "appearanceScheduleEnabled":false
+                })),
             ),
             (
                 "microphoneMode",

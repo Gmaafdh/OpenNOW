@@ -27,7 +27,7 @@ ItemDelegate {
         Rectangle {
             anchors.fill: parent
             anchors.margins: -5
-            radius: 29
+            radius: Theme.radius(29)
             color: "transparent"
             border.width: 5
             border.color: Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.4)
@@ -36,7 +36,7 @@ ItemDelegate {
         }
         Rectangle {
             anchors.fill: parent
-            radius: 24
+            radius: Theme.radius(24)
             color: root.showRing ? Qt.rgba(Theme.face.r, Theme.face.g, Theme.face.b, 0.10)
                 : root.parked ? Qt.rgba(Theme.face.r, Theme.face.g, Theme.face.b, 0.08)
                 : "transparent"

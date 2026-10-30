@@ -22,7 +22,7 @@ Button {
     font.pixelSize: 12
     font.weight: Font.ExtraBold
     background: Rectangle {
-        radius: root.cornerRadius
+        radius: Theme.radius(root.cornerRadius)
         color: root.primary ? (root.down ? "#D9D9D9" : "#FFFFFFFF")
              : root.danger ? (root.hovered || root.activeFocus ? "#29FF8A80" : "#14FF8A80")
              : (root.hovered || root.activeFocus ? "#1FFFFFFF" : "#0FFFFFFF")

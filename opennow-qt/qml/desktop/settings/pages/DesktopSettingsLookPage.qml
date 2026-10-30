@@ -419,6 +419,13 @@ Column {
         }
     }
 
+    DesktopSettingsAppearanceStudio {
+        width: parent.width
+        availableWidth: page.availableWidth
+        settingsScreen: page.settingsScreen
+        themeItems: page.themeOptions()
+    }
+
     DesktopSettingsPanel {
         width: parent.width; paperStyle: true
         DesktopSettingsSection { text: qsTr("BACKGROUND") }

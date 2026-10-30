@@ -15,4 +15,8 @@ public:
     // directory. The returned URL changes with the content, so QML never keeps
     // displaying a stale cached avatar after a replacement.
     Q_INVOKABLE QVariantMap importImage(const QString &urlOrPath, int targetSize = 256) const;
+
+    // Extracts a dominant, visibly saturated color without retaining or
+    // modifying the source image. Used to derive an accent from local wallpaper.
+    Q_INVOKABLE QVariantMap dominantColor(const QString &urlOrPath) const;
 };

@@ -516,7 +516,8 @@ fn dispatch(
                 let values = settings.all();
                 event["changes"] = json!({
                     "appTheme": values["appTheme"],
-                    "themeAccentOverride": values["themeAccentOverride"]
+                    "themeAccentOverride": values["themeAccentOverride"],
+                    "appearanceScheduleEnabled": values["appearanceScheduleEnabled"]
                 });
             } else if key == "appAccentColor" {
                 event["changes"] = json!({"themeAccentOverride": true});

@@ -45,7 +45,7 @@ Item {
         visible: reveal.present
         opacity: reveal.progress
         x: DesktopTokens.px(8); width: parent.width-DesktopTokens.px(16); height: parent.height
-        radius: DesktopTokens.px(16); color: DesktopTokens.raised
+        radius: DesktopTokens.radius(16); color: DesktopTokens.raised
         border.width: 1; border.color: Theme.focus
     }
     DesktopSettingsRow {
@@ -119,7 +119,7 @@ Item {
                                 Keys.onEnterPressed: event => { tile.clicked(); event.accepted = true }
                                 Keys.onEscapePressed: event => { root.expanded = false; event.accepted = true }
                                 background: Rectangle {
-                                    radius: 12
+                                    radius: Theme.radius(12)
                                     color: tile.chosen ? Theme.focus : tile.hovered ? DesktopTokens.raisedStrong : DesktopTokens.raised
                                     border.width: tile.activeFocus ? 2 : 1
                                     border.color: tile.activeFocus ? Theme.focus : DesktopTokens.seamSoft

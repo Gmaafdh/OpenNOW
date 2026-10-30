@@ -23,6 +23,7 @@ TestCase {
 
     function init() {
         ShellStore.previewThemePack = ""
+        Theme.studioNow = new Date()
         ShellStore.settings = {themePack:"nocturne", appTheme:"dark", appAccentColor:"green", themeAccentOverride:false}
         settingsState.settings = ShellStore.settings
     }
@@ -135,6 +136,86 @@ TestCase {
         verify([25, 35, 50, 65, 75].indexOf(muse.balance) >= 0)
     }
 
+    function test_appearanceSchedule() {
+        ShellStore.settings = {themePack:"nocturne", appTheme:"dark", appearanceScheduleEnabled:true,
+            appearanceDayPack:"porcelain", appearanceNightPack:"celestial",
+            appearanceDayStart:420, appearanceNightStart:1140}
+        Theme.studioNow = new Date(2026, 9, 30, 12, 0)
+        compare(Theme.themePack, "porcelain")
+        compare(Theme.lightMode, true)
+        Theme.studioNow = new Date(2026, 9, 30, 23, 0)
+        compare(Theme.themePack, "celestial")
+        compare(Theme.lightMode, false)
+        Theme.studioNow = new Date(2026, 9, 30, 2, 0)
+        compare(Theme.lightMode, false, "night schedule crosses midnight")
+        ShellStore.settings = Object.assign({}, ShellStore.settings, {appearanceDayStart:1200, appearanceNightStart:300})
+        Theme.studioNow = new Date(2026, 9, 30, 23, 0)
+        compare(Theme.lightMode, true, "day interval can also cross midnight")
+        Theme.studioNow = new Date(2026, 9, 30, 12, 0)
+        compare(Theme.lightMode, false)
+        ShellStore.settings = Object.assign({}, ShellStore.settings, {appearanceDayStart:600, appearanceNightStart:600})
+        compare(Theme.isScheduledDay(new Date(2026, 9, 30, 18, 0)), true)
+        ShellStore.previewThemePack = "nocturne"
+        compare(Theme.themePack, "nocturne")
+        compare(Theme.lightMode, false, "manual preview overrides the schedule")
+    }
+
+    function test_accentHarmoniesAndRepair() {
+        const harmonies = Theme.accentHarmonies("#12ABEF")
+        compare(harmonies.length, 5)
+        compare(JSON.stringify(harmonies), JSON.stringify(Theme.accentHarmonies("#12ABEF")))
+        for (const color of harmonies)
+            verify(/^#[0-9a-fA-F]{6}$/.test(color), color)
+        compare(new Set(harmonies).size, harmonies.length)
+        for (const surface of ["#071A20", "#F7F9FF", "#756346", "#F4ECDD"]) {
+            for (const accent of ["#777777", "#FF00FF", "#000000"]) {
+                const repaired = Theme.readableAccent(accent, surface)
+                verify(Theme.contrastRatio(repaired, surface) >= 3, surface + " / " + accent)
+                verify(Theme.contrastRatio(Theme.contrastText(repaired), repaired) >= 4.5)
+            }
+        }
+    }
+
+    function test_surfaceStudioTokens() {
+        AppController.reducedMotion = false
+        ShellStore.settings = {themePack:"nocturne", appTheme:"dark", interfaceContrast:0,
+            glassDepth:50, ambientGlow:60, backgroundDim:0, motionTempo:"standard", cornerStyle:"soft"}
+        compare(Theme.glass.a.toFixed(2), "0.72")
+        compare(Theme.glassStrong.a.toFixed(2), "0.94")
+        compare(Theme.glow(0.12).toFixed(2), "0.12")
+        compare(Theme.radius(10), 10)
+        compare(Theme.enterDuration, 260)
+        ShellStore.settings = Object.assign({}, ShellStore.settings, {interfaceContrast:100, glassDepth:100,
+            ambientGlow:0, backgroundDim:75, motionTempo:"calm", cornerStyle:"round"})
+        compare(Theme.textMuted.a.toFixed(2), "0.94")
+        compare(Theme.seam.a.toFixed(2), "0.44")
+        compare(Theme.glass.a.toFixed(2), "0.92")
+        compare(Theme.glow(0.12), 0)
+        compare(Theme.backgroundDim, 0.75)
+        compare(Theme.radius(10), 16.5)
+        compare(Theme.enterDuration, 390)
+        ShellStore.settings = Object.assign({}, ShellStore.settings, {glassDepth:0, translucentUI:true,
+            motionTempo:"swift", cornerStyle:"sharp", backgroundFit:"fit"})
+        compare(Theme.glass.a.toFixed(2), "0.32")
+        compare(Theme.enterDuration, 156)
+        compare(Theme.radius(10), 3.5)
+        compare(Theme.backgroundFillMode, Image.PreserveAspectFit)
+    }
+
+    function test_portableLookValidation() {
+        ShellStore.settings = {themePack:"lagoon", appTheme:"dark", desktopBackground:"custom",
+            desktopBackgroundImage:"file:///C:/private/wallpaper.png", appearanceScheduleEnabled:true}
+        const exported = JSON.parse(ShellStore.portableLookCode())
+        compare(exported.kind, "opennow-appearance")
+        compare(exported.look.desktopBackground, "gradient")
+        compare(exported.look.desktopBackgroundImage, "")
+        verify(JSON.stringify(exported).indexOf("private") < 0)
+        verify(ShellStore.validatedLook(exported.look, true) !== null)
+        verify(ShellStore.validatedLook({version:1, themePack:"not-a-pack"}) === null)
+        verify(ShellStore.validatedLook({version:1, themePack:"lagoon", glassDepth:500}) === null)
+        verify(ShellStore.validatedLook({version:1, themePack:"lagoon", appearanceDayStart:"morning"}) === null)
+    }
+
     function test_customHexAccentAndFont() {
         compare(Theme.accentColor("#A1B2C3"), "#a1b2c3")
         ShellStore.settings = {themePack:"nocturne",appTheme:"dark",appAccentColor:"#12ABEF",themeAccentOverride:true,appFontFamily:"Verdana"}
@@ -174,8 +255,10 @@ TestCase {
         for (const pack of Theme.packs) {
             settingsState.applySetting("appAccentColor", "rose")
             compare(settingsState.settings.themeAccentOverride, true)
+            settingsState.applySetting("appearanceScheduleEnabled", true)
             settingsState.applySetting("themePack", pack.id)
             compare(settingsState.settings.themeAccentOverride, false)
+            compare(settingsState.settings.appearanceScheduleEnabled, false)
             compare(settingsState.settings.appTheme, pack.category === "Light" ? "light" : "dark")
             settingsState.applySetting("appTheme", "auto")
             settingsState.applySetting("appAccentColor", "violet")

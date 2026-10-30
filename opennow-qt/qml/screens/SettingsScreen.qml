@@ -351,6 +351,23 @@ FocusScope {
             ]
         }
         if (root.selectedSection === 5) {
+            const packValues = Theme.packs.map(pack => pack.id)
+            const packLabels = Theme.packs.map(pack => pack.name)
+            const timeValues = Array.from({length:24}, (_, hour) => hour * 60)
+            const timeLabels = Array.from({length:24}, (_, hour) => String(hour).padStart(2, "0") + ":00")
+            const harmonies = Theme.accentHarmonies(Theme.customAccent)
+            const percentRows = [
+                {key:"interfaceContrast", title:qsTr("Contrast boost"), description:qsTr("Strengthen secondary text and separators"), fallback:0},
+                {key:"glassDepth", title:qsTr("Glass depth"), description:qsTr("Tune panel opacity across desktop and console"), fallback:50},
+                {key:"ambientGlow", title:qsTr("Ambient glow"), description:qsTr("Control the colored background light wash"), fallback:60},
+                {key:"ambientPatternOpacity", title:qsTr("Pattern intensity"), description:qsTr("Adjust procedural background linework"), fallback:25},
+                {key:"backgroundDim", title:qsTr("Background dimming"), description:qsTr("Add a readability scrim over the background"), fallback:0}
+            ].map(setting => {
+                const value = Number(settings[setting.key] ?? setting.fallback)
+                const values = Array.from({length:101}, (_, index) => index)
+                return {t:setting.title, d:setting.description, v:value + "%", key:setting.key,
+                    values:values, labels:values.map(number => number + "%"), control:"slider", sliderPercent:value / 100}
+            })
             return [
                 choice("Theme", "Auto follows the system at sunset", "appTheme", ["auto","dark","light"], ["Auto","Midnight","Light"], "segments"),
                 {t:"Accent colour", d:"Focus ring, progress and active states", v:root.titleCase(settings.appAccentColor || "blue"), key:"appAccentColor", values:["violet","blue","amber","green","rose","coral","white"], labels:["Violet","Sky","Amber","Mint","Rose","Coral","White"], colors:["violet","blue","amber","green","rose","coral","white"].map(value => Theme.accentColor(value, Theme.lightMode)), control:"colors"},
@@ -363,6 +380,32 @@ FocusScope {
                 {t:"UI sounds", d:"Play the Game Mode startup sound", v:ShellStore.settings.uiSoundsEnabled !== false ? qsTr("On") : qsTr("Off"), key:"uiSoundsEnabled", toggle:true, control:"toggle", toggleState:ShellStore.settings.uiSoundsEnabled !== false},
                 toggle("Console mode", "Bigger 10-foot layout, profile picker on start, controller-only navigation", "launchInConsoleMode"),
                 {t:"Theme store", d:"Browse controller-first palettes from the Paper V3 collection", v:root.titleCase(settings.themePack || "default"), route:"theme-store"},
+                toggle(qsTr("Appearance schedule"), qsTr("Switch complete day and night looks at local times"), "appearanceScheduleEnabled"),
+                choice(qsTr("Day look"), qsTr("Theme used during the day"), "appearanceDayPack", packValues, packLabels),
+                choice(qsTr("Night look"), qsTr("Theme used at night, including overnight"), "appearanceNightPack", packValues, packLabels),
+                choice(qsTr("Day starts"), qsTr("Local time for the day look"), "appearanceDayStart", timeValues, timeLabels),
+                choice(qsTr("Night starts"), qsTr("Local time for the night look"), "appearanceNightStart", timeValues, timeLabels),
+                {t:qsTr("Accent harmonies"), d:qsTr("Derived complement, analogous and triadic colors"), v:qsTr("Choose"),
+                    key:"appAccentColor", values:harmonies, labels:[qsTr("Complement"),qsTr("Warm analogous"),qsTr("Cool analogous"),qsTr("First triadic"),qsTr("Second triadic")], colors:harmonies, control:"colors"},
+                {t:qsTr("Smart accent repair"), d:qsTr("Preserve hue and find a readable lightness"), v:qsTr("Repair"), action:"repair-accent"},
+                {t:qsTr("Wallpaper Color Match"), d:qsTr("Extract and contrast-check a dominant custom wallpaper color"),
+                    v:settings.desktopBackgroundImage ? qsTr("Match") : qsTr("Choose on desktop"), action:"wallpaper-accent", info:!settings.desktopBackgroundImage},
+                ...percentRows,
+                choice(qsTr("Procedural pattern"), qsTr("Grid, Constellation or Contour background linework"), "ambientPattern",
+                    ["none","grid","constellation","contour"], [qsTr("None"),qsTr("Grid"),qsTr("Stars"),qsTr("Contour")], "segments"),
+                choice(qsTr("Wallpaper fit"), qsTr("Fill, preserve the whole image, or stretch"), "backgroundFit",
+                    ["cover","fit","stretch"], [qsTr("Fill"),qsTr("Fit"),qsTr("Stretch")], "segments"),
+                choice(qsTr("Motion tempo"), qsTr("Calm, standard or swift transitions"), "motionTempo",
+                    ["calm","standard","swift"], [qsTr("Calm"),qsTr("Standard"),qsTr("Swift")], "segments"),
+                choice(qsTr("Corner geometry"), qsTr("Sharp, soft or round shared surfaces"), "cornerStyle",
+                    ["sharp","soft","round"], [qsTr("Sharp"),qsTr("Soft"),qsTr("Round")], "segments"),
+                ...[1,2,3,4].map(slot => {
+                    const saved = ShellStore.lookSlotData(slot)
+                    return {t:qsTr("Look %1").arg(slot), d:saved ? qsTr("Restore this captured appearance") : qsTr("Capture the current complete appearance"),
+                        v:saved ? qsTr("Restore") : qsTr("Capture"), key:String(slot), action:"look-slot"}
+                }),
+                {t:qsTr("Copy portable look"), d:qsTr("Copy appearance JSON without account data or local paths"), v:qsTr("Copy"), action:"copy-look"},
+                {t:qsTr("Paste portable look"), d:qsTr("Validate and apply a look code from the clipboard"), v:qsTr("Paste & apply"), action:"paste-look"},
                 descriptorChoice(qsTr("Interface language"), ShellStore.settingsOwnerState.interfaceLanguageDescription,
                     "appLanguage", ShellStore.settingsOwnerState.interfaceLanguageItems),
                 toggle("Anti-AFK indicator", "Show an in-session badge while anti-AFK pulses are enabled", "showAntiAfkIndicator"),
@@ -607,6 +650,29 @@ FocusScope {
             streamerExecutableDialog.open()
         } else if (row.action === "automatic-bug-reports") {
             ShellStore.bugReports.setEnabled(!ShellStore.bugReports.enabled, "settings")
+        } else if (row.action === "repair-accent") {
+            ShellStore.setSetting("appAccentColor", Theme.readableAccent(Theme.focus, Theme.shell))
+            ShellStore.accessibilityMessage = qsTr("Accent contrast repaired")
+        } else if (row.action === "wallpaper-accent") {
+            const result = ProfileImages.dominantColor(String(ShellStore.settings.desktopBackgroundImage || ""))
+            if (result && result.ok === true) {
+                ShellStore.setSetting("appAccentColor", Theme.readableAccent(result.color, Theme.shell))
+                ShellStore.accessibilityMessage = qsTr("Wallpaper accent applied")
+            } else {
+                ShellStore.accessibilityMessage = qsTr("Wallpaper colors could not be read")
+            }
+        } else if (row.action === "look-slot") {
+            const slot = Number(row.key)
+            const saved = ShellStore.lookSlotData(slot)
+            const succeeded = saved ? ShellStore.restoreLookSlot(slot) : ShellStore.captureLookSlot(slot)
+            ShellStore.accessibilityMessage = succeeded === false || succeeded === ""
+                ? qsTr("Look slot could not be updated") : saved ? qsTr("Look restored") : qsTr("Look captured")
+        } else if (row.action === "copy-look") {
+            const copied = AppController.writeClipboardText(ShellStore.portableLookCode())
+            ShellStore.accessibilityMessage = copied ? qsTr("Portable look copied") : qsTr("Look could not be copied")
+        } else if (row.action === "paste-look") {
+            const imported = ShellStore.importLookCode(AppController.readClipboardText())
+            ShellStore.accessibilityMessage = imported ? qsTr("Portable look applied") : qsTr("Clipboard look code is invalid")
         } else if (row.action === "sign-out") {
             root.openWarning("sign-out")
         } else if (row.action === "anti-afk") {
