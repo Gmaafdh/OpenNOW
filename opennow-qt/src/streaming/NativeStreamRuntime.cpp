@@ -1,0 +1,1764 @@
+#include "streaming/NativeStreamRuntime.h"
+
+#include "diagnostics/DiagnosticsPaths.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QDateTime>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QSysInfo>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QMetaObject>
+#include <QPointer>
+#include <QQueue>
+#include <QRegion>
+#include <QScopeGuard>
+#include <QStandardPaths>
+#include <QTimer>
+#include <QThread>
+#include <QWindow>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <cwchar>
+#include <limits>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
+#include <thread>
+#include <utility>
+
+using namespace Qt::StringLiterals;
+
+namespace {
+constexpr std::size_t CommandQueueCapacity = 128;
+constexpr std::size_t ResponseQueueCapacity = 128;
+constexpr std::size_t EventQueueCapacity = 256;
+
+// GUI-thread control-plane diagnostics only. Never log raw commands or callback
+// payloads (they may contain session credentials), or write on each video frame.
+void handshakeLog(const QString &detail)
+{
+    QDir directory(coreDiagnosticsDataRoot());
+    if (!directory.mkpath(u"diagnostics"_s) || !directory.cd(u"diagnostics"_s)) return;
+    const auto path = directory.filePath(u"qt-native.log"_s);
+    QFile file(path);
+    if (file.size() > 1024 * 1024) {
+        QFile::remove(path + u".previous"_s);
+        if (!QFile::rename(path, path + u".previous"_s)) return;
+    }
+    if (file.open(QIODevice::WriteOnly | QIODevice::Append))
+        file.write((QString::number(QDateTime::currentMSecsSinceEpoch())
+                    + u" qt-native "_s + detail + u"\n"_s).toUtf8());
+}
+
+#ifdef Q_OS_WIN
+struct ExternalWindowSearch
+{
+    DWORD processId = 0;
+    HWND stream = nullptr;
+};
+
+BOOL CALLBACK findExternalStreamWindow(HWND handle, LPARAM parameter)
+{
+    auto *search = reinterpret_cast<ExternalWindowSearch *>(parameter);
+    DWORD processId = 0;
+    GetWindowThreadProcessId(handle, &processId);
+    if (processId != search->processId || !IsWindowVisible(handle)) return TRUE;
+    wchar_t title[64]{};
+    GetWindowTextW(handle, title, 64);
+    if (std::wcscmp(title, L"OpenNOW Stream") == 0) {
+        search->stream = handle;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+HWND externalStreamWindow(DWORD processId)
+{
+    if (!processId) return nullptr;
+    ExternalWindowSearch search{processId};
+    EnumWindows(findExternalStreamWindow, reinterpret_cast<LPARAM>(&search));
+    return search.stream;
+}
+
+QJsonObject physicalRect(const QRect &rect)
+{
+    return {{u"x"_s, rect.x()}, {u"y"_s, rect.y()},
+            {u"width"_s, rect.width()}, {u"height"_s, rect.height()}};
+}
+#endif
+
+QString nativeStreamerLogPath()
+{
+    const auto dataRoot = coreDiagnosticsDataRoot();
+    if (dataRoot.isEmpty()) return {};
+    QDir directory(dataRoot);
+    if (!directory.mkpath(u"diagnostics"_s) || !directory.cd(u"diagnostics"_s)) return {};
+    return directory.filePath(u"native-streamer.log"_s);
+}
+
+QString handshakeSummary(const QJsonObject &object)
+{
+    QStringList fields;
+    for (const auto *key : {"id", "type", "event", "status", "code", "protocolVersion", "phase"}) {
+        const auto value = object.value(QLatin1String(key));
+        const auto text = value.isString() ? value.toString()
+                        : value.isDouble() ? QString::number(value.toDouble()) : QString{};
+        if (!text.isEmpty() && text.size() <= 64
+            && std::all_of(text.begin(), text.end(), [](QChar c) {
+                return (c.isLetterOrNumber() && c.unicode() < 128)
+                    || c == u'-' || c == u'_' || c == u'.';
+            })) fields.append(QLatin1String(key) + u"="_s + text);
+    }
+    return fields.join(u' ');
+}
+
+QString statusText(OpenNowStreamerStatus status)
+{
+    switch (status) {
+    case OPENNOW_STREAMER_OK:
+        return {};
+    case OPENNOW_STREAMER_NULL_POINTER:
+        return u"The embedded streamer rejected a null pointer."_s;
+    case OPENNOW_STREAMER_INVALID_CONFIG:
+        return u"The embedded streamer rejected its ABI configuration."_s;
+    case OPENNOW_STREAMER_MESSAGE_TOO_LARGE:
+        return u"The embedded streamer command is too large."_s;
+    case OPENNOW_STREAMER_QUEUE_FULL:
+        return u"The embedded streamer command queue is full."_s;
+    case OPENNOW_STREAMER_CLOSED:
+        return u"The embedded streamer is closed."_s;
+    case OPENNOW_STREAMER_NO_FRAME:
+        return u"The embedded streamer has no decoded frame available."_s;
+    case OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE:
+        return u"The embedded streamer graphics context is unavailable."_s;
+    case OPENNOW_STREAMER_WRONG_THREAD:
+        return u"The embedded streamer graphics call ran on the wrong thread."_s;
+    case OPENNOW_STREAMER_STALE_FRAME:
+        return u"The embedded streamer rejected a stale frame."_s;
+    case OPENNOW_STREAMER_RENDER_FAILED:
+        return u"The embedded streamer could not record the frame."_s;
+    case OPENNOW_STREAMER_GRAPHICS_UNSUPPORTED:
+        return u"The embedded streamer cannot import the decoded frame on this graphics device."_s;
+    case OPENNOW_STREAMER_SCENE_GRAPH_ACTIVE:
+        return u"The embedded streamer scene graph is still active."_s;
+    case OPENNOW_STREAMER_FRAME_ALREADY_RECORDED:
+        return u"The embedded streamer frame was already recorded."_s;
+    case OPENNOW_STREAMER_PANIC:
+        return u"The embedded streamer caught an internal panic."_s;
+    }
+    return u"The embedded streamer returned an unknown status (%1)."_s
+        .arg(static_cast<int>(status));
+}
+
+std::optional<quint64> decodedCounterFromJson(const QJsonValue &value)
+{
+    if (!value.isDouble()) return std::nullopt;
+    const double number = value.toDouble();
+    constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
+    if (!std::isfinite(number) || number < 0.0 || number > MaxExactJsonInteger)
+        return std::nullopt;
+    if (std::trunc(number) != number) return std::nullopt;
+    return static_cast<quint64>(number);
+}
+
+class UpstreamProgressSnapshot
+{
+public:
+    void publish(bool stalled, bool hasDecodeTimings, quint64 epoch, quint64 outputs)
+    {
+        m_sequence.fetch_add(1, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_release);
+        m_epoch.store(epoch, std::memory_order_relaxed);
+        m_outputs.store(outputs, std::memory_order_relaxed);
+        m_stalled.store(stalled, std::memory_order_relaxed);
+        m_hasDecodeTimings.store(hasDecodeTimings, std::memory_order_relaxed);
+        m_sequence.fetch_add(1, std::memory_order_release);
+    }
+
+    [[nodiscard]] NativeStreamRuntime::UpstreamProgress read() const
+    {
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            const quint64 before = m_sequence.load(std::memory_order_acquire);
+            if (before & 1u) continue;
+            NativeStreamRuntime::UpstreamProgress progress;
+            progress.decodeEpoch = m_epoch.load(std::memory_order_relaxed);
+            progress.decodedOutputsTotal = m_outputs.load(std::memory_order_relaxed);
+            progress.stalled = m_stalled.load(std::memory_order_relaxed);
+            progress.hasDecodeTimings = m_hasDecodeTimings.load(std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (m_sequence.load(std::memory_order_relaxed) == before) return progress;
+        }
+        return {};
+    }
+
+private:
+    std::atomic<quint64> m_sequence{0};
+    std::atomic<quint64> m_epoch{0};
+    std::atomic<quint64> m_outputs{0};
+    std::atomic<bool> m_stalled{false};
+    std::atomic<bool> m_hasDecodeTimings{false};
+};
+}
+
+struct NativeStreamRuntime::CallbackState final
+    : std::enable_shared_from_this<NativeStreamRuntime::CallbackState>
+{
+    struct Message {
+        QByteArray bytes;
+        bool event = false;
+        bool cursor = false;
+        quint64 rumbleEpoch = 0;
+    };
+
+    std::mutex mutex;
+    QQueue<Message> pending;
+    QByteArray cursorCapture;
+    QPointer<NativeStreamRuntime> target;
+    int dropped = 0;
+    bool accepting = true;
+    bool drainScheduled = false;
+    bool framePending = false;
+    quint64 rumbleEpoch = 0;
+};
+
+struct NativeStreamRuntime::Private {
+    explicit Private(Api runtimeApi)
+        : api(runtimeApi)
+    {
+    }
+
+    Api api;
+    const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr;
+    quint64 windowsAdapterLuid = 0;
+    bool externalWindow = false;
+    bool hostedSurface = false;
+    QProcess *externalProcess = nullptr;
+    bool externalStopping = false;
+    bool externalExitNotified = false;
+    bool externalWindowActive = false;
+    QTimer *externalWindowActivityTimer = nullptr;
+    QByteArray externalStdoutBuffer;
+    QByteArray externalStderrBuffer;
+    // FFI input queues and render-thread graphics state are independent and thread-safe. An
+    // exclusive mutex here made every GUI input/overlay call wait behind Media Foundation and
+    // D3D work performed by the render thread. Keep lifetime/scene-graph transitions exclusive,
+    // while ordinary commands, input, and frame recording share the live-handle lease.
+    std::shared_mutex handleMutex;
+    OpenNowStreamer *handle = nullptr;
+    std::shared_ptr<CallbackState> callbackState;
+    QString lastError;
+    bool streaming = false;
+    bool streamSessionActive = false;
+    bool graphicsActive = false;
+    bool firstNotification = false;
+    std::atomic<quint64> presentationGeneration{0};
+    std::atomic_bool presentationAllowed{false};
+    QSize decodedDisplaySize;
+    std::mutex displaySizeMutex;
+    QSize pendingDisplaySize;
+    quint64 pendingDisplayGeneration = 0;
+    bool displaySizeScheduled = false;
+    UpstreamProgressSnapshot upstreamProgressSamples;
+    std::atomic_bool inputAllowed{false};
+    std::atomic_bool genericHidInventoryPresent{false};
+    std::atomic_bool genericHidCaptureActive{false};
+    QTimer *genericHidOutputTimer = nullptr;
+    std::array<std::optional<std::pair<quint64, GenericHidAdmission>>, 8> genericHidAdmissions;
+    bool inputAuthorizationPending = false;
+    bool serverCursorComposited = true;
+    bool defaultRelativeMouse = false;
+    QString cursorStartId;
+    QString sessionStartId;
+    QString presentationStartId;
+    QString acceptedSessionStartId;
+    QString rumbleStartId;
+    quint64 rumbleStartEpoch = 0;
+};
+
+NativeStreamRuntime::NativeStreamRuntime(QObject *parent,
+                                         const OpenNowStreamerVulkanDevice *vulkanDevice,
+                                         quint64 windowsAdapterLuid,
+                                         bool useExternalWindow)
+    : NativeStreamRuntime(Api{&opennow_streamer_create,
+                              &opennow_streamer_send,
+                              &opennow_streamer_destroy,
+                              &opennow_streamer_set_graphics_context,
+                              &opennow_streamer_acquire_latest_frame,
+                              &opennow_streamer_record_frame,
+                              &opennow_streamer_release_frame,
+                              &opennow_streamer_scene_graph_shutdown,
+                              &opennow_streamer_submit_key,
+                              &opennow_streamer_submit_mouse_relative,
+                              &opennow_streamer_submit_mouse_absolute,
+                              &opennow_streamer_submit_mouse_button,
+                              &opennow_streamer_submit_mouse_wheel,
+                              &opennow_streamer_submit_gamepad,
+                              &opennow_streamer_submit_local_action,
+                              &opennow_streamer_set_capture_active,
+                              &opennow_streamer_replace_sdl_device_claims,
+                              &opennow_streamer_submit_sony_snapshot,
+                              &opennow_streamer_set_log_file,
+                              &opennow_streamer_submit_text,
+                              &opennow_streamer_replace_generic_hid_inventory,
+                              &opennow_streamer_submit_generic_hid_report,
+                              &opennow_streamer_take_generic_hid_output,
+                              &opennow_streamer_get_generic_hid_admissions}, parent, vulkanDevice,
+                              windowsAdapterLuid, useExternalWindow)
+{
+}
+
+NativeStreamRuntime::NativeStreamRuntime(Api api, QObject *parent,
+                                         const OpenNowStreamerVulkanDevice *vulkanDevice,
+                                         quint64 windowsAdapterLuid,
+                                         bool useExternalWindow)
+    : QObject(parent)
+    , d(std::make_unique<Private>(api))
+{
+    d->vulkanDevice = vulkanDevice;
+    d->windowsAdapterLuid = windowsAdapterLuid;
+    d->externalWindow = useExternalWindow;
+#ifdef Q_OS_WIN
+    // A separate SDL window is the reliable Windows presentation path. Keep
+    // decode/presentation in the sidecar, but do not reparent its HWND into
+    // Qt: cross-process DPI and focus ownership can leave a small, input-
+    // inaccessible child surface. The hosted implementation remains available
+    // to the protocol, while Windows sessions use the independent path.
+    d->hostedSurface = false;
+#endif
+    if (d->externalWindow) {
+        auto *timer = new QTimer(this);
+        timer->setInterval(100);
+        connect(timer, &QTimer::timeout,
+                this, &NativeStreamRuntime::updateExternalWindowActive);
+        d->externalWindowActivityTimer = timer;
+    }
+    if (d->api.takeGenericHidOutput || d->api.getGenericHidAdmissions) {
+        auto *timer = new QTimer(this);
+        d->genericHidOutputTimer = timer;
+        timer->setInterval(8);
+        connect(timer, &QTimer::timeout, this, [this] {
+            const QPointer<NativeStreamRuntime> guard(this);
+            pollGenericHidAdmissions();
+            if (!guard || !d->api.takeGenericHidOutput) return;
+            for (int index = 0; index < 32; ++index) {
+                OpenNowGenericHidOutput output{};
+                output.version = OPENNOW_STREAMER_GENERIC_HID_VERSION;
+                output.struct_size = sizeof(output);
+                {
+                    const std::shared_lock lock(d->handleMutex);
+                    if (!d->handle || !d->genericHidInventoryPresent.load()
+                        || !d->genericHidCaptureActive.load()
+                        || d->api.takeGenericHidOutput(d->handle, &output)
+                                          != OPENNOW_STREAMER_OK) return;
+                }
+                if (output.version != OPENNOW_STREAMER_GENERIC_HID_VERSION
+                    || output.struct_size < sizeof(output) || output.reserved != 0
+                    || output.slot >= 8 || output.incarnation == 0
+                    || output.operation > 4 || output.byte_count > sizeof(output.bytes)) return;
+                emit genericHidOutputRequested(GenericHidReport{
+                    output.slot, output.incarnation, output.interface_number, output.operation,
+                    false, QByteArray(reinterpret_cast<const char *>(output.bytes),
+                                      static_cast<qsizetype>(output.byte_count))});
+                if (!guard) return;
+            }
+        });
+        connect(this, &NativeStreamRuntime::runningChanged,
+                this, &NativeStreamRuntime::updateGenericHidOutputPolling);
+        connect(this, &NativeStreamRuntime::inputAllowedChanged,
+                this, &NativeStreamRuntime::updateGenericHidOutputPolling);
+    }
+}
+
+void NativeStreamRuntime::updateGenericHidOutputPolling()
+{
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, &NativeStreamRuntime::updateGenericHidOutputPolling,
+                                  Qt::QueuedConnection);
+        return;
+    }
+    auto *timer = d->genericHidOutputTimer;
+    if (!timer) return;
+    if (running() && inputAllowed() && d->genericHidInventoryPresent.load()) {
+        if (!timer->isActive()) timer->start();
+    } else {
+        timer->stop();
+    }
+}
+
+void NativeStreamRuntime::pollGenericHidAdmissions()
+{
+    if (!d->api.getGenericHidAdmissions || !d->streamSessionActive || !inputAllowed()) return;
+    OpenNowGenericHidAdmissions snapshot{};
+    snapshot.version = OPENNOW_STREAMER_GENERIC_HID_VERSION;
+    snapshot.struct_size = sizeof(snapshot);
+    {
+        const std::shared_lock lock(d->handleMutex);
+        if (!d->handle || d->api.getGenericHidAdmissions(d->handle, &snapshot)
+                != OPENNOW_STREAMER_OK) return;
+    }
+    if (snapshot.version != OPENNOW_STREAMER_GENERIC_HID_VERSION
+        || snapshot.struct_size < sizeof(snapshot) || snapshot.count > 8) return;
+    std::array<std::optional<std::pair<quint64, GenericHidAdmission>>, 8> updated;
+    for (std::size_t index = 0; index < snapshot.count; ++index) {
+        const auto &entry = snapshot.devices[index];
+        if (entry.slot >= 8 || entry.incarnation == 0 || entry.admission > 2
+            || updated[entry.slot].has_value()
+            || std::any_of(std::begin(entry.reserved), std::end(entry.reserved),
+                           [](auto byte) { return byte != 0; })) return;
+        const auto admission = entry.admission == OPENNOW_GENERIC_HID_ADMITTED
+            ? GenericHidAdmission::Admitted : entry.admission == OPENNOW_GENERIC_HID_DECLINED
+            ? GenericHidAdmission::Declined : GenericHidAdmission::Pending;
+        updated[entry.slot] = std::make_pair(entry.incarnation, admission);
+    }
+    const auto previous = std::exchange(d->genericHidAdmissions, updated);
+    const QPointer<NativeStreamRuntime> guard(this);
+    for (quint8 slot = 0; slot < 8; ++slot) {
+        if (!updated[slot] || updated[slot] == previous[slot]) continue;
+        emit genericHidAdmissionChanged(slot, updated[slot]->first, updated[slot]->second);
+        if (!guard) return;
+    }
+}
+
+const OpenNowStreamerVulkanDevice *NativeStreamRuntime::vulkanDevice() const
+{
+    return d->vulkanDevice;
+}
+
+NativeStreamRuntime::~NativeStreamRuntime()
+{
+    if (shutdown()) return;
+    std::shared_ptr<CallbackState> callbacks;
+    {
+        const std::lock_guard lock(d->handleMutex);
+        d->handle = nullptr;
+        callbacks = std::exchange(d->callbackState, {});
+    }
+    if (!callbacks) return;
+    {
+        const std::lock_guard lock(callbacks->mutex);
+        callbacks->accepting = false;
+        callbacks->target.clear();
+        callbacks->pending.clear();
+        callbacks->cursorCapture.clear();
+        callbacks->framePending = false;
+    }
+    new std::shared_ptr<CallbackState>(std::move(callbacks));
+}
+
+bool NativeStreamRuntime::running() const
+{
+    if (d->externalWindow) {
+        return d->externalProcess
+            && d->externalProcess->state() != QProcess::NotRunning;
+    }
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle != nullptr;
+}
+
+bool NativeStreamRuntime::streaming() const { return d->streaming; }
+
+bool NativeStreamRuntime::usesExternalWindow() const
+{
+    return d->externalWindow;
+}
+
+bool NativeStreamRuntime::usesHostedSurface() const
+{
+    return d->hostedSurface;
+}
+
+bool NativeStreamRuntime::externalWindowActive() const
+{
+    return d->externalWindowActive;
+}
+
+void NativeStreamRuntime::setStreaming(bool streaming)
+{
+    if (!streaming) {
+        d->genericHidAdmissions = {};
+        emit genericHidAdmissionsReset();
+    }
+    if (d->streaming == streaming) return;
+    d->streaming = streaming;
+    emit streamingChanged();
+}
+
+QString NativeStreamRuntime::lastError() const
+{
+    return d->lastError;
+}
+
+quint64 NativeStreamRuntime::presentationGeneration() const
+{
+    return d->presentationGeneration.load(std::memory_order_acquire);
+}
+
+NativeStreamRuntime::UpstreamProgress NativeStreamRuntime::upstreamProgress() const
+{
+    return d->upstreamProgressSamples.read();
+}
+
+bool NativeStreamRuntime::presentationAllowed() const
+{
+    return !d->externalWindow
+        && d->presentationAllowed.load(std::memory_order_acquire);
+}
+
+bool NativeStreamRuntime::inputAllowed() const
+{
+    return d->inputAllowed.load(std::memory_order_acquire);
+}
+
+QSize NativeStreamRuntime::decodedDisplaySize() const
+{
+    return d->decodedDisplaySize;
+}
+
+void NativeStreamRuntime::publishDecodedDisplaySize(const QSize &size, quint64 generation)
+{
+    if (!size.isValid() || size.isEmpty()) return;
+    const std::lock_guard lock(d->displaySizeMutex);
+    if (generation != presentationGeneration() || !presentationAllowed()) return;
+    if (d->pendingDisplaySize == size && d->pendingDisplayGeneration == generation) return;
+    d->pendingDisplaySize = size;
+    d->pendingDisplayGeneration = generation;
+    if (d->displaySizeScheduled) return;
+    d->displaySizeScheduled = true;
+    QMetaObject::invokeMethod(this, [this] {
+        QSize size;
+        quint64 generation;
+        {
+            const std::lock_guard lock(d->displaySizeMutex);
+            size = d->pendingDisplaySize;
+            generation = d->pendingDisplayGeneration;
+            d->displaySizeScheduled = false;
+        }
+        if (generation != presentationGeneration() || !presentationAllowed()
+            || size.isEmpty() || d->decodedDisplaySize == size) return;
+        d->decodedDisplaySize = size;
+        emit decodedDisplaySizeChanged(size, generation);
+    }, Qt::QueuedConnection);
+}
+
+void NativeStreamRuntime::invalidatePresentation()
+{
+    d->presentationAllowed.store(false, std::memory_order_release);
+    const auto generation = d->presentationGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
+    {
+        const std::lock_guard lock(d->displaySizeMutex);
+        d->pendingDisplaySize = {};
+        d->pendingDisplayGeneration = generation;
+    }
+    if (!d->decodedDisplaySize.isEmpty()) {
+        d->decodedDisplaySize = {};
+        emit decodedDisplaySizeChanged({}, generation);
+    }
+    d->presentationStartId.clear();
+    d->acceptedSessionStartId.clear();
+    d->rumbleStartId.clear();
+    d->cursorStartId.clear();
+    d->upstreamProgressSamples.publish(false, false, 0, 0);
+    emit controllerRumbleStopped();
+    emit frameAvailable(); // Repaint even when the dead transport sends no more frames.
+}
+
+void NativeStreamRuntime::logRenderDiagnostic(const QString &detail)
+{
+    QMetaObject::invokeMethod(this, [detail = detail.left(1536)] { handshakeLog(detail); },
+                              Qt::QueuedConnection);
+}
+
+void NativeStreamRuntime::reportPresentationError(const QString &message)
+{
+    reportPresentationError(message, presentationGeneration());
+}
+
+void NativeStreamRuntime::reportPresentationError(const QString &message, quint64 generation,
+                                                  PresentationFailure failure)
+{
+    const auto errorCode = failure == PresentationFailure::Unsupported
+        ? u"streamer_presentation_unsupported"_s
+        : u"streamer_presentation_failed"_s;
+    QMetaObject::invokeMethod(this, [this, message, generation, errorCode] {
+        if (generation != presentationGeneration()) return;
+        resetInputCapture();
+        invalidatePresentation();
+        setLastError(message);
+        qWarning("Stream presentation: %s", qUtf8Printable(message));
+        handshakeLog(u"presentation-error code="_s + errorCode);
+        emit presentationError(message, errorCode);
+    }, Qt::QueuedConnection);
+}
+
+void NativeStreamRuntime::initializeDiagnostics(Api::SetLogFile setLogFile)
+{
+    if (!setLogFile) return;
+    const auto logPath = nativeStreamerLogPath().toUtf8();
+    if (logPath.isEmpty()) return;
+    setLogFile(logPath.constData());
+}
+
+bool NativeStreamRuntime::startExternalProcess()
+{
+    if (d->externalProcess) {
+        if (running()) return true;
+        if (!shutdownExternalProcess(0)) return false;
+    }
+
+    auto program = qEnvironmentVariable("OPENNOW_STREAMER_EXECUTABLE");
+    if (program.isEmpty()) {
+        program = QDir(QCoreApplication::applicationDirPath()).filePath(
+#ifdef Q_OS_WIN
+            u"opennow-streamer.exe"_s
+#else
+            u"opennow-streamer"_s
+#endif
+        );
+    }
+    const QFileInfo programInfo(program);
+    if (!programInfo.isFile()) {
+        setLastError(u"The packaged native stream window executable is missing: %1"_s.arg(program));
+        return false;
+    }
+
+    auto callbacks = std::make_shared<CallbackState>();
+    callbacks->target = this;
+    auto *process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::SeparateChannels);
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(u"OPENNOW_NATIVE_EXTERNAL_RENDERER"_s, u"1"_s);
+    environment.insert(u"OPENNOW_NATIVE_INPUT_OWNER"_s, u"native"_s);
+    environment.insert(u"OPENNOW_NATIVE_STANDALONE_WINDOW"_s,
+                       d->hostedSurface ? u"0"_s : u"1"_s);
+    environment.insert(u"OPENNOW_NATIVE_WINDOWS_API"_s, u"d3d11"_s);
+    environment.insert(u"OPENNOW_NATIVE_VIDEO_BACKEND"_s, u"auto"_s);
+    const auto nativeLog = nativeStreamerLogPath();
+    if (!nativeLog.isEmpty())
+        environment.insert(u"OPENNOW_STREAMER_LOG_FILE"_s, nativeLog);
+    process->setProcessEnvironment(environment);
+
+    d->externalProcess = process;
+    d->callbackState = std::move(callbacks);
+    d->externalStopping = false;
+    d->externalExitNotified = false;
+    d->externalStdoutBuffer.clear();
+    d->externalStderrBuffer.clear();
+    d->genericHidInventoryPresent.store(false);
+    d->genericHidCaptureActive.store(false);
+
+    connect(process, &QProcess::readyReadStandardOutput,
+            this, &NativeStreamRuntime::readExternalStdout);
+    connect(process, &QProcess::readyReadStandardError,
+            this, &NativeStreamRuntime::readExternalStderr);
+    connect(process, &QProcess::finished, this,
+            [this](int, QProcess::ExitStatus) { handleExternalExit(); });
+    connect(process, &QProcess::errorOccurred, this,
+            [this](QProcess::ProcessError error) {
+                if (error == QProcess::FailedToStart) handleExternalExit();
+            });
+    handshakeLog(u"runtime.sidecar.start standalone=%1 hosted=%2 input=native adapter=default api=d3d11"_s
+        .arg(d->hostedSurface ? 0 : 1).arg(d->hostedSurface ? 1 : 0));
+    process->start(program, {}, QIODevice::ReadWrite | QIODevice::Unbuffered);
+    if (d->externalExitNotified) return false;
+    setLastError({});
+    emit runningChanged();
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->start();
+    updateExternalWindowActive();
+    return true;
+}
+
+bool NativeStreamRuntime::shutdownExternalProcess(int timeoutMs)
+{
+    auto *process = d->externalProcess;
+    auto callbacks = std::exchange(d->callbackState, {});
+    if (callbacks) {
+        const std::lock_guard lock(callbacks->mutex);
+        callbacks->accepting = false;
+        callbacks->target.clear();
+        callbacks->pending.clear();
+        callbacks->dropped = 0;
+        callbacks->framePending = false;
+    }
+    if (!process) return true;
+
+    d->externalStopping = true;
+    bool forced = false;
+    if (process->state() != QProcess::NotRunning) {
+        const QByteArray shutdown =
+            R"({"id":"qt-shutdown","type":"shutdown"})" + QByteArray("\n");
+        process->write(shutdown);
+        process->closeWriteChannel();
+        const auto boundedTimeout = std::clamp(timeoutMs, 0, 30'000);
+        if (!process->waitForFinished(boundedTimeout)) {
+            forced = true;
+            process->kill();
+            process->waitForFinished(500);
+        }
+    }
+    process->disconnect(this);
+    d->externalProcess = nullptr;
+    delete process;
+    d->externalStopping = false;
+    d->externalExitNotified = false;
+    d->externalStdoutBuffer.clear();
+    d->externalStderrBuffer.clear();
+    d->genericHidInventoryPresent.store(false);
+    d->genericHidCaptureActive.store(false);
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->stop();
+    updateExternalWindowActive();
+    emit runningChanged();
+    if (forced) {
+        setLastError(u"The native stream window did not stop cleanly and was terminated."_s);
+        return false;
+    }
+    setLastError({});
+    return true;
+}
+
+void NativeStreamRuntime::readExternalStdout()
+{
+    if (d->externalStopping || !d->externalProcess) return;
+    d->externalStdoutBuffer.append(d->externalProcess->readAllStandardOutput());
+    while (true) {
+        const auto newline = d->externalStdoutBuffer.indexOf('\n');
+        if (newline < 0) break;
+        QByteArray line = d->externalStdoutBuffer.left(newline);
+        d->externalStdoutBuffer.remove(0, newline + 1);
+        if (line.endsWith('\r')) line.chop(1);
+        if (line.isEmpty()) continue;
+        if (line.size() > MaximumCallbackBytes) {
+            handshakeLog(u"sidecar.stdout oversized_line=%1"_s.arg(line.size()));
+            continue;
+        }
+        QJsonParseError parseError{};
+        const auto document = QJsonDocument::fromJson(line, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            handshakeLog(u"sidecar.stdout invalid_json=%1"_s.arg(parseError.errorString()));
+            continue;
+        }
+        const auto object = document.object();
+        handshakeLog(u"delivered %1 source=sidecar"_s.arg(handshakeSummary(object)));
+        const auto callbacks = d->callbackState;
+        if (!callbacks) continue;
+        // Protocol responses carry their command id. Session/status/telemetry
+        // events do not; errors use the same rule in both directions.
+        const bool event = !object.contains(u"id"_s);
+        enqueueCallback(callbacks.get(),
+                        reinterpret_cast<const std::uint8_t *>(line.constData()),
+                        static_cast<std::size_t>(line.size()), event);
+    }
+    if (d->externalStdoutBuffer.size() > MaximumCallbackBytes) {
+        d->externalStdoutBuffer.clear();
+        setLastError(u"The native stream window sent an oversized protocol message."_s);
+        d->externalProcess->kill();
+    }
+}
+
+void NativeStreamRuntime::readExternalStderr()
+{
+    if (d->externalStopping || !d->externalProcess) return;
+    d->externalStderrBuffer.append(d->externalProcess->readAllStandardError());
+    while (true) {
+        const auto newline = d->externalStderrBuffer.indexOf('\n');
+        if (newline < 0) break;
+        QByteArray line = d->externalStderrBuffer.left(newline);
+        d->externalStderrBuffer.remove(0, newline + 1);
+        if (line.endsWith('\r')) line.chop(1);
+        if (!line.isEmpty())
+            handshakeLog(u"sidecar.stderr %1"_s.arg(QString::fromUtf8(line).left(512)));
+    }
+    if (d->externalStderrBuffer.size() > 64 * 1024)
+        d->externalStderrBuffer.clear();
+}
+
+void NativeStreamRuntime::handleExternalExit()
+{
+    if (d->externalStopping || d->externalExitNotified || !d->externalProcess) return;
+    readExternalStdout();
+    readExternalStderr();
+    d->externalExitNotified = true;
+    const auto *process = d->externalProcess;
+    const bool failedToStart = process->error() == QProcess::FailedToStart;
+    const QString message = failedToStart
+        ? u"The native stream window could not start: %1"_s.arg(process->errorString())
+        : u"The native stream window stopped unexpectedly (exit code %1)."_s
+              .arg(process->exitCode());
+    setLastError(message);
+    if (d->externalWindowActivityTimer) d->externalWindowActivityTimer->stop();
+    updateExternalWindowActive();
+    emit runningChanged();
+    if (!d->streamSessionActive && !streaming()) return;
+    QJsonObject event{
+        {u"type"_s, u"error"_s},
+        {u"code"_s, u"streamer_exited"_s},
+        {u"message"_s, message},
+    };
+    if (!d->sessionStartId.isEmpty())
+        event.insert(u"startId"_s, d->sessionStartId);
+    const auto bytes = QJsonDocument(event).toJson(QJsonDocument::Compact);
+    const auto callbacks = d->callbackState;
+    if (callbacks) {
+        enqueueCallback(callbacks.get(),
+                        reinterpret_cast<const std::uint8_t *>(bytes.constData()),
+                        static_cast<std::size_t>(bytes.size()), true);
+    }
+}
+
+void NativeStreamRuntime::updateExternalWindowActive()
+{
+    bool active = false;
+#ifdef Q_OS_WIN
+    if (d->externalWindow && d->externalProcess
+            && d->externalProcess->state() != QProcess::NotRunning) {
+        DWORD foregroundProcess = 0;
+        if (const HWND foreground = GetForegroundWindow())
+            GetWindowThreadProcessId(foreground, &foregroundProcess);
+        active = foregroundProcess != 0
+            && foregroundProcess == static_cast<DWORD>(d->externalProcess->processId());
+    }
+#endif
+    if (std::exchange(d->externalWindowActive, active) != active)
+        emit externalWindowActiveChanged();
+}
+
+bool NativeStreamRuntime::start()
+{
+    handshakeLog(u"runtime.start build=diagnostics-v2 app=%1 qt=%2 arch=%3 abi=%4"_s
+        .arg(QCoreApplication::applicationVersion(), QString::fromLatin1(qVersion()),
+             QSysInfo::currentCpuArchitecture()).arg(OPENNOW_STREAMER_FFI_ABI_VERSION));
+    if (d->externalWindow) return startExternalProcess();
+    if (!d->api.create || !d->api.send || !d->api.destroy) {
+        setLastError(u"The embedded streamer FFI is incomplete."_s);
+        return false;
+    }
+
+    {
+        const std::lock_guard lock(d->handleMutex);
+        if (d->handle) return true;
+    }
+
+    initializeDiagnostics(d->api.setLogFile);
+
+    auto callbacks = std::make_shared<CallbackState>();
+    callbacks->target = this;
+    OpenNowStreamerConfig config{};
+    config.abi_version = OPENNOW_STREAMER_FFI_ABI_VERSION;
+    config.struct_size = sizeof(config);
+    config.command_queue_capacity = CommandQueueCapacity;
+    config.response_queue_capacity = ResponseQueueCapacity;
+    config.event_queue_capacity = EventQueueCapacity;
+    config.max_command_bytes = static_cast<std::size_t>(MaximumCallbackBytes);
+    config.response_callback = &NativeStreamRuntime::responseCallback;
+    config.event_callback = &NativeStreamRuntime::eventCallback;
+    config.frame_available_callback = &NativeStreamRuntime::frameAvailableCallback;
+    config.cursor_callback = &NativeStreamRuntime::cursorCallback;
+    config.user_data = callbacks.get();
+    config.vulkan_device = d->vulkanDevice;
+    config.windows_adapter_luid = d->windowsAdapterLuid;
+
+    OpenNowStreamer *handle = nullptr;
+    const auto status = d->api.create(&config, &handle);
+    handshakeLog(u"runtime.create result=%1 handle_present=%2"_s.arg(int(status)).arg(handle != nullptr));
+    if (status != OPENNOW_STREAMER_OK || !handle) {
+        setLastError(status == OPENNOW_STREAMER_OK
+                         ? u"The embedded streamer did not return a runtime handle."_s
+                         : statusText(status));
+        return false;
+    }
+
+    {
+        const std::lock_guard lock(d->handleMutex);
+        d->callbackState = std::move(callbacks);
+        d->handle = handle;
+        d->genericHidInventoryPresent.store(false);
+        d->genericHidCaptureActive.store(false);
+    }
+    setLastError({});
+    emit runningChanged();
+    return true;
+}
+
+bool NativeStreamRuntime::serverCursorComposited() const
+{
+    return d->serverCursorComposited;
+}
+
+bool NativeStreamRuntime::defaultRelativeMouse() const
+{
+    return d->defaultRelativeMouse;
+}
+
+bool NativeStreamRuntime::send(const QJsonObject &command)
+{
+    return sendBytes(QJsonDocument(command).toJson(QJsonDocument::Compact));
+}
+
+void NativeStreamRuntime::focusHostedOverlay(QWindow *window)
+{
+    if (!d->hostedSurface || !window) return;
+    if (QThread::currentThread() != thread()) {
+        const QPointer<QWindow> guard(window);
+        QMetaObject::invokeMethod(this, [this, guard] {
+            if (guard) focusHostedOverlay(guard.data());
+        }, Qt::QueuedConnection);
+        return;
+    }
+    window->requestActivate();
+#ifdef Q_OS_WIN
+    const auto handle = reinterpret_cast<HWND>(window->winId());
+    if (handle) {
+        // SetFocus is thread-local. Perform the final handoff from Qt's GUI
+        // thread; the sidecar cannot reliably focus a Qt-owned HWND directly.
+        SetForegroundWindow(handle);
+        SetFocus(handle);
+    }
+#endif
+}
+
+QJsonObject NativeStreamRuntime::presentExternalOverlay(QWindow *window,
+                                                         const QJsonArray &occlusions,
+                                                         bool passive, bool pointerLocked)
+{
+    if (!d->externalWindow || d->hostedSurface || !window
+            || QThread::currentThread() != thread()) return {};
+#ifdef Q_OS_WIN
+    if (!d->externalProcess || d->externalProcess->state() == QProcess::NotRunning) return {};
+    const HWND stream = externalStreamWindow(static_cast<DWORD>(d->externalProcess->processId()));
+    const HWND overlay = reinterpret_cast<HWND>(window->winId());
+    if (!stream || !overlay) return {};
+    const auto previousDpiContext = SetThreadDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (!previousDpiContext) return {};
+    const auto restoreDpi = qScopeGuard([previousDpiContext] {
+        SetThreadDpiAwarenessContext(previousDpiContext);
+    });
+    RECT streamBounds{};
+    if (!GetWindowRect(stream, &streamBounds)) return {};
+
+    // Match the native presenter itself, not a QML/DPI approximation of it.
+    // Ownership orders the overlay above its game without making it topmost
+    // over other applications. This is not a WS_CHILD/video reparenting path.
+    SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(stream));
+    SetWindowPos(overlay, HWND_TOP, streamBounds.left, streamBounds.top,
+                 streamBounds.right - streamBounds.left, streamBounds.bottom - streamBounds.top,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    const auto extendedStyle = GetWindowLongPtrW(overlay, GWL_EXSTYLE);
+    auto nextStyle = extendedStyle | WS_EX_NOACTIVATE;
+    if (passive && (pointerLocked || occlusions.isEmpty())) nextStyle |= WS_EX_TRANSPARENT;
+    else nextStyle &= ~WS_EX_TRANSPARENT;
+    if (!passive) nextStyle &= ~WS_EX_NOACTIVATE;
+    if (nextStyle != extendedStyle) SetWindowLongPtrW(overlay, GWL_EXSTYLE, nextStyle);
+
+    if (passive && !pointerLocked && !occlusions.isEmpty()) {
+        QRegion hitRegion;
+        for (const auto &value : occlusions) {
+            const auto rect = value.toObject();
+            hitRegion += QRect(rect.value(u"x"_s).toInt(), rect.value(u"y"_s).toInt(),
+                               rect.value(u"width"_s).toInt(), rect.value(u"height"_s).toInt());
+        }
+        window->setMask(hitRegion);
+    } else {
+        window->setMask(QRegion());
+    }
+    // Geometry/occlusion refreshes are passive. QML explicitly requests focus
+    // only on an overlay open/close transition; a statistics update must never
+    // steal foreground from the game or from another application.
+    const qreal scale = window->devicePixelRatio();
+    QJsonArray physicalOcclusions;
+    for (const auto &value : occlusions) {
+        const auto object = value.toObject();
+        const QRectF logical(object.value(u"x"_s).toDouble(), object.value(u"y"_s).toDouble(),
+                             object.value(u"width"_s).toDouble(),
+                             object.value(u"height"_s).toDouble());
+        const auto left = std::floor(logical.left() * scale);
+        const auto top = std::floor(logical.top() * scale);
+        const auto right = std::ceil(logical.right() * scale);
+        const auto bottom = std::ceil(logical.bottom() * scale);
+        const QRect physical(QPoint(qRound(left), qRound(top)),
+                             QPoint(qRound(right) - 1, qRound(bottom) - 1));
+        if (!physical.isEmpty()) physicalOcclusions.append(physicalRect(physical));
+    }
+    const QRect nativeRect(0, 0, streamBounds.right - streamBounds.left,
+                           streamBounds.bottom - streamBounds.top);
+    return {{u"visible"_s, true}, {u"rect"_s, physicalRect(nativeRect)},
+            {u"screenRect"_s, QJsonObject{{u"x"_s, static_cast<int>(streamBounds.left)},
+                                           {u"y"_s, static_cast<int>(streamBounds.top)},
+                                           {u"width"_s, static_cast<int>(streamBounds.right - streamBounds.left)},
+                                           {u"height"_s, static_cast<int>(streamBounds.bottom - streamBounds.top)}}},
+            {u"deviceScaleFactor"_s, 1.0}, {u"inputPassthrough"_s, passive},
+            {u"occlusions"_s, physicalOcclusions}};
+#else
+    Q_UNUSED(occlusions)
+    Q_UNUSED(passive)
+    Q_UNUSED(pointerLocked)
+    return {};
+#endif
+}
+
+void NativeStreamRuntime::dismissExternalOverlay(QWindow *window)
+{
+    if (!d->externalWindow || d->hostedSurface || !window
+            || QThread::currentThread() != thread()) return;
+#ifdef Q_OS_WIN
+    const HWND overlay = reinterpret_cast<HWND>(window->winId());
+    if (!overlay) return;
+    window->setMask(QRegion());
+    SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, 0);
+    const auto style = GetWindowLongPtrW(overlay, GWL_EXSTYLE);
+    SetWindowLongPtrW(overlay, GWL_EXSTYLE, style & ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT));
+#else
+    Q_UNUSED(window)
+#endif
+}
+
+bool NativeStreamRuntime::focusExternalWindow()
+{
+    if (!d->externalWindow || d->hostedSurface || QThread::currentThread() != thread()) return false;
+#ifdef Q_OS_WIN
+    if (!d->externalProcess || d->externalProcess->state() == QProcess::NotRunning) return false;
+    const HWND stream = externalStreamWindow(static_cast<DWORD>(d->externalProcess->processId()));
+    if (!stream) return false;
+    AllowSetForegroundWindow(static_cast<DWORD>(d->externalProcess->processId()));
+    SetForegroundWindow(stream);
+    return GetForegroundWindow() == stream;
+#else
+    return false;
+#endif
+}
+
+bool NativeStreamRuntime::sendBytes(const QByteArray &command)
+{
+    if (command.size() > MaximumCallbackBytes) {
+        setLastError(statusText(OPENNOW_STREAMER_MESSAGE_TOO_LARGE));
+        return false;
+    }
+    const auto object = QJsonDocument::fromJson(command).object();
+    const auto type = object.value(u"type"_s).toString();
+    const bool changesSession = type == u"start"_s || type == u"stop"_s;
+    const bool previousInputAllowed = inputAllowed();
+    const bool previousInputPending = d->inputAuthorizationPending;
+    if (changesSession) resetInputCapture();
+
+    OpenNowStreamerStatus status = OPENNOW_STREAMER_CLOSED;
+    {
+        const std::shared_lock lock(d->handleMutex);
+        if (d->externalWindow) {
+            if (d->externalProcess
+                && d->externalProcess->state() != QProcess::NotRunning) {
+                QByteArray framed = command;
+                framed.append('\n');
+                status = d->externalProcess->write(framed) == framed.size()
+                    ? OPENNOW_STREAMER_OK : OPENNOW_STREAMER_CLOSED;
+            }
+        } else if (d->handle) {
+            status = d->api.send(
+                d->handle, reinterpret_cast<const std::uint8_t *>(command.constData()),
+                static_cast<std::size_t>(command.size()));
+        }
+    }
+    handshakeLog(u"send %1 bytes=%2 queue_result=%3"_s
+        .arg(handshakeSummary(object)).arg(command.size()).arg(int(status)));
+    if (status != OPENNOW_STREAMER_OK) {
+        if (changesSession) {
+            d->inputAuthorizationPending = previousInputPending;
+            if (d->inputAllowed.exchange(previousInputAllowed, std::memory_order_acq_rel)
+                    != previousInputAllowed)
+                emit inputAllowedChanged();
+        }
+        setLastError(statusText(status));
+        return false;
+    }
+    if (type == u"start"_s || type == u"stop"_s) {
+        setStreaming(false);
+        d->streamSessionActive = type == u"start"_s;
+        invalidatePresentation();
+        d->defaultRelativeMouse = false;
+        d->sessionStartId = type == u"start"_s ? object.value(u"id"_s).toString() : QString{};
+        if (type == u"start"_s) {
+            d->serverCursorComposited = true;
+            d->firstNotification = false;
+            d->presentationStartId = object.value(u"id"_s).toString();
+            d->cursorStartId = d->presentationStartId;
+            d->rumbleStartId = d->presentationStartId;
+            if (d->callbackState) {
+                const std::lock_guard lock(d->callbackState->mutex);
+                d->rumbleStartEpoch = d->callbackState->rumbleEpoch;
+            }
+            d->inputAuthorizationPending = true;
+            emit cursorStateReset();
+        }
+    }
+    setLastError({});
+    return true;
+}
+
+bool NativeStreamRuntime::shutdown(int timeoutMs)
+{
+    d->defaultRelativeMouse = false;
+    d->streamSessionActive = false;
+    setStreaming(false);
+    resetInputCapture();
+    invalidatePresentation();
+    if (d->externalWindow) {
+        d->sessionStartId.clear();
+        return shutdownExternalProcess(timeoutMs);
+    }
+    OpenNowStreamer *handle = nullptr;
+    std::shared_ptr<CallbackState> callbacks;
+    bool graphicsActive = false;
+    {
+        const std::lock_guard lock(d->handleMutex);
+        graphicsActive = d->handle && d->graphicsActive;
+        if (!graphicsActive) {
+            handle = std::exchange(d->handle, nullptr);
+            d->genericHidInventoryPresent.store(false);
+            d->genericHidCaptureActive.store(false);
+            callbacks = std::exchange(d->callbackState, {});
+        }
+    }
+    if (graphicsActive) {
+        setLastError(u"The embedded streamer scene graph must be released on its render "
+                     "thread before shutdown."_s);
+        return false;
+    }
+    d->sessionStartId.clear();
+    if (!handle) return true;
+    emit runningChanged();
+
+    if (callbacks) {
+        const std::lock_guard lock(callbacks->mutex);
+        callbacks->accepting = false;
+        callbacks->target.clear();
+        callbacks->pending.clear();
+        callbacks->dropped = 0;
+        callbacks->framePending = false;
+    }
+
+    struct Completion {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool finished = false;
+        OpenNowStreamerStatus status = OPENNOW_STREAMER_CLOSED;
+    };
+    auto completion = std::make_shared<Completion>();
+    std::thread destroyer([api = d->api, handle, callbacks = std::move(callbacks), completion] {
+        const auto status = api.destroy(handle);
+        {
+            const std::lock_guard lock(completion->mutex);
+            completion->status = status;
+            completion->finished = true;
+        }
+        completion->changed.notify_one();
+    });
+
+    const auto boundedTimeout = std::clamp(timeoutMs, 0, 30'000);
+    std::unique_lock completionLock(completion->mutex);
+    const auto finished = completion->changed.wait_for(
+        completionLock, std::chrono::milliseconds(boundedTimeout),
+        [&completion] { return completion->finished; });
+    if (!finished) {
+        completionLock.unlock();
+        destroyer.detach();
+        setLastError(u"Timed out waiting for the embedded streamer to stop; cleanup continues "
+                     "off the Qt thread."_s);
+        return false;
+    }
+    const auto status = completion->status;
+    completionLock.unlock();
+    destroyer.join();
+    if (status != OPENNOW_STREAMER_OK) {
+        setLastError(statusText(status));
+        return false;
+    }
+    setLastError({});
+    return true;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::setGraphicsContext(
+    const OpenNowStreamerGraphicsContext &context)
+{
+    if (d->externalWindow) return OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE;
+    const std::unique_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.setGraphicsContext) return OPENNOW_STREAMER_CLOSED;
+    const auto status = d->api.setGraphicsContext(d->handle, &context);
+    if (status == OPENNOW_STREAMER_OK) d->graphicsActive = true;
+    return status;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::recordLatestFrame(
+    const OpenNowStreamerRecordCommand &command,
+    OpenNowStreamerFrameInfo *info,
+    OpenNowStreamerRecordedFrame *recorded,
+    OpenNowStreamerFrame **frame)
+{
+    if (!info || !recorded || !frame) return OPENNOW_STREAMER_NULL_POINTER;
+    *info = {};
+    *recorded = {};
+    *frame = nullptr;
+    if (d->externalWindow) return OPENNOW_STREAMER_GRAPHICS_UNAVAILABLE;
+    const std::shared_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.acquireLatestFrame || !d->api.recordFrame
+        || !d->api.releaseFrame) {
+        return OPENNOW_STREAMER_CLOSED;
+    }
+
+    const auto generation = presentationGeneration();
+    auto status = d->api.acquireLatestFrame(d->handle, frame, info);
+    if (status != OPENNOW_STREAMER_OK) return status;
+    if (!*frame) return OPENNOW_STREAMER_NULL_POINTER;
+    status = d->api.recordFrame(d->handle, *frame, &command, recorded);
+    if (status != OPENNOW_STREAMER_OK) {
+        d->api.releaseFrame(std::exchange(*frame, nullptr));
+    } else {
+        if (recorded->graphics_api != OPENNOW_STREAMER_GRAPHICS_API_METAL) {
+            info->width = recorded->width;
+            info->height = recorded->height;
+        }
+        info->presentation_time_ns = recorded->presentation_time_ns;
+        if (recorded->resource && info->width > 0 && info->height > 0
+            && info->width <= std::uint32_t(std::numeric_limits<int>::max())
+            && info->height <= std::uint32_t(std::numeric_limits<int>::max())) {
+            publishDecodedDisplaySize(QSize(int(info->width), int(info->height)), generation);
+        }
+    }
+    return status;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::releaseFrame(OpenNowStreamerFrame *frame)
+{
+    if (!frame) return OPENNOW_STREAMER_NULL_POINTER;
+    // A frame token owns its backing resources and the release ABI deliberately does not take the
+    // runtime handle. Avoid serializing this cheap drop with decoder/render work.
+    return d->api.releaseFrame ? d->api.releaseFrame(frame) : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::sceneGraphShutdown()
+{
+    if (d->externalWindow) return OPENNOW_STREAMER_OK;
+    const std::unique_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.sceneGraphShutdown) return OPENNOW_STREAMER_CLOSED;
+    const auto status = d->api.sceneGraphShutdown(d->handle);
+    if (status == OPENNOW_STREAMER_OK || status == OPENNOW_STREAMER_RENDER_FAILED)
+        d->graphicsActive = false;
+    return status;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitKey(std::uint16_t virtualKey,
+                                                     std::uint16_t modifiers, bool pressed)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitKey
+        ? d->api.submitKey(d->handle, virtualKey, modifiers, pressed)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitMouseRelative(std::int16_t deltaX,
+                                                               std::int16_t deltaY)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitMouseRelative
+        ? d->api.submitMouseRelative(d->handle, deltaX, deltaY)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitText(const QByteArray &text)
+{
+    if (text.size() > OPENNOW_STREAMER_MAX_TEXT_BYTES) return OPENNOW_STREAMER_MESSAGE_TOO_LARGE;
+    if (text.isEmpty() || text.contains('\0') || !text.isValidUtf8())
+        return OPENNOW_STREAMER_INVALID_CONFIG;
+    const std::shared_lock lock(d->handleMutex);
+    return inputAllowed() && d->handle && d->api.submitText
+        ? d->api.submitText(d->handle,
+                           reinterpret_cast<const std::uint8_t *>(text.constData()),
+                           static_cast<std::size_t>(text.size()))
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitMouseAbsolute(
+    std::uint16_t x, std::uint16_t y, std::uint16_t width, std::uint16_t height)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitMouseAbsolute
+        ? d->api.submitMouseAbsolute(d->handle, x, y, width, height)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitMouseButton(std::uint8_t button,
+                                                             bool pressed)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitMouseButton
+        ? d->api.submitMouseButton(d->handle, button, pressed)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitMouseWheel(std::int16_t deltaX,
+                                                            std::int16_t deltaY)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitMouseWheel
+        ? d->api.submitMouseWheel(d->handle, deltaX, deltaY)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitGamepad(
+    std::uint8_t controllerId, std::uint16_t bitmap, std::uint16_t buttons,
+    std::uint8_t leftTrigger, std::uint8_t rightTrigger, std::int16_t leftStickX,
+    std::int16_t leftStickY, std::int16_t rightStickX, std::int16_t rightStickY)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitGamepad
+        ? d->api.submitGamepad(d->handle, controllerId, bitmap, buttons,
+                               leftTrigger, rightTrigger, leftStickX, leftStickY,
+                               rightStickX, rightStickY)
+        : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitLocalAction(std::uint32_t action)
+{
+    const std::shared_lock lock(d->handleMutex);
+    return d->handle && d->api.submitLocalAction
+        ? d->api.submitLocalAction(d->handle, action) : OPENNOW_STREAMER_CLOSED;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::setCaptureActive(
+    bool active, bool relativeMouse, std::uintptr_t windowHandle, bool *rawInputActive)
+{
+    if (!rawInputActive) return OPENNOW_STREAMER_NULL_POINTER;
+    *rawInputActive = false;
+    OpenNowStreamerStatus status;
+    {
+        const std::shared_lock lock(d->handleMutex);
+        status = d->handle && d->api.setCaptureActive
+            ? d->api.setCaptureActive(d->handle, active, relativeMouse, windowHandle,
+                                      rawInputActive)
+            : OPENNOW_STREAMER_CLOSED;
+        d->genericHidCaptureActive.store(active && status == OPENNOW_STREAMER_OK);
+    }
+    updateGenericHidOutputPolling();
+    if (!active) emit genericHidOutputStopped();
+    return status;
+}
+OpenNowStreamerStatus NativeStreamRuntime::replaceSdlDeviceClaims(
+    const QList<SdlDeviceClaim> &claims)
+{
+    const std::shared_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.replaceSdlDeviceClaims) return OPENNOW_STREAMER_CLOSED;
+    if (claims.size() > maxSdlSources)
+        return OPENNOW_STREAMER_INVALID_CONFIG;
+    std::array<OpenNowSdlDeviceClaim, maxSdlSources> converted{};
+    for (qsizetype index = 0; index < claims.size(); ++index) {
+        const auto &claim = claims.at(index);
+        converted[static_cast<std::size_t>(index)] = OpenNowSdlDeviceClaim{
+            claim.slot, {0, 0, 0, 0, 0, 0, 0}, claim.incarnation, claim.vendor, claim.product};
+    }
+    return d->api.replaceSdlDeviceClaims(d->handle, converted.data(),
+                                         static_cast<std::size_t>(claims.size()));
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitSonySnapshot(
+    const OpenNowSonySnapshot &snapshot)
+{
+    const std::shared_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.submitSonySnapshot) return OPENNOW_STREAMER_CLOSED;
+    return d->api.submitSonySnapshot(d->handle, &snapshot);
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::replaceGenericHidInventory(
+    const QList<GenericHidDeviceClaim> &claims)
+{
+    std::shared_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.replaceGenericHidInventory) return OPENNOW_STREAMER_CLOSED;
+    if (claims.size() > 8) return OPENNOW_STREAMER_INVALID_CONFIG;
+    std::array<OpenNowGenericHidInterface, 128> interfaces{};
+    std::size_t count = 0;
+    for (const auto &claim : claims) {
+        if (claim.interfaces.isEmpty() || claim.interfaces.size() > 16)
+            return OPENNOW_STREAMER_INVALID_CONFIG;
+        for (const auto &hidInterface : claim.interfaces) {
+            if (hidInterface.descriptor.size() > 4096) return OPENNOW_STREAMER_MESSAGE_TOO_LARGE;
+            interfaces[count++] = OpenNowGenericHidInterface{
+                OPENNOW_STREAMER_GENERIC_HID_VERSION, sizeof(OpenNowGenericHidInterface),
+                claim.slot, hidInterface.number, 0, claim.incarnation,
+                claim.vendor, claim.product, claim.revision, 0,
+                reinterpret_cast<const std::uint8_t *>(hidInterface.descriptor.constData()),
+                static_cast<std::size_t>(hidInterface.descriptor.size())};
+        }
+    }
+    const auto status = d->api.replaceGenericHidInventory(d->handle, interfaces.data(), count);
+    if (status == OPENNOW_STREAMER_OK) d->genericHidInventoryPresent.store(count > 0);
+    lock.unlock();
+    updateGenericHidOutputPolling();
+    return status;
+}
+
+OpenNowStreamerStatus NativeStreamRuntime::submitGenericHidReport(const GenericHidReport &report)
+{
+    const std::shared_lock lock(d->handleMutex);
+    if (!d->handle || !d->api.submitGenericHidReport) return OPENNOW_STREAMER_CLOSED;
+    if (report.bytes.size() > 256) return OPENNOW_STREAMER_MESSAGE_TOO_LARGE;
+    const OpenNowGenericHidReport wire{
+        OPENNOW_STREAMER_GENERIC_HID_VERSION, sizeof(OpenNowGenericHidReport),
+        report.slot, report.interfaceNumber, report.operation, static_cast<std::uint8_t>(report.error),
+        report.incarnation, reinterpret_cast<const std::uint8_t *>(report.bytes.constData()),
+        static_cast<std::size_t>(report.bytes.size())};
+    return d->api.submitGenericHidReport(d->handle, &wire);
+}
+
+void NativeStreamRuntime::responseCallback(const std::uint8_t *bytes, std::size_t length,
+                                           void *userData)
+{
+    enqueueCallback(static_cast<CallbackState *>(userData), bytes, length, false);
+}
+
+void NativeStreamRuntime::eventCallback(const std::uint8_t *bytes, std::size_t length,
+                                        void *userData)
+{
+    enqueueCallback(static_cast<CallbackState *>(userData), bytes, length, true);
+}
+
+void NativeStreamRuntime::frameAvailableCallback(void *userData)
+{
+    enqueueFrameAvailable(static_cast<CallbackState *>(userData));
+}
+
+void NativeStreamRuntime::cursorCallback(const std::uint8_t *bytes, std::size_t length,
+                                         void *userData)
+{
+    auto *state = static_cast<CallbackState *>(userData);
+    if (!state || (!bytes && length != 0)
+        || length > static_cast<std::size_t>(MaximumCallbackBytes)
+        || length > static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())) {
+        return;
+    }
+    const auto sharedState = state->shared_from_this();
+    bool shouldSchedule = false;
+    {
+        const std::lock_guard lock(state->mutex);
+        if (!state->accepting) return;
+        if (state->pending.size() >= MaximumPendingCallbacks) {
+            ++state->dropped;
+            ++state->rumbleEpoch;
+            return;
+        }
+        state->pending.enqueue(
+            {QByteArray(reinterpret_cast<const char *>(bytes),
+                        static_cast<qsizetype>(length)), false, true});
+        if (!state->drainScheduled) {
+            state->drainScheduled = true;
+            shouldSchedule = true;
+        }
+    }
+    if (shouldSchedule) scheduleDrain(sharedState);
+}
+
+void NativeStreamRuntime::enqueueCallback(CallbackState *state, const std::uint8_t *bytes,
+                                          std::size_t length, bool event)
+{
+    if (!state || (!bytes && length != 0)
+        || length > static_cast<std::size_t>(MaximumCallbackBytes)
+        || length > static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())) {
+        return;
+    }
+
+    const QByteArray payload(reinterpret_cast<const char *>(bytes), static_cast<qsizetype>(length));
+    bool cursorCapture = false;
+    if (event && payload.size() <= 1024 && payload.contains("\"cursor-capture\"")) {
+        const auto object = QJsonDocument::fromJson(payload).object();
+        cursorCapture = object.value(u"type"_s) == u"cursor-capture"_s
+            && object.value(u"composited"_s).isBool()
+            && object.value(u"startId"_s).isString();
+    }
+    const auto sharedState = state->shared_from_this();
+    bool shouldSchedule = false;
+    {
+        const std::lock_guard lock(state->mutex);
+        if (!state->accepting) return;
+        if (cursorCapture) {
+            state->cursorCapture = payload;
+        } else if (state->pending.size() >= MaximumPendingCallbacks) {
+            ++state->dropped;
+            ++state->rumbleEpoch;
+            return;
+        } else {
+            state->pending.enqueue({payload, event, false, state->rumbleEpoch});
+        }
+        if (!state->drainScheduled) {
+            state->drainScheduled = true;
+            shouldSchedule = true;
+        }
+    }
+    if (shouldSchedule) scheduleDrain(sharedState);
+}
+
+void NativeStreamRuntime::enqueueFrameAvailable(CallbackState *state)
+{
+    if (!state) return;
+    const auto sharedState = state->shared_from_this();
+    bool shouldSchedule = false;
+    {
+        const std::lock_guard lock(state->mutex);
+        if (!state->accepting) return;
+        state->framePending = true;
+        if (!state->drainScheduled) {
+            state->drainScheduled = true;
+            shouldSchedule = true;
+        }
+    }
+    if (shouldSchedule) scheduleDrain(sharedState);
+}
+
+void NativeStreamRuntime::scheduleDrain(const std::shared_ptr<CallbackState> &state)
+{
+    auto *application = QCoreApplication::instance();
+    if (application && QMetaObject::invokeMethod(
+            application,
+            [state] {
+                if (auto *target = state->target.data()) target->drainCallbacks(state);
+            },
+            Qt::QueuedConnection)) {
+        return;
+    }
+    const std::lock_guard lock(state->mutex);
+    state->drainScheduled = false;
+    state->pending.clear();
+    state->cursorCapture.clear();
+}
+
+void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &state)
+{
+    const QPointer<NativeStreamRuntime> guard(this);
+    const auto current = [&] {
+        return guard && state->target == this && d->callbackState == state;
+    };
+    if (!current()) return;
+    QQueue<CallbackState::Message> messages;
+    int dropped = 0;
+    bool framePending = false;
+    bool reschedule = false;
+    quint64 rumbleEpoch = 0;
+    {
+        const std::lock_guard lock(state->mutex);
+        constexpr qsizetype BatchSize = 64;
+        if (!state->cursorCapture.isEmpty()) {
+            messages.enqueue({std::exchange(state->cursorCapture, {}), true});
+        }
+        while (!state->pending.isEmpty() && messages.size() < BatchSize)
+            messages.enqueue(state->pending.dequeue());
+        dropped = std::exchange(state->dropped, 0);
+        rumbleEpoch = state->rumbleEpoch;
+        framePending = std::exchange(state->framePending, false);
+        reschedule = !state->pending.isEmpty() || state->framePending;
+        if (!reschedule) state->drainScheduled = false;
+    }
+
+    if (dropped > 0) {
+        if (!d->rumbleStartId.isEmpty() && rumbleEpoch != d->rumbleStartEpoch) {
+            emit controllerRumbleStopped();
+            if (!current()) return;
+        }
+        handshakeLog(u"callback_queue dropped=%1"_s.arg(dropped));
+        emit callbacksDropped(dropped);
+        if (!current()) return;
+    }
+    if (framePending) {
+        if (!d->firstNotification) {
+            handshakeLog(u"first frame notification delivered to Qt GUI (not yet presentation)"_s);
+            d->firstNotification = true;
+        }
+        emit frameAvailable();
+        if (!current()) return;
+    }
+    while (!messages.isEmpty()) {
+        if (!current()) return;
+        const auto message = messages.dequeue();
+        if (message.cursor) {
+            emit cursorUpdated(message.bytes);
+            continue;
+        }
+        QJsonParseError error;
+        const auto document = QJsonDocument::fromJson(message.bytes, &error);
+        if (error.error != QJsonParseError::NoError || !document.isObject()) {
+            handshakeLog(u"callback rejected: malformed JSON bytes=%1"_s.arg(message.bytes.size()));
+            setLastError(u"The embedded streamer callback contained malformed JSON."_s);
+            continue;
+        }
+        const auto kind = document.object().value(u"type"_s).toString();
+        if (message.event && kind == QString::fromLatin1(OPENNOW_STREAMER_EVENT_TEXT_INPUT_ERROR)
+            && (d->sessionStartId.isEmpty()
+                || document.object().value(u"startId"_s).toString() != d->sessionStartId)) continue;
+        if (message.event && kind == QString::fromLatin1(OPENNOW_STREAMER_EVENT_SESSION_TIMER)) {
+            const auto object = document.object();
+            if (d->cursorStartId.isEmpty()
+                || object.value(u"startId"_s).toString() != d->cursorStartId) continue;
+            const auto timer = object.value(u"timerType"_s);
+            const auto seconds = object.value(u"secondsLeft"_s);
+            const auto active = object.value(u"active"_s);
+            if (timer.isDouble() && (timer.toDouble() == OPENNOW_STREAMER_TIMER_IDLE_WARNING
+                    || timer.toDouble() == OPENNOW_STREAMER_TIMER_IDLE_EXPIRY)
+                && seconds.isDouble() && seconds.toDouble() >= 0
+                && seconds.toDouble() <= std::numeric_limits<quint32>::max()
+                && std::floor(seconds.toDouble()) == seconds.toDouble() && active.isBool()) {
+                emit sessionTimerReceived(static_cast<quint8>(timer.toInt()),
+                    static_cast<quint32>(seconds.toDouble()), active.toBool());
+            }
+            continue;
+        }
+        if (message.event && (kind == u"error"_s || kind == u"status"_s)) {
+            const auto termination = document.object().value(u"termination"_s).toObject();
+            if (termination.value(u"source"_s).toString()
+                    == QString::fromLatin1(OPENNOW_STREAMER_TERMINATION_SOURCE_SERVER)
+                && (d->sessionStartId.isEmpty()
+                    || termination.value(u"startId"_s).toString() != d->sessionStartId)) continue;
+        }
+        if (message.event && kind == u"telemetry"_s) {
+            const auto object = document.object();
+            const auto startId = object.value(u"startId"_s).toString();
+            // Sidecar telemetry describes native SDL presentation, so it must
+            // not depend on permission to acquire a Qt render frame. Keep the
+            // same accepted-start and active-session staleness boundaries.
+            const bool telemetryAuthorized = d->externalWindow
+                ? d->streamSessionActive : presentationAllowed();
+            if (!telemetryAuthorized || startId.isEmpty()
+                || startId != d->acceptedSessionStartId) continue;
+            const auto stage = object.value(u"decodeProgressStage"_s).toString();
+            const bool stalled =
+                object.value(u"transportFrameProgressStalled"_s).toBool()
+                || stage == u"keyframe-pending"_s
+                || stage == u"recovery-required"_s;
+            const auto decodeTimings = object.value(u"decodeTimings"_s).toObject();
+            const auto epoch = decodedCounterFromJson(decodeTimings.value(u"epoch"_s));
+            const auto outputs = decodedCounterFromJson(decodeTimings.value(u"outputsTotal"_s));
+            d->upstreamProgressSamples.publish(stalled, epoch.has_value() && outputs.has_value(),
+                                               epoch.value_or(0), outputs.value_or(0));
+        }
+        const auto status = document.object().value(u"status"_s).toString();
+        if (message.event && kind == u"status"_s && d->streamSessionActive) {
+            const auto startId = document.object().value(u"startId"_s).toString();
+            if (!startId.isEmpty() && startId != d->sessionStartId) continue;
+            if (status == u"streaming"_s) {
+                setStreaming(true);
+                if (!current()) return;
+            }
+        }
+        if (message.event && kind == u"pointer-lock-toggled"_s) {
+            const auto object = document.object();
+            if (d->sessionStartId.isEmpty()
+                || object.value(u"startId"_s).toString() != d->sessionStartId
+                || !object.value(u"relativeMouse"_s).isBool()) continue;
+        }
+        if (message.event && kind == u"cursor-capture"_s) {
+            if (d->cursorStartId.isEmpty()
+                || document.object().value(u"startId"_s).toString() != d->cursorStartId) continue;
+            const auto composited = document.object().value(u"composited"_s);
+            if (composited.isBool() && d->serverCursorComposited != composited.toBool()) {
+                d->serverCursorComposited = composited.toBool();
+                emit cursorCaptureChanged(d->serverCursorComposited);
+                if (!current()) return;
+            }
+        }
+        if (message.event && kind == u"controller-rumble"_s) {
+            const auto object = document.object();
+            if (message.rumbleEpoch != rumbleEpoch || !inputAllowed() || d->rumbleStartId.isEmpty()
+                || object.value(u"startId"_s).toString() != d->rumbleStartId) {
+                continue;
+            }
+            const auto controller = object.value(u"controllerId"_s).toDouble(-1);
+            const auto low = object.value(u"lowFrequency"_s).toDouble(-1);
+            const auto high = object.value(u"highFrequency"_s).toDouble(-1);
+            const auto duration = object.value(u"durationMs"_s).toDouble(-1);
+            const auto incarnation = object.value(u"sourceIncarnation"_s).toDouble(0);
+            const auto valid = [](double value, double maximum) {
+                return value >= 0 && value <= maximum && std::floor(value) == value;
+            };
+            if (valid(controller, 3) && valid(low, 65535) && valid(high, 65535)
+                && valid(incarnation, 9'007'199'254'740'991.0)
+                && valid(duration, 65535)) {
+                emit controllerRumbleRequested(static_cast<quint8>(controller),
+                    static_cast<quint16>(low), static_cast<quint16>(high),
+                    static_cast<quint32>(duration),
+                    static_cast<quint64>(incarnation));
+            }
+            continue;
+        }
+        if (message.event && (kind == u"error"_s
+                || (kind == u"status"_s && (status == u"stopped"_s || status == u"error"_s)))) {
+            const auto startId = document.object().value(u"startId"_s).toString();
+            if (!startId.isEmpty() && startId != d->sessionStartId) continue;
+            d->streamSessionActive = false;
+            setStreaming(false);
+            if (!current()) return;
+            resetInputCapture();
+            invalidatePresentation();
+            if (!current()) return;
+        } else if (!message.event && !d->presentationStartId.isEmpty()
+                && document.object().value(u"id"_s).toString() == d->presentationStartId) {
+            d->acceptedSessionStartId = d->presentationStartId;
+            d->presentationStartId.clear();
+            if (kind != u"ok"_s) {
+                d->streamSessionActive = false;
+                setStreaming(false);
+                if (!current()) return;
+            }
+            d->upstreamProgressSamples.publish(false, false, 0, 0);
+            const bool embeddedStartAccepted = kind == u"ok"_s && !d->externalWindow;
+            d->presentationAllowed.store(embeddedStartAccepted, std::memory_order_release);
+            const bool defaultRelativeMouse = embeddedStartAccepted
+                && document.object().value(u"transport"_s).toString() == u"webrtc"_s;
+            if (std::exchange(d->defaultRelativeMouse, defaultRelativeMouse) != defaultRelativeMouse) {
+                emit cursorStateReset();
+                if (!current()) return;
+            }
+            const bool allowed = std::exchange(d->inputAuthorizationPending, false)
+                && embeddedStartAccepted;
+            if (d->inputAllowed.exchange(allowed, std::memory_order_acq_rel) != allowed) {
+                emit inputAllowedChanged();
+                if (!current()) return;
+            }
+            if (!d->externalWindow) emit frameAvailable();
+            if (!current()) return;
+        }
+        if (kind != u"telemetry"_s && kind != u"stats"_s && kind != u"log"_s)
+            handshakeLog(u"delivered %1 bytes=%2"_s.arg(handshakeSummary(document.object()))
+                         .arg(message.bytes.size()));
+        if (message.event)
+            emit eventReceived(document.object());
+        else
+            emit responseReceived(document.object());
+    }
+    if (current() && reschedule) scheduleDrain(state);
+}
+
+void NativeStreamRuntime::resetInputCapture()
+{
+    const bool wasAllowed = d->inputAllowed.exchange(false, std::memory_order_acq_rel);
+    d->inputAuthorizationPending = false;
+    emit inputCaptureReset();
+    bool rawInput = false;
+    setCaptureActive(false, false, 0, &rawInput);
+    if (wasAllowed) emit inputAllowedChanged();
+}
+
+void NativeStreamRuntime::setLastError(const QString &error)
+{
+    if (d->lastError == error) return;
+    d->lastError = error;
+    emit lastErrorChanged();
+}

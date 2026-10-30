@@ -1,0 +1,247 @@
+#pragma once
+
+#include "opennow_streamer_ffi.h"
+#include "input/SdlDeviceClaim.h"
+#include "input/GenericHidWire.h"
+
+#include <QByteArray>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QObject>
+#include <QSize>
+#include <QString>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+class QWindow;
+
+class NativeStreamRuntime final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool running READ running NOTIFY runningChanged)
+    Q_PROPERTY(bool streaming READ streaming NOTIFY streamingChanged)
+    Q_PROPERTY(bool usesExternalWindow READ usesExternalWindow CONSTANT)
+    Q_PROPERTY(bool usesHostedSurface READ usesHostedSurface CONSTANT)
+    Q_PROPERTY(bool externalWindowActive READ externalWindowActive NOTIFY externalWindowActiveChanged)
+    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+
+public:
+    struct Api {
+        using Create = OpenNowStreamerStatus (*)(const OpenNowStreamerConfig *,
+                                                  OpenNowStreamer **);
+        using SetLogFile = OpenNowStreamerStatus (*)(const char *);
+        using Send = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                const std::uint8_t *, std::size_t);
+        using Destroy = OpenNowStreamerStatus (*)(OpenNowStreamer *);
+        using SetGraphicsContext = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowStreamerGraphicsContext *);
+        using AcquireLatestFrame = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, OpenNowStreamerFrame **, OpenNowStreamerFrameInfo *);
+        using RecordFrame = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowStreamerFrame *,
+            const OpenNowStreamerRecordCommand *, OpenNowStreamerRecordedFrame *);
+        using ReleaseFrame = OpenNowStreamerStatus (*)(OpenNowStreamerFrame *);
+        using SceneGraphShutdown = OpenNowStreamerStatus (*)(const OpenNowStreamer *);
+        using SubmitKey = OpenNowStreamerStatus (*)(const OpenNowStreamer *, std::uint16_t,
+                                                     std::uint16_t, bool);
+        using SubmitMouseRelative = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                               std::int16_t, std::int16_t);
+        using SubmitMouseAbsolute = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                               std::uint16_t, std::uint16_t,
+                                                               std::uint16_t, std::uint16_t);
+        using SubmitMouseButton = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                             std::uint8_t, bool);
+        using SubmitMouseWheel = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                            std::int16_t, std::int16_t);
+        using SubmitGamepad = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, std::uint8_t, std::uint16_t, std::uint16_t,
+            std::uint8_t, std::uint8_t, std::int16_t, std::int16_t, std::int16_t,
+            std::int16_t);
+        using SubmitLocalAction = OpenNowStreamerStatus (*)(const OpenNowStreamer *,
+                                                             std::uint32_t);
+        using SetCaptureActive = OpenNowStreamerStatus (*)(const OpenNowStreamer *, bool,
+                                                            bool, std::uintptr_t, bool *);
+        using ReplaceSdlDeviceClaims = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowSdlDeviceClaim *, std::size_t);
+        using SubmitSonySnapshot = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowSonySnapshot *);
+        using ReplaceGenericHidInventory = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowGenericHidInterface *, std::size_t);
+        using SubmitGenericHidReport = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, const OpenNowGenericHidReport *);
+        using TakeGenericHidOutput = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, OpenNowGenericHidOutput *);
+        using GetGenericHidAdmissions = OpenNowStreamerStatus (*)(
+            const OpenNowStreamer *, OpenNowGenericHidAdmissions *);
+
+        Create create = nullptr;
+        Send send = nullptr;
+        Destroy destroy = nullptr;
+        SetGraphicsContext setGraphicsContext = nullptr;
+        AcquireLatestFrame acquireLatestFrame = nullptr;
+        RecordFrame recordFrame = nullptr;
+        ReleaseFrame releaseFrame = nullptr;
+        SceneGraphShutdown sceneGraphShutdown = nullptr;
+        SubmitKey submitKey = nullptr;
+        SubmitMouseRelative submitMouseRelative = nullptr;
+        SubmitMouseAbsolute submitMouseAbsolute = nullptr;
+        SubmitMouseButton submitMouseButton = nullptr;
+        SubmitMouseWheel submitMouseWheel = nullptr;
+        SubmitGamepad submitGamepad = nullptr;
+        SubmitLocalAction submitLocalAction = nullptr;
+        SetCaptureActive setCaptureActive = nullptr;
+        ReplaceSdlDeviceClaims replaceSdlDeviceClaims = nullptr;
+        SubmitSonySnapshot submitSonySnapshot = nullptr;
+        SetLogFile setLogFile = nullptr;
+        Send submitText = nullptr;
+        ReplaceGenericHidInventory replaceGenericHidInventory = nullptr;
+        SubmitGenericHidReport submitGenericHidReport = nullptr;
+        TakeGenericHidOutput takeGenericHidOutput = nullptr;
+        GetGenericHidAdmissions getGenericHidAdmissions = nullptr;
+    };
+
+    static constexpr int DefaultShutdownTimeoutMs = 1'500;
+    static constexpr qsizetype MaximumCallbackBytes = 1024 * 1024;
+    static constexpr qsizetype MaximumPendingCallbacks = 512;
+
+    static void initializeDiagnostics(Api::SetLogFile setLogFile = &opennow_streamer_set_log_file);
+
+    explicit NativeStreamRuntime(QObject *parent = nullptr,
+                                 const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr,
+                                 quint64 windowsAdapterLuid = 0,
+                                 bool useExternalWindow = false);
+    explicit NativeStreamRuntime(Api api, QObject *parent = nullptr,
+                                 const OpenNowStreamerVulkanDevice *vulkanDevice = nullptr,
+                                 quint64 windowsAdapterLuid = 0,
+                                 bool useExternalWindow = false);
+    ~NativeStreamRuntime() override;
+
+    [[nodiscard]] bool running() const;
+    [[nodiscard]] bool streaming() const;
+    [[nodiscard]] bool usesExternalWindow() const;
+    [[nodiscard]] bool usesHostedSurface() const;
+    [[nodiscard]] bool externalWindowActive() const;
+    [[nodiscard]] QString lastError() const;
+    [[nodiscard]] quint64 presentationGeneration() const;
+    [[nodiscard]] bool presentationAllowed() const;
+    [[nodiscard]] QSize decodedDisplaySize() const;
+    struct UpstreamProgress
+    {
+        bool stalled = false;
+        bool hasDecodeTimings = false;
+        quint64 decodeEpoch = 0;
+        quint64 decodedOutputsTotal = 0;
+    };
+    [[nodiscard]] UpstreamProgress upstreamProgress() const;
+    [[nodiscard]] bool inputAllowed() const;
+    [[nodiscard]] bool serverCursorComposited() const;
+    [[nodiscard]] bool defaultRelativeMouse() const;
+    [[nodiscard]] const OpenNowStreamerVulkanDevice *vulkanDevice() const;
+    enum class PresentationFailure { Recoverable, Unsupported };
+    void logRenderDiagnostic(const QString &detail);
+    // Called at most once per presentation failure from the scene-graph thread.
+    void reportPresentationError(const QString &message);
+    void reportPresentationError(const QString &message, quint64 generation,
+                                 PresentationFailure failure = PresentationFailure::Recoverable);
+
+    Q_INVOKABLE bool start();
+    Q_INVOKABLE bool send(const QJsonObject &command);
+    Q_INVOKABLE void focusHostedOverlay(QWindow *window);
+    Q_INVOKABLE QJsonObject presentExternalOverlay(QWindow *window, const QJsonArray &occlusions,
+                                                   bool passive, bool pointerLocked);
+    Q_INVOKABLE void dismissExternalOverlay(QWindow *window);
+    Q_INVOKABLE bool focusExternalWindow();
+    bool sendBytes(const QByteArray &command);
+    Q_INVOKABLE bool shutdown(int timeoutMs = DefaultShutdownTimeoutMs);
+
+    OpenNowStreamerStatus setGraphicsContext(
+        const OpenNowStreamerGraphicsContext &context);
+    OpenNowStreamerStatus recordLatestFrame(
+        const OpenNowStreamerRecordCommand &command,
+        OpenNowStreamerFrameInfo *info,
+        OpenNowStreamerRecordedFrame *recorded,
+        OpenNowStreamerFrame **frame);
+    OpenNowStreamerStatus releaseFrame(OpenNowStreamerFrame *frame);
+    OpenNowStreamerStatus sceneGraphShutdown();
+    OpenNowStreamerStatus submitKey(std::uint16_t virtualKey, std::uint16_t modifiers,
+                                    bool pressed);
+    OpenNowStreamerStatus submitText(const QByteArray &text);
+    OpenNowStreamerStatus submitMouseRelative(std::int16_t deltaX, std::int16_t deltaY);
+    OpenNowStreamerStatus submitMouseAbsolute(std::uint16_t x, std::uint16_t y,
+                                              std::uint16_t width, std::uint16_t height);
+    OpenNowStreamerStatus submitMouseButton(std::uint8_t button, bool pressed);
+    OpenNowStreamerStatus submitMouseWheel(std::int16_t deltaX, std::int16_t deltaY);
+    OpenNowStreamerStatus submitGamepad(std::uint8_t controllerId, std::uint16_t bitmap,
+                                        std::uint16_t buttons, std::uint8_t leftTrigger,
+                                        std::uint8_t rightTrigger, std::int16_t leftStickX,
+                                        std::int16_t leftStickY, std::int16_t rightStickX,
+                                        std::int16_t rightStickY);
+    OpenNowStreamerStatus submitLocalAction(std::uint32_t action);
+    OpenNowStreamerStatus setCaptureActive(bool active, bool relativeMouse,
+                                           std::uintptr_t windowHandle,
+                                           bool *rawInputActive);
+    OpenNowStreamerStatus replaceSdlDeviceClaims(const QList<SdlDeviceClaim> &claims);
+    OpenNowStreamerStatus submitSonySnapshot(const OpenNowSonySnapshot &snapshot);
+    OpenNowStreamerStatus replaceGenericHidInventory(const QList<GenericHidDeviceClaim> &claims);
+    OpenNowStreamerStatus submitGenericHidReport(const GenericHidReport &report);
+
+signals:
+    void inputCaptureReset();
+    void inputAllowedChanged();
+    void presentationError(const QString &message, const QString &errorCode);
+    void runningChanged();
+    void streamingChanged();
+    void externalWindowActiveChanged();
+    void lastErrorChanged();
+    void responseReceived(const QJsonObject &response);
+    void eventReceived(const QJsonObject &event);
+    void sessionTimerReceived(quint8 timerType, quint32 secondsLeft, bool active);
+    void frameAvailable();
+    void decodedDisplaySizeChanged(const QSize &size, quint64 generation);
+    void cursorUpdated(const QByteArray &bytes);
+    void cursorCaptureChanged(bool composited);
+    void cursorStateReset();
+    void controllerRumbleRequested(quint8 controllerId, quint16 lowFrequency,
+                                   quint16 highFrequency, quint32 durationMs,
+                                   quint64 sourceIncarnation);
+    void controllerRumbleStopped();
+    void genericHidOutputRequested(const GenericHidReport &report);
+    void genericHidOutputStopped();
+    void genericHidAdmissionChanged(quint8 slot, quint64 incarnation, GenericHidAdmission admission);
+    void genericHidAdmissionsReset();
+    void callbacksDropped(int count);
+
+private:
+    struct CallbackState;
+    struct Private;
+
+    static void responseCallback(const std::uint8_t *bytes, std::size_t length,
+                                 void *userData);
+    static void eventCallback(const std::uint8_t *bytes, std::size_t length,
+                              void *userData);
+    static void frameAvailableCallback(void *userData);
+    static void cursorCallback(const std::uint8_t *bytes, std::size_t length,
+                               void *userData);
+    static void enqueueCallback(CallbackState *state, const std::uint8_t *bytes,
+                                std::size_t length, bool event);
+    static void enqueueFrameAvailable(CallbackState *state);
+    static void scheduleDrain(const std::shared_ptr<CallbackState> &state);
+    void drainCallbacks(const std::shared_ptr<CallbackState> &state);
+    void setLastError(const QString &error);
+    void invalidatePresentation();
+    void publishDecodedDisplaySize(const QSize &size, quint64 generation);
+    void resetInputCapture();
+    bool startExternalProcess();
+    bool shutdownExternalProcess(int timeoutMs);
+    void readExternalStdout();
+    void readExternalStderr();
+    void handleExternalExit();
+    void updateExternalWindowActive();
+    void updateGenericHidOutputPolling();
+    void pollGenericHidAdmissions();
+    void setStreaming(bool streaming);
+
+    std::unique_ptr<Private> d;
+};
