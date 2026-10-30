@@ -598,8 +598,18 @@ impl SettingsStore {
         normalize_choice(&mut self.values, "themePack", THEME_PACKS, "nocturne");
         normalize_choice(&mut self.values, "themeFusionPack", THEME_PACKS, "aurora");
         clamp_integer(&mut self.values, "themeFusionBalance", 0, 100, 50);
-        normalize_choice(&mut self.values, "appearanceDayPack", THEME_PACKS, "porcelain");
-        normalize_choice(&mut self.values, "appearanceNightPack", THEME_PACKS, "nocturne");
+        normalize_choice(
+            &mut self.values,
+            "appearanceDayPack",
+            THEME_PACKS,
+            "porcelain",
+        );
+        normalize_choice(
+            &mut self.values,
+            "appearanceNightPack",
+            THEME_PACKS,
+            "nocturne",
+        );
         clamp_integer(&mut self.values, "appearanceDayStart", 0, 1439, 420);
         clamp_integer(&mut self.values, "appearanceNightStart", 0, 1439, 1140);
         clamp_integer(&mut self.values, "interfaceContrast", 0, 100, 0);
@@ -2386,7 +2396,10 @@ mod tests {
         assert_eq!(loaded.all()["backgroundFit"], json!("fit"));
         assert_eq!(loaded.all()["motionTempo"], json!("calm"));
         assert_eq!(loaded.all()["cornerStyle"], json!("round"));
-        assert_eq!(loaded.all()["lookSlots"], json!(r#"{"version":1,"slots":{}}"#));
+        assert_eq!(
+            loaded.all()["lookSlots"],
+            json!(r#"{"version":1,"slots":{}}"#)
+        );
 
         let mut repaired = loaded;
         for (key, value, expected) in [
@@ -2407,8 +2420,17 @@ mod tests {
             repaired.set(key, value).unwrap();
             assert_eq!(repaired.all()[key], expected);
         }
-        repaired.set("lookSlots", json!("x".repeat(80_000))).unwrap();
-        assert_eq!(repaired.all()["lookSlots"].as_str().unwrap().chars().count(), 65_536);
+        repaired
+            .set("lookSlots", json!("x".repeat(80_000)))
+            .unwrap();
+        assert_eq!(
+            repaired.all()["lookSlots"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            65_536
+        );
         repaired.set("lookSlots", Value::Null).unwrap();
         assert_eq!(repaired.all()["lookSlots"], json!(""));
         repaired.set("themePack", json!("chapel")).unwrap();
