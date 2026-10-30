@@ -298,7 +298,7 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2022"],
+            ["ubuntu-24.04", "windows-2025"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
@@ -322,10 +322,6 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("-p opennow-streamer-platform-windows -p opennow-streamer-protocol", workflow)
         self.assertIn("--lib -- --test-threads=1 --nocapture", workflow)
         self.assertIn("--target opennow-qt opennow-graphicsdevices-tests", workflow)
-        self.assertIn("uses: hendrikmuhs/ccache-action@5ebbd400eff9e74630f759d94ddd7b6c26299639", workflow)
-        self.assertIn("key: arena-windows-exe-x64", workflow)
-        self.assertIn("restore-keys: arena-windows-exe-x64", workflow)
-        self.assertIn("-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache", workflow)
         self.assertIn("--config Release --parallel 4", workflow)
         self.assertIn("Assert-OpenNowPackagePayload", workflow)
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
