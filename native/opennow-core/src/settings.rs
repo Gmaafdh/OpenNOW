@@ -24,6 +24,29 @@ const SHORTCUT_KEYS: [&str; 9] = [
     "shortcutSaveClip",
 ];
 const RESERVED_SHORTCUTS: [&str; 2] = ["Ctrl+G", "Shift+F3"];
+const THEME_PACKS: &[&str] = &[
+    "default",
+    "nocturne",
+    "aurora",
+    "kraft",
+    "phosphor",
+    "bone",
+    "cobalt",
+    "hibiscus",
+    "chapel",
+    "celestial",
+    "sakura",
+    "lagoon",
+    "ember",
+    "evergreen",
+    "ultraviolet",
+    "rosewood",
+    "porcelain",
+    "daybreak",
+    "meadow",
+    "lavender",
+    "monochrome",
+];
 const HDR_NOTICE_SHOWN: &str = "hdrNoticeShownGameIds";
 const MAXIMUM_HDR_NOTICE_SHOWN: usize = 200;
 const MAXIMUM_CONTROLLER_PROFILES: usize = 32;
@@ -570,34 +593,14 @@ impl SettingsStore {
             ],
             "system",
         );
+        normalize_choice(&mut self.values, "themePack", THEME_PACKS, "nocturne");
         normalize_choice(
             &mut self.values,
-            "themePack",
-            &[
-                "default",
-                "nocturne",
-                "aurora",
-                "kraft",
-                "phosphor",
-                "bone",
-                "cobalt",
-                "hibiscus",
-                "chapel",
-                "celestial",
-                "sakura",
-                "lagoon",
-                "ember",
-                "evergreen",
-                "ultraviolet",
-                "rosewood",
-                "porcelain",
-                "daybreak",
-                "meadow",
-                "lavender",
-                "monochrome",
-            ],
-            "nocturne",
+            "themeFusionPack",
+            THEME_PACKS,
+            "aurora",
         );
+        clamp_integer(&mut self.values, "themeFusionBalance", 0, 100, 50);
         normalize_accent(&mut self.values);
         normalize_choice(
             &mut self.values,
@@ -1051,6 +1054,7 @@ fn normalize_bounded_strings(values: &mut Map<String, Value>) {
         ("microphoneDeviceId", 512),
         ("telemetryInstallId", 128),
         ("lastSeenReleaseHighlightsVersion", 128),
+        ("lookMemory", 4_096),
     ] {
         let value = values
             .get(key)
@@ -1306,6 +1310,7 @@ fn defaults() -> Map<String, Value> {
         "statsShowPacketLoss":true, "statsShowDecode":true, "statsShowLatency":true,
         "statsShowVideo":true, "statsShowClock":true, "statsShowGraphs":true,
         "appAccentColor":"green", "appTheme":"auto", "appLanguage":"system", "themePack":"nocturne", "translucentUI":false,
+        "themeFusionEnabled":false, "themeFusionPack":"aurora", "themeFusionBalance":50, "lookMemory":"",
         "appFontFamily":"Nunito", "showTileLabels":true,
         "customProfileImages":{}, "profileImageSize":256,
         "controllerMode":true, "controllerModePromptDismissed":false, "forwardFlightControls":true,
@@ -2269,6 +2274,42 @@ mod tests {
         assert!(store.set("appAccentColor", json!("green")).is_err());
         assert_eq!(store.all(), before);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn theme_fusion_and_look_memory_are_bounded_and_persisted() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        store.set("themeFusionEnabled", json!(true)).unwrap();
+        store.set("themeFusionPack", json!("celestial")).unwrap();
+        store.set("themeFusionBalance", json!(65)).unwrap();
+        store
+            .set("lookMemory", json!(r#"{"version":1,"themePack":"lagoon"}"#))
+            .unwrap();
+        let mut loaded = SettingsStore::load(Some(directory.path().to_owned())).unwrap();
+        assert_eq!(loaded.all()["themeFusionEnabled"], json!(true));
+        assert_eq!(loaded.all()["themeFusionPack"], json!("celestial"));
+        assert_eq!(loaded.all()["themeFusionBalance"], json!(65));
+        assert_eq!(
+            loaded.all()["lookMemory"],
+            json!(r#"{"version":1,"themePack":"lagoon"}"#)
+        );
+
+        loaded.set("themeFusionBalance", json!(500)).unwrap();
+        assert_eq!(loaded.all()["themeFusionBalance"], json!(100));
+        loaded.set("themeFusionBalance", json!(-20)).unwrap();
+        assert_eq!(loaded.all()["themeFusionBalance"], json!(0));
+        loaded.set("themeFusionPack", json!("unknown")).unwrap();
+        assert_eq!(loaded.all()["themeFusionPack"], json!("aurora"));
+        loaded.set("themeFusionEnabled", json!("yes")).unwrap();
+        assert_eq!(loaded.all()["themeFusionEnabled"], json!(false));
+        loaded.set("lookMemory", json!("x".repeat(5_000))).unwrap();
+        assert_eq!(
+            loaded.all()["lookMemory"].as_str().unwrap().chars().count(),
+            4_096
+        );
+        loaded.set("lookMemory", Value::Null).unwrap();
+        assert_eq!(loaded.all()["lookMemory"], json!(""));
     }
 
     #[test]

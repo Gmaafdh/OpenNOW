@@ -3667,6 +3667,67 @@ QtObject {
         return setSetting("customProfileImages", updated, "custom-profile-image")
     }
 
+    function lookMemoryData() {
+        const raw = String(settings && settings.lookMemory || "")
+        if (raw === "") return null
+        try {
+            const memory = JSON.parse(raw)
+            return memory && memory.version === 1 && typeof memory.themePack === "string" ? memory : null
+        } catch (error) {
+            return null
+        }
+    }
+
+    function captureLookMemory() {
+        const source = settings || ({})
+        const memory = {
+            version:1,
+            themePack:String(source.themePack || "nocturne"),
+            appTheme:String(source.appTheme || "auto"),
+            appAccentColor:String(source.appAccentColor || "blue"),
+            themeAccentOverride:source.themeAccentOverride === true,
+            appFontFamily:String(source.appFontFamily || "Nunito"),
+            posterSizeScale:Number(source.posterSizeScale === undefined ? 1.05 : source.posterSizeScale),
+            translucentUI:source.translucentUI === true,
+            showTileLabels:source.showTileLabels !== false,
+            desktopBackground:String(source.desktopBackground || "art"),
+            desktopBackgroundImage:String(source.desktopBackgroundImage || ""),
+            desktopBackgroundOpacity:Number(source.desktopBackgroundOpacity === undefined ? 30 : source.desktopBackgroundOpacity),
+            themeFusionEnabled:source.themeFusionEnabled === true,
+            themeFusionPack:String(source.themeFusionPack || "aurora"),
+            themeFusionBalance:Number(source.themeFusionBalance === undefined ? 50 : source.themeFusionBalance)
+        }
+        return setSetting("lookMemory", JSON.stringify(memory), "look-memory-capture")
+    }
+
+    function restoreLookMemory() {
+        const memory = lookMemoryData()
+        if (!memory) return false
+        const fields = [
+            ["themePack", "string"], ["appTheme", "string"],
+            ["appAccentColor", "string"], ["themeAccentOverride", "boolean"],
+            ["appFontFamily", "string"], ["posterSizeScale", "number"],
+            ["translucentUI", "boolean"], ["showTileLabels", "boolean"],
+            ["desktopBackground", "string"], ["desktopBackgroundImage", "string"],
+            ["desktopBackgroundOpacity", "number"], ["themeFusionPack", "string"],
+            ["themeFusionBalance", "number"], ["themeFusionEnabled", "boolean"]
+        ]
+        let succeeded = true
+        for (const field of fields) {
+            const key = field[0]
+            const value = memory[key]
+            if (value === undefined || typeof value !== field[1]
+                    || (field[1] === "number" && !isFinite(value))) continue
+            const request = setSetting(key, value, "look-memory-restore")
+            if (request === false || request === "") succeeded = false
+        }
+        return succeeded
+    }
+
+    function clearLookMemory() {
+        return setSetting("lookMemory", "", "look-memory-clear")
+    }
+
     function resetSettings() {
         return settingsOwner.resetSettings()
     }

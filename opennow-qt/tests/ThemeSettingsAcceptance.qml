@@ -65,6 +65,73 @@ QtObject {
         check(ShellStore.customProfileImageFor(second) === "file:///C:/tmp/second.png", "removal does not clear another account")
         ShellStore.setCustomProfileImage(second, "")
 
+        const appearance = find(parent, "desktopAppearanceSettings")
+        const fusionSlider = find(parent, "themeFusionBalance")
+        check(appearance !== null && fusionSlider !== null, "Fusion controls exist")
+        check(find(parent, "dailyMuseButton") !== null, "Daily Muse action exists")
+        screen.setChoice("themePack", "nocturne")
+        screen.setSetting("themeFusionPack", "chapel")
+        screen.setSetting("themeFusionBalance", 50)
+        screen.setSetting("themeFusionEnabled", true)
+        const midpoint = Theme.shell.toString()
+        fusionSlider.moved(65)
+        check(Theme.fusionBalance === 65, "Fusion slider updates the theme before commit")
+        check(Theme.shell.toString() !== midpoint, "Fusion slider changes live colors")
+        fusionSlider.committed(65)
+        const muse = appearance.applyDailyMuse(new Date(2026, 9, 30))
+        check(ShellStore.settings.themePack === muse.primary
+            && ShellStore.settings.themeFusionPack === muse.secondary
+            && ShellStore.settings.themeFusionBalance === muse.balance
+            && Theme.fusionEnabled, "Daily Muse applies its deterministic recipe")
+
+        screen.setChoice("themePack", "lagoon")
+        screen.setSetting("appTheme", "dark")
+        screen.setChoice("appAccentColor", "#12ABEF")
+        screen.setSetting("appFontFamily", "Verdana")
+        screen.setSetting("posterSizeScale", 1.25)
+        screen.setSetting("translucentUI", true)
+        screen.setSetting("showTileLabels", false)
+        screen.setSetting("desktopBackground", "gradient")
+        screen.setSetting("desktopBackgroundOpacity", 45)
+        screen.setSetting("themeFusionPack", "celestial")
+        screen.setSetting("themeFusionBalance", 65)
+        screen.setSetting("themeFusionEnabled", true)
+        find(parent, "captureLookMemory").clicked()
+        const memory = ShellStore.lookMemoryData()
+        check(memory !== null && memory.themePack === "lagoon" && memory.themeFusionBalance === 65,
+            "Look Memory captures the complete appearance")
+        screen.setChoice("themePack", "bone")
+        screen.setChoice("appAccentColor", "green")
+        screen.setSetting("appFontFamily", "Arial")
+        screen.setSetting("posterSizeScale", 0.9)
+        screen.setSetting("translucentUI", false)
+        screen.setSetting("showTileLabels", true)
+        screen.setSetting("desktopBackground", "art")
+        screen.setSetting("themeFusionEnabled", false)
+        find(parent, "restoreLookMemory").clicked()
+        check(ShellStore.settings.themePack === "lagoon" && ShellStore.settings.appTheme === "dark",
+            "Look Memory restores theme and appearance mode")
+        check(ShellStore.settings.appAccentColor === "#12ABEF" && ShellStore.settings.themeAccentOverride === true,
+            "Look Memory restores custom accent coupling")
+        check(ShellStore.settings.appFontFamily === "Verdana" && ShellStore.settings.posterSizeScale === 1.25,
+            "Look Memory restores font and density")
+        check(ShellStore.settings.translucentUI === true && ShellStore.settings.showTileLabels === false
+            && ShellStore.settings.desktopBackground === "gradient" && ShellStore.settings.desktopBackgroundOpacity === 45,
+            "Look Memory restores surface, labels and background")
+        check(ShellStore.settings.themeFusionEnabled === true && ShellStore.settings.themeFusionPack === "celestial"
+            && ShellStore.settings.themeFusionBalance === 65, "Look Memory restores Fusion")
+        find(parent, "clearLookMemory").clicked()
+        check(ShellStore.lookMemoryData() === null && ShellStore.settings.themePack === "lagoon",
+            "Forget clears memory without changing the current look")
+        appearance.lookStatus = ""
+        screen.setSetting("themeFusionEnabled", false)
+        screen.setSetting("appFontFamily", "Nunito")
+        screen.setSetting("posterSizeScale", 1.05)
+        screen.setSetting("translucentUI", false)
+        screen.setSetting("showTileLabels", true)
+        screen.setSetting("desktopBackground", "art")
+        screen.setSetting("desktopBackgroundOpacity", 30)
+        screen.setSetting("themeAccentOverride", false)
         screen.setChoice("themePack", light ? "porcelain" : "celestial")
         ShellStore.lastError = ""
         return true

@@ -29,20 +29,28 @@ QtObject {
                                         ? ShellStore.previewThemePack
                                         : String(ShellStore.settings.themePack || "nocturne")
     readonly property var pack: packs.find(item => item.id === themePack) || packs[0]
+    readonly property var fusionPack: packs.find(item => item.id === String(ShellStore.settings.themeFusionPack || "aurora")) || packs[1]
+    readonly property bool fusionEnabled: ShellStore.settings.themeFusionEnabled === true
+    readonly property real fusionBalance: {
+        const value = Number(ShellStore.settings.themeFusionBalance)
+        return isFinite(value) ? Math.max(0, Math.min(100, value)) : 50
+    }
     readonly property bool packLight: pack.category === "Light"
     readonly property bool systemLight: Qt.styleHints.colorScheme === Qt.Light
     readonly property bool lightMode: ShellStore.previewThemePack !== "" ? packLight
         : mode === "light" || (mode === "auto" && systemLight)
     readonly property bool translucent: Boolean(ShellStore.settings.translucentUI)
     readonly property string accent: String(ShellStore.settings.appAccentColor || "blue")
-    readonly property color shell: lightMode ? (pack.lightBg || pack.bg) : (pack.darkBg || pack.bg)
+    readonly property color shell: fusionEnabled ? mixColors(surfaceForPack(pack), surfaceForPack(fusionPack)) : surfaceForPack(pack)
     readonly property color face: lightMode ? "#111827" : "#FFFFFF"
     readonly property color faceText: lightMode ? "#FFFFFF" : "#111827"
     // Artwork scrims and dark store-color fallbacks always need a light foreground,
     // independently of the shell's light/dark mode.
     readonly property color mediaForeground: "#FFFFFF"
     readonly property color mediaMuted: Qt.rgba(mediaForeground.r, mediaForeground.g, mediaForeground.b, 0.64)
-    readonly property color mediaAccent: accentOverridden ? accentColor(accent, false) : (pack.darkAccent || pack.accent)
+    readonly property color mediaAccent: accentOverridden ? accentColor(accent, false)
+        : fusionEnabled ? fusedAccent(pack.darkAccent || pack.accent, fusionPack.darkAccent || fusionPack.accent, "#04060A", 4.5)
+        : (pack.darkAccent || pack.accent)
     readonly property color seam: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.14) : Qt.rgba(1, 1, 1, 0.14)
     readonly property color label: lightMode ? "#111827" : "#FFFFFF"
     readonly property color textMuted: lightMode ? Qt.rgba(0.04, 0.06, 0.10, 0.64) : Qt.rgba(1, 1, 1, 0.64)
@@ -53,9 +61,72 @@ QtObject {
         const light = {green:"#126B4E", blue:"#12638C", violet:"#7042BA", rose:"#AA285B", coral:"#A9362C", amber:"#806017", white:"#374151"}
         return (forLightMode ? light : dark)[value] || (forLightMode ? light.blue : dark.blue)
     }
+
+    function surfaceForPack(pack, forLightMode = lightMode) {
+        return forLightMode ? (pack.lightBg || pack.bg) : (pack.darkBg || pack.bg)
+    }
+
+    function accentForPack(pack, forLightMode = lightMode) {
+        return forLightMode ? (pack.lightAccent || pack.accent) : (pack.darkAccent || pack.accent)
+    }
+
+    function mixColors(first, second, balance = fusionBalance) {
+        const a = Qt.color(first)
+        const b = Qt.color(second)
+        const amount = Math.max(0, Math.min(100, Number(balance))) / 100
+        return Qt.rgba(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount,
+                       a.b + (b.b - a.b) * amount, a.a + (b.a - a.a) * amount)
+    }
+
+    function luminance(value) {
+        const color = Qt.color(value)
+        const linear = channel => channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4)
+        return linear(color.r) * 0.2126 + linear(color.g) * 0.7152 + linear(color.b) * 0.0722
+    }
+
+    function contrastRatio(first, second) {
+        const a = luminance(first)
+        const b = luminance(second)
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+    }
+
+    function usableAccent(accent, surface, minimum = 3) {
+        return contrastRatio(accent, surface) >= minimum && contrastRatio(contrastText(accent), accent) >= 4.5
+    }
+
+    function fusedAccent(first, second, surface, minimum = 3) {
+        const mixed = mixColors(first, second)
+        if (usableAccent(mixed, surface, minimum)) return mixed
+        const a = Qt.color(first)
+        const b = Qt.color(second)
+        const aScore = usableAccent(a, surface, minimum) ? contrastRatio(a, surface) : -1
+        const bScore = usableAccent(b, surface, minimum) ? contrastRatio(b, surface) : -1
+        if (aScore >= 0 || bScore >= 0) return aScore >= bScore ? a : b
+        return contrastRatio("#FFFFFF", surface) >= contrastRatio("#111827", surface) ? "#FFFFFF" : "#111827"
+    }
+
+    function dailyMuse(date, identity) {
+        const when = date === undefined ? new Date() : date
+        const stamp = when.getFullYear() + "-" + (when.getMonth() + 1) + "-" + when.getDate()
+        const seed = stamp + "|" + String(identity || "guest")
+        let hash = 0
+        for (let index = 0; index < seed.length; ++index)
+            hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
+        const primary = hash % packs.length
+        const offset = Math.floor(hash / packs.length) % (packs.length - 1) + 1
+        const secondary = (primary + offset) % packs.length
+        const balances = [25, 35, 50, 65, 75]
+        return {primary:packs[primary].id, secondary:packs[secondary].id,
+            balance:balances[Math.floor(hash / 17) % balances.length]}
+    }
+
     readonly property color customAccent: accentColor(accent)
-    readonly property color packAccent: lightMode ? (pack.lightAccent || pack.accent) : (pack.darkAccent || pack.accent)
-    readonly property color atmosphere: pack.mid || packAccent
+    readonly property color packAccent: fusionEnabled
+        ? fusedAccent(accentForPack(pack), accentForPack(fusionPack), shell)
+        : accentForPack(pack)
+    readonly property color atmosphere: fusionEnabled
+        ? mixColors(pack.mid || accentForPack(pack), fusionPack.mid || accentForPack(fusionPack))
+        : (pack.mid || packAccent)
     readonly property bool accentOverridden: ShellStore.previewThemePack === "" && ShellStore.settings.themeAccentOverride === true
     readonly property color focus: accentOverridden ? customAccent : packAccent
     readonly property color focusText: contrastText(focus)
@@ -73,9 +144,8 @@ QtObject {
     readonly property color cartBattlenet: "#2E7CB8"
 
     function contrastText(background) {
-        const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
-        const luminance = linear(background.r) * 0.2126 + linear(background.g) * 0.7152 + linear(background.b) * 0.0722
-        return (luminance + 0.05) / 0.0592 > 1.05 / (luminance + 0.05) ? "#111827" : "#FFFFFF"
+        const value = luminance(background)
+        return (value + 0.05) / 0.0592 > 1.05 / (value + 0.05) ? "#111827" : "#FFFFFF"
     }
 
     readonly property string fontFamily: String(ShellStore.settings.appFontFamily || "Nunito")

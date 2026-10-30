@@ -21,11 +21,39 @@ Column {
     property string accentMessage: ""
     property string profileStatus: ""
     property bool profileStatusIsError: false
+    property string lookStatus: ""
+    property bool lookStatusIsError: false
+    readonly property var savedLook: ShellStore.lookMemoryData()
+    readonly property bool fusionEnabled: page.settingsScreen.boolSetting("themeFusionEnabled", false)
 
     function normalizedHex(value) {
         let text = String(value || "").trim().toUpperCase()
         if (text.length === 6 && text.indexOf("#") !== 0) text = "#" + text
         return /^#[0-9A-F]{6}$/.test(text) ? text : ""
+    }
+
+    function themeOptions() {
+        const options = []
+        for (const category of ["Dark", "Light", "High contrast"]) {
+            const packs = Theme.packs.filter(pack => pack.category === category)
+            if (packs.length === 0) continue
+            options.push({kind:"heading", label:category === "Dark" ? qsTr("Dark") : category === "Light" ? qsTr("Light") : qsTr("High contrast")})
+            for (const pack of packs) {
+                const meta = page.settingsScreen.themeMeta(pack.id)
+                options.push({label:meta.name, detail:meta.blurb, value:pack.id})
+            }
+        }
+        return options
+    }
+
+    function applyDailyMuse(date) {
+        const account = page.settingsScreen.profileUser()
+        const muse = Theme.dailyMuse(date === undefined ? new Date() : date, account.userId || "guest")
+        page.settingsScreen.setChoice("themePack", muse.primary)
+        page.settingsScreen.setSetting("themeFusionPack", muse.secondary)
+        page.settingsScreen.setSetting("themeFusionBalance", muse.balance)
+        page.settingsScreen.setSetting("themeFusionEnabled", true)
+        return muse
     }
 
     function applyCustomAccent() {
@@ -78,6 +106,27 @@ Column {
         profileStatusIsError = persistence === false || persistence === ""
         profileStatus = profileStatusIsError ? profileError("save-failed")
             : qsTr("Custom image removed. The profile initial is shown again.")
+    }
+
+    function captureLook() {
+        const persistence = ShellStore.captureLookMemory()
+        lookStatusIsError = persistence === false || persistence === ""
+        lookStatus = lookStatusIsError ? qsTr("OpenNOW could not save this look yet. Try again.")
+            : qsTr("Current look captured on this device.")
+    }
+
+    function restoreLook() {
+        const persistence = ShellStore.restoreLookMemory()
+        lookStatusIsError = persistence === false || persistence === ""
+        lookStatus = lookStatusIsError ? qsTr("No valid saved look is available to restore.")
+            : qsTr("Saved look restored.")
+    }
+
+    function clearLook() {
+        const persistence = ShellStore.clearLookMemory()
+        lookStatusIsError = persistence === false || persistence === ""
+        lookStatus = lookStatusIsError ? qsTr("OpenNOW could not clear the saved look.")
+            : qsTr("Saved look forgotten. Your current appearance is unchanged.")
     }
 
     FileDialog {
@@ -173,19 +222,7 @@ Column {
             objectName: "renewThemeChoice"
             width: parent.width; glyph: "moon"; title: qsTr("Theme")
             description: qsTr("Applies the pack's appearance, accent and surfaces")
-            items: {
-                const options = []
-                for (const category of ["Dark", "Light", "High contrast"]) {
-                    const packs = Theme.packs.filter(pack => pack.category === category)
-                    if (packs.length === 0) continue
-                    options.push({kind:"heading", label:category === "Dark" ? qsTr("Dark") : category === "Light" ? qsTr("Light") : qsTr("High contrast")})
-                    for (const pack of packs) {
-                        const meta = page.settingsScreen.themeMeta(pack.id)
-                        options.push({label:meta.name, detail:meta.blurb, value:pack.id})
-                    }
-                }
-                return options
-            }
+            items: page.themeOptions()
             value: page.settingsScreen.valueSetting("themePack","nocturne")
             onSelected: value => page.settingsScreen.setChoice("themePack",value)
         }
@@ -288,6 +325,97 @@ Column {
             width: parent.width; paperStyle: true; glyph: "sun"; title: qsTr("Translucent interface")
             description: qsTr("Use translucent shell surfaces when supported"); showDivider: false
             DesktopSettingsToggle { checked: page.settingsScreen.boolSetting("translucentUI",false); onValueChangedByUser: value => page.settingsScreen.setSetting("translucentUI",value) }
+        }
+    }
+
+    DesktopSettingsPanel {
+        width: parent.width; paperStyle: true
+        objectName: "themeFusionSettings"
+        DesktopSettingsSection { text: qsTr("THEME FUSION LAB") }
+        DesktopSettingsRow {
+            width: parent.width; paperStyle: true; glyph: "palette"; title: qsTr("Fuse two themes")
+            description: qsTr("Blend surfaces, accents and ambient color into a contrast-aware personal theme")
+            DesktopSettingsToggle {
+                objectName: "themeFusionEnabled"
+                checked: page.fusionEnabled
+                onValueChangedByUser: value => page.settingsScreen.setSetting("themeFusionEnabled", value)
+            }
+        }
+        DesktopSettingsChoice {
+            objectName: "themeFusionPackChoice"
+            visible: page.fusionEnabled
+            width: parent.width; glyph: "moon"; title: qsTr("Secondary theme")
+            description: qsTr("The primary theme remains the one selected above")
+            items: page.themeOptions()
+            value: page.settingsScreen.valueSetting("themeFusionPack", "aurora")
+            onSelected: value => page.settingsScreen.setSetting("themeFusionPack", value)
+        }
+        DesktopSettingsRow {
+            width: parent.width; paperStyle: true; glyph: "sliders"; title: qsTr("Secondary influence")
+            visible: page.fusionEnabled
+            description: qsTr("Updates live while you drag · 0% primary, 100% secondary")
+            DesktopSettingsSlider {
+                objectName: "themeFusionBalance"
+                accessibleName: qsTr("Secondary theme influence")
+                from: 0; to: 100; stepSize: 5
+                value: Number(page.settingsScreen.valueSetting("themeFusionBalance", 50))
+                onMoved: value => ShellStore.applySetting("themeFusionBalance", Math.round(value))
+                onCommitted: value => page.settingsScreen.setSetting("themeFusionBalance", Math.round(value))
+            }
+        }
+        DesktopSettingsRow {
+            width: parent.width; paperStyle: true; glyph: "star"; title: qsTr("Daily Muse")
+            description: qsTr("A deterministic fusion for this profile and date · nothing changes until you ask"); showDivider: false
+            Row {
+                spacing: DesktopTokens.px(10)
+                Rectangle {
+                    objectName: "themeFusionPreview"
+                    width: DesktopTokens.px(40); height: width; radius: DesktopTokens.px(12)
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Theme.shell; border.width: 2; border.color: Theme.focus
+                }
+                DesktopSettingsButton {
+                    objectName: "dailyMuseButton"
+                    text: qsTr("Use today’s muse"); primary: true; compact: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    onClicked: page.applyDailyMuse(new Date())
+                }
+            }
+        }
+    }
+
+    DesktopSettingsPanel {
+        width: parent.width; paperStyle: true
+        objectName: "lookMemorySettings"
+        DesktopSettingsSection { text: qsTr("LOOK MEMORY") }
+        DesktopSettingsRow {
+            width: parent.width; paperStyle: true; glyph: "folder"; title: qsTr("Capture this exact look")
+            description: page.savedLook ? qsTr("Saved: %1 · %2").arg(page.settingsScreen.themeMeta(page.savedLook.themePack).name).arg(page.savedLook.appFontFamily)
+                : qsTr("Remember theme, fusion, accent, font, density, labels and background on this device")
+            showDivider: page.lookStatus !== ""
+            Row {
+                spacing: DesktopTokens.px(8)
+                DesktopSettingsButton {
+                    objectName: "captureLookMemory"; text: qsTr("Capture"); primary: true; compact: true
+                    onClicked: page.captureLook()
+                }
+                DesktopSettingsButton {
+                    objectName: "restoreLookMemory"; text: qsTr("Restore"); compact: true
+                    visible: page.savedLook !== null
+                    onClicked: page.restoreLook()
+                }
+                DesktopSettingsButton {
+                    objectName: "clearLookMemory"; text: qsTr("Forget"); compact: true
+                    visible: page.savedLook !== null
+                    onClicked: page.clearLook()
+                }
+            }
+        }
+        DesktopSettingsRow {
+            width: parent.width; paperStyle: true; glyph: page.lookStatusIsError ? "info" : "check"
+            visible: page.lookStatus !== ""
+            title: page.lookStatusIsError ? qsTr("Look Memory not changed") : qsTr("Look Memory")
+            description: page.lookStatus; showDivider: false
         }
     }
 

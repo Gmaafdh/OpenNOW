@@ -556,6 +556,36 @@
       "meadow": { "name": "Meadow", "description": "Soft mint paper with a meadow-green accent." },
       "lavender": { "name": "Lavender", "description": "Pale lilac with a refined violet accent." },
       "monochrome": { "name": "Monochrome", "description": "Near-black monochrome with crisp white focus." }
+    },
+    "fusion": {
+      "section": "THEME FUSION LAB",
+      "fuse": "Fuse two themes",
+      "description": "Blend surfaces, accents and ambient color into a contrast-aware personal theme",
+      "secondary": "Secondary theme",
+      "secondaryDescription": "The primary theme remains the one selected above",
+      "influence": "Secondary influence",
+      "influenceDescription": "Updates live while you drag · 0% primary, 100% secondary",
+      "influenceAccessible": "Secondary theme influence",
+      "muse": "Daily Muse",
+      "museDescription": "A deterministic fusion for this profile and date · nothing changes until you ask",
+      "museAction": "Use today’s muse"
+    },
+    "lookMemory": {
+      "section": "LOOK MEMORY",
+      "title": "Look Memory",
+      "notChanged": "Look Memory not changed",
+      "captureTitle": "Capture this exact look",
+      "description": "Remember theme, fusion, accent, font, density, labels and background on this device",
+      "savedSummary": "Saved: %1 · %2",
+      "capture": "Capture",
+      "restore": "Restore",
+      "forget": "Forget",
+      "captured": "Current look captured on this device.",
+      "saveFailed": "OpenNOW could not save this look yet. Try again.",
+      "restored": "Saved look restored.",
+      "restoreFailed": "No valid saved look is available to restore.",
+      "forgotten": "Saved look forgotten. Your current appearance is unchanged.",
+      "clearFailed": "OpenNOW could not clear the saved look."
     }
   },
   "queueExperience": {
