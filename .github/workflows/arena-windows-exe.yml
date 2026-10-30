@@ -115,6 +115,15 @@ jobs:
             native/opennow-core -> ../../build/opennow-qt-release/update-helper-rust-target
             native/opennow-streamer -> ../../build/opennow-qt-release/streamer-rust-target
 
+      - name: Cache Qt C++ compilation
+        uses: hendrikmuhs/ccache-action@5ebbd400eff9e74630f759d94ddd7b6c26299639
+        with:
+          key: arena-windows-exe-x64
+          restore-keys: arena-windows-exe-x64
+          max-size: 1G
+          evict-old-files: job
+          verbose: 1
+
       - name: Build and cache SDL3
         uses: ./.github/actions/sdl3
         with:
@@ -176,6 +185,7 @@ jobs:
           cmake -S opennow-qt -B build/opennow-qt-release \
             -G "Ninja Multi-Config" \
             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENNOW_BUILD_VERSION="$OPENNOW_BUILD_VERSION" \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/SDL-install" \
@@ -185,7 +195,7 @@ jobs:
         shell: bash
         run: |
           cd /o
-          cmake --build build/opennow-qt-release --config Release --parallel 2 \
+          cmake --build build/opennow-qt-release --config Release --parallel 4 \
             --target opennow-qt opennow-graphicsdevices-tests opennow-theme-tests \
               opennow-profileimage-tests opennow-nativestreamruntime-tests opennow-embedded-orchestration-tests \
             2>&1 | tee ci-logs/cmake-build.log

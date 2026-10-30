@@ -100,6 +100,27 @@ TestCase {
         compare(shellText.color, DesktopTokens.textHigh)
     }
 
+    function test_queueInformationHierarchy() {
+        ShellStore.settings = {themePack: "nocturne", appTheme: "dark"}
+        ShellStore.streamState = "preparing"
+        AppController.route = "inserting"
+        const names = ["desktopQueueArtwork", "desktopQueuePositionCard", "desktopQueueJourney",
+            "desktopQueueDetails", "desktopQueueRefresh", "desktopQueueCancel"]
+        for (const name of names) {
+            const item = descendants(screen).find(candidate => candidate.objectName === name)
+            verify(item !== undefined, "Missing queue element: " + name)
+            verify(visibleOnScreen(item), "Queue element is not visible: " + name)
+            verify(item.width > 0 && item.height > 0, "Queue element has no geometry: " + name)
+        }
+        compare(descendants(screen).find(item => item.objectName === "sessionQueueStatus").text,
+            screen.statusText)
+        compare(textItem("21").color, Theme.mediaForeground)
+        const cancel = descendants(screen).find(item => item.objectName === "desktopQueueCancel")
+        compare(cancel.text, "Cancel session")
+        compare(cancel.shortcutText, "Esc")
+        verify(cancel.enabled)
+    }
+
     function test_failureAndReconnect() {
         ShellStore.settings = {themePack: "nocturne", appTheme: "light"}
         ShellStore.streamState = "failed"

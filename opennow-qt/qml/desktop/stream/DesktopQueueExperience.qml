@@ -27,7 +27,7 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 700
-    readonly property bool stacked: width < 1000 || height < 650
+    readonly property bool stacked: width < 1080 || height < 650
     readonly property int elapsedSeconds: queueVisibleSinceMs > 0
         ? Math.max(0, Math.floor((queueClockMs - queueVisibleSinceMs) / 1000)) : 0
     readonly property string coverSource: DesktopTokens.artworkUrl(root.game, false)
@@ -130,109 +130,145 @@ FocusScope {
     Flickable {
         id: flick
         anchors.fill: parent
-        anchors.topMargin: 58
-        anchors.bottomMargin: 20
+        anchors.topMargin: 68
+        anchors.bottomMargin: 24
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, layoutGrid.implicitHeight + 48)
+        contentHeight: Math.max(height, queueLayout.height + 48)
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
 
-        Grid {
-            id: layoutGrid
+        Item {
+            id: queueLayout
             x: root.stacked ? 20 : 40
-            y: root.stacked ? 20 : Math.max(20, (flick.height - implicitHeight) / 2)
+            y: root.stacked ? 20 : Math.max(16, (flick.height - height) / 2)
             width: Math.max(0, flick.width - 2 * x)
-            height: implicitHeight
-            columns: root.stacked ? 1 : 2
-            columnSpacing: root.stacked ? 0 : 56
-            rowSpacing: root.stacked ? 30 : 0
+            height: root.stacked ? heroCard.height + 28 + queueColumn.implicitHeight
+                : Math.max(heroCard.height, queueColumn.implicitHeight)
 
-            Item {
-                id: artworkPanel
-                width: root.stacked ? layoutGrid.width
-                    : Math.floor((layoutGrid.width - layoutGrid.columnSpacing) * 0.46)
-                height: root.stacked ? artworkColumn.implicitHeight : coverPanelHeight
-                readonly property real coverPanelHeight: Math.min(620, Math.max(430, flick.height - 70))
+            Rectangle {
+                id: heroCard
+                objectName: "desktopQueueArtwork"
+                x: 0
+                y: 0
+                width: root.stacked ? queueLayout.width
+                    : Math.floor((queueLayout.width - 48) * 0.42)
+                height: root.stacked ? (root.veryCompact ? 230 : 280)
+                    : Math.min(610, Math.max(500, flick.height - 96))
+                radius: Theme.radius(26)
+                color: "#0B111D"
+                border.width: 1
+                border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.32)
+                clip: true
+
+                Image {
+                    id: coverImage
+                    anchors.fill: parent
+                    source: coverArtwork.resolvedUrl
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    sourceSize: Qt.size(Math.max(1, Math.ceil(width * 2)), Math.max(1, Math.ceil(height * 2)))
+                    opacity: status === Image.Ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration } }
+                    TapHandler {
+                        enabled: coverImage.status === Image.Ready
+                        onTapped: root.artworkViewerOpen = true
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    visible: coverImage.status !== Image.Ready
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "#101827" }
+                        GradientStop { position: 1; color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.16) }
+                    }
+                }
+                Text {
+                    anchors.centerIn: parent
+                    width: parent.width - 48
+                    visible: coverImage.status !== Image.Ready
+                    text: String(root.game.title || qsTr("GeForce NOW"))
+                    color: Theme.mediaForeground
+                    font.family: DesktopTokens.displayFont
+                    font.pixelSize: 26
+                    font.weight: Font.Black
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        GradientStop { position: 0.28; color: "transparent" }
+                        GradientStop { position: 0.68; color: "#3004060A" }
+                        GradientStop { position: 1; color: "#F704060A" }
+                    }
+                }
+
+                Rectangle {
+                    x: 22
+                    y: 22
+                    width: cloudRow.implicitWidth + 20
+                    height: 30
+                    radius: Theme.radius(15)
+                    color: "#8A04060A"
+                    border.width: 1
+                    border.color: "#38FFFFFF"
+                    Row {
+                        id: cloudRow
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: Theme.mediaAccent
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("CLOUD QUEUE")
+                            color: Theme.mediaForeground
+                            font.family: DesktopTokens.monoFont
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                            font.letterSpacing: 1.3
+                        }
+                    }
+                }
 
                 Column {
-                    id: artworkColumn
-                    width: parent.width
-                    spacing: 10
-
-                    Rectangle {
-                        id: artFrame
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: root.stacked ? 20 : 26
+                    spacing: 9
+                    Text {
                         width: parent.width
-                        height: root.stacked ? 270 : artworkPanel.coverPanelHeight - 132
-                        radius: 20
-                        color: "#101827"
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.34)
-                        clip: true
-
-                        Image {
-                            id: coverImage
-                            anchors.fill: parent
-                            source: coverArtwork.resolvedUrl
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            cache: true
-                            sourceSize: Qt.size(Math.max(1, Math.ceil(width * 2)), Math.max(1, Math.ceil(height * 2)))
-                            opacity: status === Image.Ready ? 1 : 0
-                            Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration } }
-                        }
-                        Text {
-                            anchors.centerIn: parent
-                            width: parent.width - 40
-                            visible: coverImage.status !== Image.Ready
-                            text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: Theme.mediaForeground
-                            font.family: DesktopTokens.displayFont
-                            font.pixelSize: 24
-                            font.weight: Font.Black
-                            horizontalAlignment: Text.AlignHCenter
-                            wrapMode: Text.WordWrap
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            color: "transparent"
-                            border.width: 1
-                            border.color: "#22FFFFFF"
-                            radius: parent.radius
-                        }
-                        TapHandler {
-                            enabled: coverImage.status === Image.Ready
-                            onTapped: root.artworkViewerOpen = true
-                        }
+                        text: String(root.game.title || qsTr("GeForce NOW"))
+                        color: Theme.mediaForeground
+                        font.family: DesktopTokens.displayFont
+                        font.pixelSize: root.stacked ? 25 : 30
+                        font.weight: Font.Black
+                        font.letterSpacing: -0.7
+                        maximumLineCount: 2
+                        wrapMode: Text.WordWrap
+                        elide: Text.ElideRight
                     }
-
-                    Column {
+                    Text {
                         width: parent.width
-                        spacing: 3
-                        Text {
-                            width: parent.width
-                            text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: Theme.mediaForeground
-                            font.family: DesktopTokens.displayFont
-                            font.pixelSize: 23
-                            font.weight: Font.Black
-                            maximumLineCount: 2
-                            wrapMode: Text.WordWrap
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            width: parent.width
-                            visible: text !== ""
-                            text: root.gameSubtitle()
-                            color: Theme.mediaMuted
-                            font.family: DesktopTokens.bodyFont
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                            maximumLineCount: 1
-                            elide: Text.ElideRight
-                        }
+                        visible: text !== ""
+                        text: root.gameSubtitle()
+                        color: Theme.mediaMuted
+                        font.family: DesktopTokens.bodyFont
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        maximumLineCount: 1
+                        elide: Text.ElideRight
                     }
-
                     DesktopButton {
                         id: viewArtworkButton
                         visible: coverImage.status === Image.Ready
@@ -241,33 +277,80 @@ FocusScope {
                         onClicked: root.artworkViewerOpen = true
                     }
                 }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.width: 1
+                    border.color: "#24FFFFFF"
+                    radius: parent.radius
+                }
             }
 
             Column {
-                id: queuePass
+                id: queueColumn
                 objectName: "desktopQueuePass"
-                width: root.stacked ? layoutGrid.width
-                    : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
-                spacing: root.veryCompact ? 10 : 14
+                x: root.stacked ? 0 : heroCard.width + 48
+                y: root.stacked ? heroCard.height + 28
+                    : Math.max(0, (heroCard.height - implicitHeight) / 2)
+                width: root.stacked ? queueLayout.width
+                    : queueLayout.width - heroCard.width - 48
+                height: implicitHeight
+                spacing: root.veryCompact ? 10 : 12
 
-                Row {
+                Item {
                     width: parent.width
-                    height: 24
-                    spacing: 10
-                    Rectangle {
+                    height: 28
+                    Row {
+                        anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 28
-                        height: 2
-                        color: Theme.mediaAccent
+                        spacing: 10
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 28
+                            height: 2
+                            color: Theme.mediaAccent
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("STARTING SESSION")
+                            color: Theme.mediaAccent
+                            font.family: DesktopTokens.monoFont
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            font.letterSpacing: 1.6
+                        }
                     }
-                    Text {
+                    Rectangle {
+                        anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("STARTING SESSION")
-                        color: Theme.mediaAccent
-                        font.family: DesktopTokens.monoFont
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 1.6
+                        width: liveRow.implicitWidth + 18
+                        height: 28
+                        radius: Theme.radius(14)
+                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.10)
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.30)
+                        Row {
+                            id: liveRow
+                            anchors.centerIn: parent
+                            spacing: 7
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 6
+                                height: 6
+                                radius: 3
+                                color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: qsTr("LIVE")
+                                color: Theme.mediaForeground
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.letterSpacing: 1.2
+                            }
+                        }
                     }
                 }
 
@@ -277,8 +360,9 @@ FocusScope {
                     text: root.statusText
                     color: Theme.mediaForeground
                     font.family: DesktopTokens.displayFont
-                    font.pixelSize: root.veryCompact ? 25 : 32
+                    font.pixelSize: root.veryCompact ? 27 : 34
                     font.weight: Font.Black
+                    font.letterSpacing: -0.8
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
                     elide: Text.ElideRight
@@ -295,43 +379,64 @@ FocusScope {
                     elide: Text.ElideRight
                 }
 
-                Item {
-                    id: positionBlock
+                Rectangle {
+                    id: positionCard
+                    objectName: "desktopQueuePositionCard"
                     width: parent.width
-                    height: 116
+                    height: root.veryCompact ? 142 : 158
+                    radius: Theme.radius(22)
+                    color: "#D009101B"
+                    border.width: 1
+                    border.color: "#32FFFFFF"
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 20
+                        width: 3
+                        radius: 1.5
+                        color: Theme.mediaAccent
+                    }
                     Column {
                         anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 24
+                        anchors.top: parent.top
+                        anchors.topMargin: 18
+                        width: parent.width * 0.46
                         spacing: 0
                         Text {
                             text: qsTr("YOUR PLACE IN LINE")
                             color: Theme.mediaMuted
                             font.family: DesktopTokens.monoFont
-                            font.pixelSize: 10
+                            font.pixelSize: 9
                             font.weight: Font.Bold
-                            font.letterSpacing: 1.2
+                            font.letterSpacing: 1.1
                         }
                         Text {
                             text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
                             color: Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: root.queuePosition > 999 ? 58 : root.veryCompact ? 66 : 82
+                            font.pixelSize: root.queuePosition > 999 ? 52 : positionCard.width < 420 ? 58 : 76
                             font.weight: Font.Black
+                            font.letterSpacing: -2
                             Accessible.role: Accessible.StaticText
                             Accessible.name: root.statusText
                         }
                     }
                     Row {
                         anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 24
+                        anchors.rightMargin: 22
+                        anchors.top: parent.top
+                        anchors.topMargin: 32
+                        spacing: 22
                         Column {
-                            spacing: 4
+                            spacing: 5
                             Text {
                                 text: qsTr("ELAPSED")
                                 color: Theme.mediaMuted
                                 font.family: DesktopTokens.monoFont
-                                font.pixelSize: 9
+                                font.pixelSize: 8
                                 font.weight: Font.Bold
                                 font.letterSpacing: 1
                             }
@@ -339,18 +444,18 @@ FocusScope {
                                 text: root.elapsedText()
                                 color: Theme.mediaForeground
                                 font.family: DesktopTokens.monoFont
-                                font.pixelSize: 20
+                                font.pixelSize: 19
                                 font.weight: Font.Bold
                             }
                         }
                         Column {
-                            visible: positionBlock.width > 360
-                            spacing: 4
+                            visible: positionCard.width > 360
+                            spacing: 5
                             Text {
                                 text: qsTr("BEST POSITION")
                                 color: Theme.mediaMuted
                                 font.family: DesktopTokens.monoFont
-                                font.pixelSize: 9
+                                font.pixelSize: 8
                                 font.weight: Font.Bold
                                 font.letterSpacing: 1
                             }
@@ -358,123 +463,189 @@ FocusScope {
                                 text: root.bestPositionText()
                                 color: Theme.mediaAccent
                                 font.family: DesktopTokens.monoFont
-                                font.pixelSize: 20
+                                font.pixelSize: 19
                                 font.weight: Font.Bold
                             }
                         }
                     }
-                }
-
-                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
-
-                Grid {
-                    id: detailGrid
-                    width: parent.width
-                    columns: root.veryCompact ? 1 : 2
-                    columnSpacing: 20
-                    rowSpacing: 12
-                    height: implicitHeight
-
-                    Column {
-                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
-                        spacing: 4
-                        Text { text: qsTr("STREAM PROFILE"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
-                        Text { width: parent.width; text: root.streamProfileText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
-                    }
-                    Column {
-                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
-                        spacing: 4
-                        Text { text: qsTr("REGION"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
-                        Text { width: parent.width; text: root.regionText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
-                    }
-                    Column {
-                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
-                        spacing: 4
-                        Text { text: qsTr("QUEUE UPDATES"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
-                        Text { width: parent.width; text: root.activityText; color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
-                    }
-                    Column {
-                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
-                        spacing: 4
-                        Text { text: qsTr("SESSION DETAILS"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
-                        Text { width: parent.width; text: qsTr("Your session starts automatically"); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
-                    }
-                }
-
-                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
-
-                Text {
-                    text: qsTr("WHAT HAPPENS NEXT")
-                    color: Theme.mediaMuted
-                    font.family: DesktopTokens.monoFont
-                    font.pixelSize: 10
-                    font.weight: Font.Bold
-                    font.letterSpacing: 1.2
-                }
-                Column {
-                    width: parent.width
-                    spacing: 7
-                    Repeater {
-                        model: 3
-                        delegate: Item {
-                            id: step
-                            required property int index
-                            width: parent.width
-                            height: 28
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 12
+                        height: 34
+                        radius: Theme.radius(10)
+                        color: "#12FFFFFF"
+                        Row {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 9
                             Rectangle {
-                                anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: 20
-                                height: 20
-                                radius: 10
-                                color: step.index === 1 ? Theme.mediaAccent : "transparent"
-                                border.width: 1
-                                border.color: step.index === 1 ? Theme.mediaAccent : "#55FFFFFF"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: step.index === 0 ? "✓" : String(step.index + 1)
-                                    color: step.index === 1 ? "#0A0D14" : Theme.mediaForeground
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: 10
-                                    font.weight: Font.Bold
-                                }
+                                width: 7
+                                height: 7
+                                radius: 3.5
+                                color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
                             }
                             Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 32
-                                anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: root.stepLabel(step.index)
-                                color: step.index === 2 ? Theme.mediaMuted : Theme.mediaForeground
+                                width: parent.width - 16
+                                text: root.activityText
+                                color: Theme.mediaMuted
                                 font.family: DesktopTokens.bodyFont
-                                font.pixelSize: 13
-                                font.weight: step.index === 1 ? Font.ExtraBold : Font.DemiBold
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
                                 elide: Text.ElideRight
                             }
                         }
                     }
                 }
 
-                Row {
+                Item {
+                    id: journey
+                    objectName: "desktopQueueJourney"
                     width: parent.width
-                    height: 24
-                    spacing: 9
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 7
-                        height: 7
-                        radius: 3.5
-                        color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
-                    }
+                    height: 94
                     Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - 16
-                        text: root.activityText
+                        text: qsTr("WHAT HAPPENS NEXT")
                         color: Theme.mediaMuted
-                        font.family: DesktopTokens.bodyFont
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                        font.family: DesktopTokens.monoFont
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                        font.letterSpacing: 1.2
+                    }
+                    Item {
+                        id: journeyTrack
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: 28
+                        height: 62
+                        Rectangle {
+                            x: journeyTrack.width / 6
+                            y: 20
+                            width: journeyTrack.width * 2 / 3
+                            height: 2
+                            color: "#30FFFFFF"
+                        }
+                        Rectangle {
+                            x: journeyTrack.width / 6
+                            y: 20
+                            width: journeyTrack.width / 3
+                            height: 2
+                            color: Theme.mediaAccent
+                        }
+                        Repeater {
+                            model: 3
+                            delegate: Item {
+                                id: step
+                                required property int index
+                                x: index * journeyTrack.width / 3
+                                width: journeyTrack.width / 3
+                                height: journeyTrack.height
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    y: 3
+                                    width: 36
+                                    height: 36
+                                    radius: Theme.radius(18)
+                                    visible: step.index === 1
+                                    color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.14)
+                                }
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    y: 8
+                                    width: 26
+                                    height: 26
+                                    radius: Theme.radius(13)
+                                    color: step.index === 1 ? Theme.mediaAccent : "#101722"
+                                    border.width: 1
+                                    border.color: step.index === 0 ? Theme.mediaAccent
+                                        : step.index === 1 ? Theme.mediaAccent : "#55FFFFFF"
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: step.index === 0 ? "✓" : String(step.index + 1)
+                                        color: step.index === 1 ? "#0A0D14" : Theme.mediaForeground
+                                        font.family: DesktopTokens.monoFont
+                                        font.pixelSize: 10
+                                        font.weight: Font.Bold
+                                    }
+                                }
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 5
+                                    anchors.rightMargin: 5
+                                    y: 44
+                                    text: root.stepLabel(step.index)
+                                    color: step.index === 2 ? Theme.mediaMuted : Theme.mediaForeground
+                                    font.family: DesktopTokens.bodyFont
+                                    font.pixelSize: 11
+                                    font.weight: step.index === 1 ? Font.ExtraBold : Font.DemiBold
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Grid {
+                    id: detailGrid
+                    objectName: "desktopQueueDetails"
+                    width: parent.width
+                    columns: width >= 620 ? 3 : 1
+                    columnSpacing: 10
+                    rowSpacing: 10
+                    height: implicitHeight
+
+                    Rectangle {
+                        width: (detailGrid.width - detailGrid.columnSpacing * (detailGrid.columns - 1)) / detailGrid.columns
+                        height: 56
+                        radius: Theme.radius(12)
+                        color: "#0FFFFFFF"
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.margins: 12
+                            spacing: 4
+                            Text { text: qsTr("STREAM PROFILE"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1 }
+                            Text { width: parent.width; text: root.streamProfileText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 12; font.weight: Font.Bold; elide: Text.ElideRight }
+                        }
+                    }
+                    Rectangle {
+                        width: (detailGrid.width - detailGrid.columnSpacing * (detailGrid.columns - 1)) / detailGrid.columns
+                        height: 56
+                        radius: Theme.radius(12)
+                        color: "#0FFFFFFF"
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.margins: 12
+                            spacing: 4
+                            Text { text: qsTr("REGION"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1 }
+                            Text { width: parent.width; text: root.regionText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 12; font.weight: Font.Bold; elide: Text.ElideRight }
+                        }
+                    }
+                    Rectangle {
+                        width: (detailGrid.width - detailGrid.columnSpacing * (detailGrid.columns - 1)) / detailGrid.columns
+                        height: 56
+                        radius: Theme.radius(12)
+                        color: "#0FFFFFFF"
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.margins: 12
+                            spacing: 4
+                            Text { text: qsTr("SESSION DETAILS"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1 }
+                            Text { width: parent.width; text: qsTr("Your session starts automatically"); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                        }
                     }
                 }
 
