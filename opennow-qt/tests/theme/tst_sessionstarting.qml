@@ -104,14 +104,18 @@ TestCase {
         ShellStore.settings = {themePack: "nocturne", appTheme: "dark"}
         ShellStore.streamState = "preparing"
         AppController.route = "inserting"
-        const names = ["desktopQueueArtwork", "desktopQueuePositionCard", "desktopQueueJourney",
-            "desktopQueueDetails", "desktopQueueRefresh", "desktopQueueCancel"]
+        const names = ["desktopQueuePanel", "desktopQueueArtwork", "desktopQueuePositionCard",
+            "desktopQueueJourney", "desktopQueueDetails", "desktopQueueRefresh", "desktopQueueCancel"]
         for (const name of names) {
             const item = descendants(screen).find(candidate => candidate.objectName === name)
             verify(item !== undefined, "Missing queue element: " + name)
             verify(visibleOnScreen(item), "Queue element is not visible: " + name)
             verify(item.width > 0 && item.height > 0, "Queue element has no geometry: " + name)
         }
+        compare(descendants(screen).find(item => item.objectName === "desktopQueuePanel").width,
+            Math.min(920, screen.width - 40))
+        verify(descendants(screen).find(item => item.objectName === "desktopQueueArtwork").width <= 96,
+            "Queue artwork stays a compact cover, not a second page")
         compare(descendants(screen).find(item => item.objectName === "sessionQueueStatus").text,
             screen.statusText)
         compare(textItem("21").color, Theme.mediaForeground)
