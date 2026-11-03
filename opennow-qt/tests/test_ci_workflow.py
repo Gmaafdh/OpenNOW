@@ -328,6 +328,11 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("-o ci-logs/queueselector-tests.log,txt", workflow)
         self.assertIn("ci-logs/queue-selector-acceptance.log", workflow)
         self.assertIn("QT_FORCE_STDERR_LOGGING=1", workflow)
+        self.assertIn('QT_QPA_FONTDIR="$(cygpath -w "$PWD/opennow-qt/res/fonts")"', workflow)
+        acceptance = workflow.split("      - name: Exercise queue transition and capture the redesigned page\n", 1)[1]
+        acceptance = acceptance.split("      - name: Package portable ZIP\n", 1)[0]
+        self.assertIn("--smoke-queue-selector", acceptance)
+        self.assertIn("ci-logs/queue-selector.png", acceptance)
         self.assertIn("--config Release --parallel 4", workflow)
         self.assertIn("Assert-OpenNowPackagePayload", workflow)
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
