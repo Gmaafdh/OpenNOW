@@ -200,12 +200,17 @@ jobs:
             -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|opennow-profileimage-tests)$' \
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
-          QT_QPA_PLATFORM=offscreen build/opennow-qt-release/Release/opennow-queueselector-tests.exe \
-            -input opennow-qt/tests/queueselector -o -,txt \
-            2>&1 | tee ci-logs/queueselector-tests.log || {
+          QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+            build/opennow-qt-release/Release/opennow-queueselector-tests.exe \
+            -input opennow-qt/tests/queueselector -o ci-logs/queueselector-tests.log,txt \
+            2>&1 | tee ci-logs/queueselector-console.log || {
               code=$?; echo "FAILED: queue selector unit exit $code" | tee -a ci-logs/queueselector-tests.log; status=$code;
             }
-          QT_QPA_PLATFORM=offscreen build/opennow-qt-release/Release/OpenNOW.exe \
+          if [[ -f ci-logs/queueselector-tests.log ]]; then
+            cat ci-logs/queueselector-tests.log
+          fi
+          QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+            build/opennow-qt-release/Release/OpenNOW.exe \
             --smoke-test --allow-multiple-instances --desktop --route home \
             --smoke-queue-selector --reduced-motion \
             2>&1 | tee ci-logs/queue-selector-acceptance.log || {
