@@ -40,7 +40,7 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(DesktopTokens.px(800), parent.width - DesktopTokens.px(32))
     height: Math.min(DesktopTokens.px(700), parent.height - DesktopTokens.px(32))
-    padding: DesktopTokens.px(compact ? 16 : 24)
+    padding: DesktopTokens.px(compact ? 12 : 24)
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
@@ -65,7 +65,7 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
-        spacing: DesktopTokens.px(root.compact ? 8 : 14)
+        spacing: DesktopTokens.px(root.compact ? 6 : 14)
 
         RowLayout {
             Layout.fillWidth: true

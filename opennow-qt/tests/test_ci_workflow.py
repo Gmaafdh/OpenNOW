@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -329,6 +330,22 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
         self.assertIn("name: OpenNOW-Windows-x64-dx10", workflow)
         self.assertIn("retention-days: 14", workflow)
+
+    def test_windows_ctest_annotation_preserves_the_first_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ctest.log"
+            log.write_text(
+                "8: FAIL!  : QueueSelector::test_scaledLayout(compact-large) "
+                "Launch action exceeds the dialog\n"
+                + ("3: later passing test output\n" * 240)
+                + "The following tests FAILED:\n\t8 - opennow-queueselector-tests (Failed)\n"
+            )
+            result = subprocess.run(
+                [sys.executable, str(ROOT / ".github/scripts/report-build-log-failures.py"), directory],
+                capture_output=True, text=True, check=True,
+            )
+            self.assertIn("Launch action exceeds the dialog", result.stdout)
+            self.assertIn("The following tests FAILED", result.stdout)
 
     def test_rust_caches_survive_job_renames_and_later_test_failures(self):
         for path in (ROOT / ".github/actions/qt-unit-tests/action.yml", WORKFLOWS / "qt-build.yml"):

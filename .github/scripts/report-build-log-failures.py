@@ -34,8 +34,13 @@ def report(directory):
         # CTest prefixes child output with its test number in verbose mode and
         # can also fail before QTest emits an assertion. Keep enough of the tail
         # to expose both cases without publishing an unbounded build log.
-        excerpt.extend(lines[-(160 if log.name == "ctest.log" else 16):])
-        message = "\n".join(excerpt)[-6500:]
+        if log.name == "ctest.log":
+            # Reserve independent head/tail budgets: a long tail of later passing
+            # tests must not erase the first assertion from an earlier failure.
+            message = "\n".join(excerpt)[:3200] + "\n" + "\n".join(lines[-160:])[-3200:]
+        else:
+            excerpt.extend(lines[-16:])
+            message = "\n".join(excerpt)[-6500:]
         message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         print(f"::error title={log.name}::{message}")
 
