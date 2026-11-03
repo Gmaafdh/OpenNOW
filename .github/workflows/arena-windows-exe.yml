@@ -200,6 +200,10 @@ jobs:
             -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|opennow-profileimage-tests|opennow-queueselector-tests|qml-queue-selector)$' \
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
+          ctestDetail=build/opennow-qt-release/Testing/Temporary/LastTest.log
+          if [[ -f "$ctestDetail" ]]; then
+            cp "$ctestDetail" ci-logs/ctest-detail.log
+          fi
           ctest --test-dir build/opennow-qt-release -C Release \
             -R '^opennow-nativestreamruntime-tests$' \
             --output-on-failure --verbose --no-tests=error \

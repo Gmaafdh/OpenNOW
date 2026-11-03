@@ -325,6 +325,8 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("--target opennow-qt opennow-graphicsdevices-tests", workflow)
         self.assertIn("opennow-profileimage-tests opennow-queueselector-tests", workflow)
         self.assertIn("opennow-queueselector-tests|qml-queue-selector", workflow)
+        self.assertIn("Testing/Temporary/LastTest.log", workflow)
+        self.assertIn("ci-logs/ctest-detail.log", workflow)
         self.assertIn("--config Release --parallel 4", workflow)
         self.assertIn("Assert-OpenNowPackagePayload", workflow)
         self.assertIn("packaging/windows/build-setup.ps1", workflow)

@@ -114,7 +114,7 @@ Dialog {
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: gameInfo.implicitHeight + DesktopTokens.px(20)
+            implicitHeight: gameInfo.implicitHeight + DesktopTokens.px(root.compact ? 12 : 20)
             radius: DesktopTokens.px(12)
             color: DesktopTokens.raised
             border.color: DesktopTokens.seamSoft
@@ -382,7 +382,7 @@ Dialog {
         Rectangle {
             Layout.fillWidth: true
             visible: root.higherLatency
-            implicitHeight: warningText.implicitHeight + DesktopTokens.px(16)
+            implicitHeight: warningText.implicitHeight + DesktopTokens.px(root.compact ? 12 : 16)
             radius: DesktopTokens.px(10)
             color: DesktopTokens.raised
             border.color: Theme.lightMode ? DesktopTokens.seam : DesktopTokens.amber
