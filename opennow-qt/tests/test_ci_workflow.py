@@ -322,6 +322,8 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("-p opennow-streamer-platform-windows -p opennow-streamer-protocol", workflow)
         self.assertIn("--lib -- --test-threads=1 --nocapture", workflow)
         self.assertIn("--target opennow-qt opennow-graphicsdevices-tests", workflow)
+        self.assertIn("opennow-profileimage-tests opennow-queueselector-tests", workflow)
+        self.assertIn("opennow-queueselector-tests|qml-queue-selector", workflow)
         self.assertIn("--config Release --parallel 4", workflow)
         self.assertIn("Assert-OpenNowPackagePayload", workflow)
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
