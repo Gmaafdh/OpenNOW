@@ -197,13 +197,20 @@ jobs:
           cd /o
           status=0
           ctest --test-dir build/opennow-qt-release -C Release \
-            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|opennow-profileimage-tests|opennow-queueselector-tests|qml-queue-selector)$' \
+            -R '^(opennow-graphicsdevices-tests|opennow-theme-tests|opennow-profileimage-tests)$' \
             --output-on-failure --verbose --no-tests=error \
             2>&1 | tee ci-logs/ctest.log || status=$?
-          ctestDetail=build/opennow-qt-release/Testing/Temporary/LastTest.log
-          if [[ -f "$ctestDetail" ]]; then
-            cp "$ctestDetail" ci-logs/ctest-detail.log
-          fi
+          QT_QPA_PLATFORM=offscreen build/opennow-qt-release/Release/opennow-queueselector-tests.exe \
+            -input opennow-qt/tests/queueselector -o -,txt \
+            2>&1 | tee ci-logs/queueselector-tests.log || {
+              code=$?; echo "FAILED: queue selector unit exit $code" | tee -a ci-logs/queueselector-tests.log; status=$code;
+            }
+          QT_QPA_PLATFORM=offscreen build/opennow-qt-release/Release/OpenNOW.exe \
+            --smoke-test --allow-multiple-instances --desktop --route home \
+            --smoke-queue-selector --reduced-motion \
+            2>&1 | tee ci-logs/queue-selector-acceptance.log || {
+              code=$?; echo "FAILED: queue selector acceptance exit $code" | tee -a ci-logs/queue-selector-acceptance.log; status=$code;
+            }
           ctest --test-dir build/opennow-qt-release -C Release \
             -R '^opennow-nativestreamruntime-tests$' \
             --output-on-failure --verbose --no-tests=error \

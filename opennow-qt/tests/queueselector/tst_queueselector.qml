@@ -225,7 +225,9 @@ TestCase {
         verify(list.height >= 80 * data.scale)
         const edge = play.mapToItem(dialog.contentItem, play.width, play.height)
         verify(edge.x <= dialog.contentItem.width && edge.y <= dialog.contentItem.height,
-            "Launch action exceeds the dialog")
+            "Launch action exceeds the dialog: edge=" + edge.x + "," + edge.y
+                + " content=" + dialog.contentItem.width + "," + dialog.contentItem.height
+                + " list=" + list.height)
         mouseClick(play)
         compare(selections.count, 1)
     }
