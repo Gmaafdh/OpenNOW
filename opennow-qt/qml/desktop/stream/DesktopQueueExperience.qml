@@ -20,6 +20,8 @@ FocusScope {
     property bool artworkViewerOpen: false
     property double queueVisibleSinceMs: 0
     property double queueClockMs: Date.now()
+    property real entranceProgress: 1
+    property bool motionReady: false
 
     signal cancelRequested()
     signal refreshRequested()
@@ -27,7 +29,7 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 700
-    readonly property int panelPadding: veryCompact ? 20 : 26
+    readonly property bool stacked: width < 1000 || height < 650
     readonly property int elapsedSeconds: queueVisibleSinceMs > 0
         ? Math.max(0, Math.floor((queueClockMs - queueVisibleSinceMs) / 1000)) : 0
     readonly property string coverSource: DesktopTokens.artworkUrl(root.game, false)
@@ -100,6 +102,160 @@ FocusScope {
         return [publisher, genre].filter(value => value !== "").join(" · ")
     }
 
+    function sectionOpacity(order) {
+        if (AppController.reducedMotion)
+            return 1
+        return Math.max(0, Math.min(1, (root.entranceProgress - order * 0.08) / 0.60))
+    }
+
+    function sectionOffset(order, distance) {
+        return (1 - root.sectionOpacity(order)) * distance
+    }
+
+    function playEntrance() {
+        if (!root.motionReady)
+            return
+        entranceAnimation.stop()
+        if (AppController.reducedMotion) {
+            root.entranceProgress = 1
+        } else {
+            root.entranceProgress = 0
+            entranceAnimation.start()
+        }
+    }
+
+    component MorphingText: Item {
+        id: morph
+        property string text: ""
+        property color ink: Theme.mediaForeground
+        property string family: DesktopTokens.bodyFont
+        property int pixelSize: 14
+        property int fontWeight: Font.DemiBold
+        property real lineHeight: 1.0
+        property int maximumLineCount: 3
+        property real travel: 8
+        property string contentObjectName: ""
+        property string accessibleText: ""
+        property string renderedText: ""
+        property string outgoingText: ""
+        property real blend: 1
+        property bool initialized: false
+
+        implicitHeight: Math.max(currentText.implicitHeight, outgoingTextItem.implicitHeight)
+        height: implicitHeight
+        Behavior on height { NumberAnimation { duration: Theme.duration(160); easing.type: Easing.OutCubic } }
+
+        function transitionTo(value) {
+            if (!morph.initialized) {
+                morph.renderedText = value
+                morph.blend = 1
+                return
+            }
+            if (value === morph.renderedText)
+                return
+            textTransition.stop()
+            morph.outgoingText = morph.renderedText
+            morph.renderedText = value
+            if (AppController.reducedMotion) {
+                morph.blend = 1
+                morph.outgoingText = ""
+            } else {
+                morph.blend = 0
+                textTransition.start()
+            }
+        }
+
+        onTextChanged: transitionTo(text)
+        Component.onCompleted: {
+            morph.renderedText = morph.text
+            morph.blend = 1
+            morph.initialized = true
+        }
+
+        NumberAnimation {
+            id: textTransition
+            target: morph
+            property: "blend"
+            from: 0
+            to: 1
+            duration: Theme.duration(220)
+            easing.type: Easing.InOutCubic
+            onFinished: morph.outgoingText = ""
+        }
+        Connections {
+            target: AppController
+            function onReducedMotionChanged() {
+                if (AppController.reducedMotion) {
+                    textTransition.stop()
+                    morph.blend = 1
+                    morph.outgoingText = ""
+                }
+            }
+        }
+
+        Text {
+            id: outgoingTextItem
+            width: morph.width
+            text: morph.outgoingText
+            visible: text !== "" && opacity > 0.001
+            opacity: 1 - morph.blend
+            color: morph.ink
+            font.family: morph.family
+            font.pixelSize: morph.pixelSize
+            font.weight: morph.fontWeight
+            lineHeight: morph.lineHeight
+            wrapMode: Text.WordWrap
+            maximumLineCount: morph.maximumLineCount
+            elide: Text.ElideRight
+            transform: Translate { y: -morph.blend * morph.travel }
+        }
+        Text {
+            id: currentText
+            objectName: morph.contentObjectName
+            width: morph.width
+            text: morph.renderedText
+            visible: opacity > 0.001
+            opacity: morph.blend
+            color: morph.ink
+            font.family: morph.family
+            font.pixelSize: morph.pixelSize
+            font.weight: morph.fontWeight
+            lineHeight: morph.lineHeight
+            wrapMode: Text.WordWrap
+            maximumLineCount: morph.maximumLineCount
+            elide: Text.ElideRight
+            transform: Translate { y: (1 - morph.blend) * morph.travel }
+            Accessible.role: Accessible.StaticText
+            Accessible.name: morph.accessibleText !== "" ? morph.accessibleText : morph.renderedText
+        }
+    }
+
+    NumberAnimation {
+        id: entranceAnimation
+        target: root
+        property: "entranceProgress"
+        from: 0
+        to: 1
+        duration: Theme.duration(700)
+        easing.type: Easing.OutCubic
+    }
+    SequentialAnimation {
+        id: positionPulse
+        NumberAnimation { target: positionBlock; property: "scale"; to: 0.985; duration: Theme.duration(90); easing.type: Easing.OutCubic }
+        NumberAnimation { target: positionBlock; property: "scale"; to: 1; duration: Theme.duration(240); easing.type: Easing.OutCubic }
+    }
+    Connections {
+        target: AppController
+        function onReducedMotionChanged() {
+            if (AppController.reducedMotion && root.motionReady) {
+                entranceAnimation.stop()
+                positionPulse.stop()
+                root.entranceProgress = 1
+                positionBlock.scale = 1
+            }
+        }
+    }
+
     ArtworkSource {
         id: coverArtwork
         sourceUrl: root.coverSource
@@ -113,11 +269,21 @@ FocusScope {
         onTriggered: root.queueClockMs = Date.now()
     }
 
+    onQueuePositionChanged: {
+        if (root.motionReady && !AppController.reducedMotion) {
+            positionPulse.stop()
+            positionBlock.scale = 1
+            positionPulse.start()
+        }
+    }
     onVisibleChanged: {
         if (visible) {
             root.queueVisibleSinceMs = Date.now()
             root.queueClockMs = root.queueVisibleSinceMs
+            Qt.callLater(root.playEntrance)
         } else {
+            entranceAnimation.stop()
+            root.entranceProgress = 1
             root.artworkViewerOpen = false
         }
     }
@@ -125,160 +291,94 @@ FocusScope {
     Component.onCompleted: {
         root.queueVisibleSinceMs = Date.now()
         root.queueClockMs = root.queueVisibleSinceMs
+        root.motionReady = true
+        Qt.callLater(root.playEntrance)
     }
 
     Flickable {
         id: flick
         anchors.fill: parent
-        anchors.topMargin: 76
-        anchors.bottomMargin: 24
+        anchors.topMargin: 58
+        anchors.bottomMargin: 20
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, queuePanel.y + queuePanel.height + 30)
+        contentHeight: Math.max(height, layoutGrid.implicitHeight + 48)
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
 
-        Rectangle {
-            x: queuePanel.x
-            y: queuePanel.y + 12
-            width: queuePanel.width
-            height: queuePanel.height
-            radius: queuePanel.radius
-            color: "#50000000"
-        }
+        Grid {
+            id: layoutGrid
+            x: root.stacked ? 20 : 40
+            y: root.stacked ? 20 : Math.max(20, (flick.height - implicitHeight) / 2)
+            width: Math.max(0, flick.width - 2 * x)
+            height: implicitHeight
+            columns: root.stacked ? 1 : 2
+            columnSpacing: root.stacked ? 0 : 56
+            rowSpacing: root.stacked ? 30 : 0
 
-        Rectangle {
-            id: queuePanel
-            objectName: "desktopQueuePanel"
-            x: (flick.width - width) / 2
-            y: Math.max(20, (flick.height - height) / 2)
-            width: Math.min(920, Math.max(0, flick.width - 40))
-            height: contentColumn.implicitHeight + 2 * root.panelPadding
-            radius: Theme.radius(26)
-            color: "#ED080E18"
-            border.width: 1
-            border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.24)
+            Item {
+                id: artworkPanel
+                width: root.stacked ? layoutGrid.width
+                    : Math.floor((layoutGrid.width - layoutGrid.columnSpacing) * 0.46)
+                height: root.stacked ? artworkColumn.implicitHeight : coverPanelHeight
+                readonly property real coverPanelHeight: Math.min(620, Math.max(430, flick.height - 70))
+                opacity: root.sectionOpacity(0)
+                transform: Translate { x: -root.sectionOffset(0, 24) }
 
-            Rectangle {
-                x: root.panelPadding
-                y: 0
-                width: 116
-                height: 3
-                radius: 1.5
-                color: Theme.mediaAccent
-            }
-
-            Column {
-                id: contentColumn
-                objectName: "desktopQueuePass"
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: root.panelPadding
-                height: implicitHeight
-                spacing: root.veryCompact ? 10 : 12
-
-                Item {
+                Column {
+                    id: artworkColumn
                     width: parent.width
-                    height: 28
-                    Row {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 26
-                            height: 2
-                            color: Theme.mediaAccent
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("STARTING SESSION")
-                            color: Theme.mediaAccent
-                            font.family: DesktopTokens.monoFont
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.letterSpacing: 1.5
-                        }
-                    }
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: liveRow.implicitWidth + 18
-                        height: 28
-                        radius: Theme.radius(14)
-                        color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.10)
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.30)
-                        Row {
-                            id: liveRow
-                            anchors.centerIn: parent
-                            spacing: 7
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 6
-                                height: 6
-                                radius: 3
-                                color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: qsTr("LIVE")
-                                color: Theme.mediaForeground
-                                font.family: DesktopTokens.monoFont
-                                font.pixelSize: 9
-                                font.weight: Font.Bold
-                                font.letterSpacing: 1.2
-                            }
-                        }
-                    }
-                }
-
-                Item {
-                    id: gameRow
-                    width: parent.width
-                    height: root.veryCompact ? 116 : 124
+                    spacing: 10
 
                     Rectangle {
-                        id: heroCard
-                        objectName: "desktopQueueArtwork"
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        width: root.veryCompact ? 82 : 90
-                        height: parent.height
-                        radius: Theme.radius(15)
-                        color: "#111A29"
+                        id: artFrame
+                        width: parent.width
+                        height: root.stacked ? 270 : artworkPanel.coverPanelHeight - 132
+                        radius: 20
+                        color: "#101827"
                         border.width: 1
-                        border.color: "#35FFFFFF"
+                        border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b,
+                            artworkHover.hovered ? 0.64 : 0.34)
+                        Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
                         clip: true
 
                         Image {
                             id: coverImage
                             anchors.fill: parent
                             source: coverArtwork.resolvedUrl
-                            fillMode: Image.PreserveAspectCrop
+                            fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            sourceSize: Qt.size(192, 264)
+                            sourceSize: Qt.size(Math.max(1, Math.ceil(width * 2)), Math.max(1, Math.ceil(height * 2)))
                             opacity: status === Image.Ready ? 1 : 0
+                            scale: status === Image.Ready
+                                ? (artworkHover.hovered && !AppController.reducedMotion ? 1.025 : 1) : 1.04
                             Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration } }
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: coverImage.status !== Image.Ready
-                            gradient: Gradient {
-                                GradientStop { position: 0; color: "#172235" }
-                                GradientStop { position: 1; color: "#090E17" }
-                            }
+                            Behavior on scale { NumberAnimation { duration: Theme.duration(420); easing.type: Easing.OutCubic } }
                         }
                         Text {
                             anchors.centerIn: parent
+                            width: parent.width - 40
                             visible: coverImage.status !== Image.Ready
-                            text: "GFN"
-                            color: Theme.mediaMuted
+                            text: String(root.game.title || qsTr("GeForce NOW"))
+                            color: Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: 11
+                            font.pixelSize: 24
                             font.weight: Font.Black
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            color: "transparent"
+                            border.width: 1
+                            border.color: "#22FFFFFF"
+                            radius: parent.radius
+                        }
+                        HoverHandler {
+                            id: artworkHover
+                            enabled: coverImage.status === Image.Ready
+                            cursorShape: Qt.PointingHandCursor
                         }
                         TapHandler {
                             enabled: coverImage.status === Image.Ready
@@ -287,20 +387,17 @@ FocusScope {
                     }
 
                     Column {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.leftMargin: heroCard.width + 20
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 5
+                        width: parent.width
+                        spacing: 3
                         Text {
                             width: parent.width
                             text: String(root.game.title || qsTr("GeForce NOW"))
                             color: Theme.mediaForeground
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: root.veryCompact ? 22 : 25
+                            font.pixelSize: 23
                             font.weight: Font.Black
-                            font.letterSpacing: -0.6
-                            maximumLineCount: 1
+                            maximumLineCount: 2
+                            wrapMode: Text.WordWrap
                             elide: Text.ElideRight
                         }
                         Text {
@@ -309,317 +406,285 @@ FocusScope {
                             text: root.gameSubtitle()
                             color: Theme.mediaMuted
                             font.family: DesktopTokens.bodyFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             font.weight: Font.DemiBold
                             maximumLineCount: 1
                             elide: Text.ElideRight
                         }
-                        Text {
-                            objectName: "sessionQueueStatus"
-                            width: parent.width
-                            text: root.statusText
-                            color: Theme.mediaForeground
-                            font.family: DesktopTokens.bodyFont
-                            font.pixelSize: 18
-                            font.weight: Font.ExtraBold
-                            maximumLineCount: 1
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            width: parent.width
-                            text: root.detailText
-                            color: Theme.mediaMuted
-                            font.family: DesktopTokens.bodyFont
-                            font.pixelSize: 12
-                            lineHeight: 1.25
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                        }
+                    }
+
+                    DesktopButton {
+                        id: viewArtworkButton
+                        visible: coverImage.status === Image.Ready
+                        onMediaBackground: true
+                        text: qsTr("View artwork")
+                        onClicked: root.artworkViewerOpen = true
+                    }
+                }
+            }
+
+            Column {
+                id: queuePass
+                objectName: "desktopQueuePass"
+                width: root.stacked ? layoutGrid.width
+                    : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
+                spacing: root.veryCompact ? 10 : 14
+
+                Row {
+                    width: parent.width
+                    height: 24
+                    spacing: 10
+                    opacity: root.sectionOpacity(0)
+                    transform: Translate { y: root.sectionOffset(0, 12) }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 28
+                        height: 2
+                        color: Theme.mediaAccent
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("STARTING SESSION")
+                        color: Theme.mediaAccent
+                        font.family: DesktopTokens.monoFont
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.letterSpacing: 1.6
                     }
                 }
 
-                Rectangle {
-                    id: positionCard
-                    objectName: "desktopQueuePositionCard"
+                MorphingText {
                     width: parent.width
-                    height: root.veryCompact ? 142 : 150
-                    radius: Theme.radius(19)
-                    border.width: 1
-                    border.color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.30)
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.12) }
-                        GradientStop { position: 0.55; color: "#111927" }
-                        GradientStop { position: 1; color: "#0B111C" }
-                    }
-                    clip: true
+                    contentObjectName: "sessionQueueStatus"
+                    text: root.statusText
+                    ink: Theme.mediaForeground
+                    family: DesktopTokens.displayFont
+                    pixelSize: root.veryCompact ? 25 : 32
+                    fontWeight: Font.Black
+                    maximumLineCount: 2
+                    travel: 10
+                    opacity: AppController.reducedMotion ? 1 : root.sectionOpacity(1)
+                    transform: Translate { y: root.sectionOffset(1, 16) }
+                }
+                MorphingText {
+                    width: parent.width
+                    text: root.detailText
+                    ink: Theme.mediaMuted
+                    family: DesktopTokens.bodyFont
+                    pixelSize: 14
+                    lineHeight: 1.35
+                    maximumLineCount: 3
+                    travel: 7
+                    opacity: AppController.reducedMotion ? 1 : root.sectionOpacity(1)
+                    transform: Translate { y: root.sectionOffset(1, 14) }
+                }
 
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        anchors.margins: 18
-                        width: 3
-                        radius: 1.5
-                        color: Theme.mediaAccent
-                    }
+                Item {
+                    id: positionBlock
+                    objectName: "sessionQueuePositionBlock"
+                    width: parent.width
+                    height: 116
+                    opacity: root.sectionOpacity(2)
+                    transformOrigin: Item.Center
+                    transform: Translate { y: root.sectionOffset(2, 18) }
                     Column {
                         anchors.left: parent.left
-                        anchors.leftMargin: 24
-                        anchors.top: parent.top
-                        anchors.topMargin: 15
-                        width: parent.width * 0.38
+                        anchors.verticalCenter: parent.verticalCenter
                         spacing: 0
                         Text {
                             text: qsTr("YOUR PLACE IN LINE")
                             color: Theme.mediaMuted
                             font.family: DesktopTokens.monoFont
-                            font.pixelSize: 8
+                            font.pixelSize: 10
                             font.weight: Font.Bold
-                            font.letterSpacing: 1.1
+                            font.letterSpacing: 1.2
                         }
-                        Text {
+                        MorphingText {
+                            width: Math.max(90, positionBlock.width * 0.45)
+                            contentObjectName: "sessionQueuePosition"
                             text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
-                            color: Theme.mediaForeground
-                            font.family: DesktopTokens.displayFont
-                            font.pixelSize: root.queuePosition > 999 ? 48 : positionCard.width < 480 ? 56 : 66
-                            font.weight: Font.Black
-                            font.letterSpacing: -1.8
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: root.statusText
+                            accessibleText: root.statusText
+                            ink: Theme.mediaForeground
+                            family: DesktopTokens.displayFont
+                            pixelSize: root.queuePosition > 999 ? 58 : root.veryCompact ? 66 : 82
+                            fontWeight: Font.Black
+                            maximumLineCount: 1
+                            travel: 14
                         }
                     }
-
                     Row {
-                        id: metricsRow
                         anchors.right: parent.right
-                        anchors.rightMargin: 18
-                        anchors.top: parent.top
-                        anchors.topMargin: 18
-                        width: Math.min(258, parent.width * 0.50)
-                        spacing: 10
-                        Rectangle {
-                            width: (metricsRow.width - 10) / 2
-                            height: 56
-                            radius: Theme.radius(11)
-                            color: "#12FFFFFF"
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 4
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: qsTr("ELAPSED")
-                                    color: Theme.mediaMuted
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: 8
-                                    font.weight: Font.Bold
-                                    font.letterSpacing: 1
-                                }
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: root.elapsedText()
-                                    color: Theme.mediaForeground
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: 17
-                                    font.weight: Font.Bold
-                                }
-                            }
-                        }
-                        Rectangle {
-                            width: (metricsRow.width - 10) / 2
-                            height: 56
-                            radius: Theme.radius(11)
-                            color: "#12FFFFFF"
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 4
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: qsTr("BEST POSITION")
-                                    color: Theme.mediaMuted
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: 7
-                                    font.weight: Font.Bold
-                                    font.letterSpacing: 0.8
-                                }
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: root.bestPositionText()
-                                    color: Theme.mediaAccent
-                                    font.family: DesktopTokens.monoFont
-                                    font.pixelSize: 17
-                                    font.weight: Font.Bold
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.margins: 12
-                        height: 34
-                        radius: Theme.radius(10)
-                        color: "#10FFFFFF"
-                        Row {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 9
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 7
-                                height: 7
-                                radius: 3.5
-                                color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 24
+                        Column {
+                            spacing: 4
+                            Text {
+                                text: qsTr("ELAPSED")
+                                color: Theme.mediaMuted
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.letterSpacing: 1
                             }
                             Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - 16
-                                text: root.activityText
+                                text: root.elapsedText()
+                                color: Theme.mediaForeground
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 20
+                                font.weight: Font.Bold
+                            }
+                        }
+                        Column {
+                            visible: positionBlock.width > 360
+                            spacing: 4
+                            Text {
+                                text: qsTr("BEST POSITION")
                                 color: Theme.mediaMuted
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.letterSpacing: 1
+                            }
+                            Text {
+                                text: root.bestPositionText()
+                                color: Theme.mediaAccent
+                                font.family: DesktopTokens.monoFont
+                                font.pixelSize: 20
+                                font.weight: Font.Bold
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
+
+                Grid {
+                    id: detailGrid
+                    width: parent.width
+                    columns: root.veryCompact ? 1 : 2
+                    columnSpacing: 20
+                    rowSpacing: 12
+                    height: implicitHeight
+                    opacity: root.sectionOpacity(3)
+                    transform: Translate { y: root.sectionOffset(3, 16) }
+
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("STREAM PROFILE"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.streamProfileText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
+                    }
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("REGION"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.regionText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.Bold; elide: Text.ElideRight }
+                    }
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("QUEUE UPDATES"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: root.activityText; color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                    }
+                    Column {
+                        width: root.veryCompact ? detailGrid.width : (detailGrid.width - detailGrid.columnSpacing) / 2
+                        spacing: 4
+                        Text { text: qsTr("SESSION DETAILS"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1 }
+                        Text { width: parent.width; text: qsTr("Your session starts automatically"); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 13; font.weight: Font.DemiBold; maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#2AFFFFFF" }
+
+                Text {
+                    text: qsTr("WHAT HAPPENS NEXT")
+                    color: Theme.mediaMuted
+                    font.family: DesktopTokens.monoFont
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                    font.letterSpacing: 1.2
+                    opacity: root.sectionOpacity(4)
+                    transform: Translate { y: root.sectionOffset(4, 14) }
+                }
+                Column {
+                    width: parent.width
+                    spacing: 7
+                    opacity: root.sectionOpacity(4)
+                    transform: Translate { y: root.sectionOffset(4, 14) }
+                    Repeater {
+                        model: 3
+                        delegate: Item {
+                            id: step
+                            required property int index
+                            width: parent.width
+                            height: 28
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 20
+                                height: 20
+                                radius: 10
+                                color: step.index === 1 ? Theme.mediaAccent : "transparent"
+                                border.width: 1
+                                border.color: step.index === 1 ? Theme.mediaAccent : "#55FFFFFF"
+                                Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                                Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: step.index === 0 ? "✓" : String(step.index + 1)
+                                    color: step.index === 1 ? "#0A0D14" : Theme.mediaForeground
+                                    font.family: DesktopTokens.monoFont
+                                    font.pixelSize: 10
+                                    font.weight: Font.Bold
+                                }
+                            }
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 32
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.stepLabel(step.index)
+                                color: step.index === 2 ? Theme.mediaMuted : Theme.mediaForeground
                                 font.family: DesktopTokens.bodyFont
-                                font.pixelSize: 11
-                                font.weight: Font.DemiBold
+                                font.pixelSize: 13
+                                font.weight: step.index === 1 ? Font.ExtraBold : Font.DemiBold
                                 elide: Text.ElideRight
                             }
                         }
                     }
                 }
 
-                Item {
-                    id: journey
-                    objectName: "desktopQueueJourney"
+                Row {
                     width: parent.width
-                    height: 27 + journeyTrack.implicitHeight
+                    height: 24
+                    spacing: 9
+                    opacity: root.sectionOpacity(5)
+                    transform: Translate { y: root.sectionOffset(5, 12) }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 7
+                        height: 7
+                        radius: 3.5
+                        color: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
+                        Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                    }
                     Text {
-                        text: qsTr("WHAT HAPPENS NEXT")
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 16
+                        text: root.activityText
                         color: Theme.mediaMuted
-                        font.family: DesktopTokens.monoFont
-                        font.pixelSize: 8
-                        font.weight: Font.Bold
-                        font.letterSpacing: 1.2
+                        font.family: DesktopTokens.bodyFont
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
                     }
-                    Grid {
-                        id: journeyTrack
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.topMargin: 27
-                        columns: width >= 560 ? 3 : 1
-                        columnSpacing: 10
-                        rowSpacing: 8
-                        height: implicitHeight
-
-                        Repeater {
-                            model: 3
-                            delegate: Rectangle {
-                                id: stepChip
-                                required property int index
-                                width: (journeyTrack.width - journeyTrack.columnSpacing * (journeyTrack.columns - 1)) / journeyTrack.columns
-                                height: 48
-                                radius: Theme.radius(12)
-                                color: stepChip.index === 1
-                                    ? Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, 0.13)
-                                    : "#0BFFFFFF"
-                                border.width: 1
-                                border.color: stepChip.index === 1 ? Theme.mediaAccent : "#28FFFFFF"
-                                Row {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.leftMargin: 12
-                                    anchors.rightMargin: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 10
-                                    Rectangle {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 24
-                                        height: 24
-                                        radius: Theme.radius(12)
-                                        color: stepChip.index === 1 ? Theme.mediaAccent : "#18FFFFFF"
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: stepChip.index === 0 ? "✓" : String(stepChip.index + 1)
-                                            color: stepChip.index === 1 ? "#0A0D14" : Theme.mediaForeground
-                                            font.family: DesktopTokens.monoFont
-                                            font.pixelSize: 9
-                                            font.weight: Font.Bold
-                                        }
-                                    }
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - 34
-                                        text: root.stepLabel(stepChip.index)
-                                        color: stepChip.index === 2 ? Theme.mediaMuted : Theme.mediaForeground
-                                        font.family: DesktopTokens.bodyFont
-                                        font.pixelSize: 11
-                                        font.weight: stepChip.index === 1 ? Font.ExtraBold : Font.DemiBold
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Grid {
-                    id: detailGrid
-                    objectName: "desktopQueueDetails"
-                    width: parent.width
-                    columns: width >= 560 ? 2 : 1
-                    columnSpacing: 10
-                    rowSpacing: 10
-                    height: implicitHeight
-
-                    Rectangle {
-                        width: (detailGrid.width - detailGrid.columnSpacing * (detailGrid.columns - 1)) / detailGrid.columns
-                        height: 54
-                        radius: Theme.radius(12)
-                        color: "#0BFFFFFF"
-                        Column {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.margins: 12
-                            spacing: 4
-                            Text { text: qsTr("REGION"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1 }
-                            Text { width: parent.width; text: root.regionText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 12; font.weight: Font.Bold; elide: Text.ElideRight }
-                        }
-                    }
-                    Rectangle {
-                        width: (detailGrid.width - detailGrid.columnSpacing * (detailGrid.columns - 1)) / detailGrid.columns
-                        height: 54
-                        radius: Theme.radius(12)
-                        color: "#0BFFFFFF"
-                        Column {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.margins: 12
-                            spacing: 4
-                            Text { text: qsTr("STREAM PROFILE"); color: Theme.mediaMuted; font.family: DesktopTokens.monoFont; font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1 }
-                            Text { width: parent.width; text: root.streamProfileText(); color: Theme.mediaForeground; font.family: DesktopTokens.bodyFont; font.pixelSize: 12; font.weight: Font.Bold; elide: Text.ElideRight }
-                        }
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    text: qsTr("Your session starts automatically")
-                    color: Theme.mediaMuted
-                    font.family: DesktopTokens.bodyFont
-                    font.pixelSize: 11
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideRight
                 }
 
                 Flow {
                     width: parent.width
                     spacing: 10
+                    opacity: root.sectionOpacity(5)
+                    transform: Translate { y: root.sectionOffset(5, 14) }
                     DesktopButton {
                         id: requeueButton
                         objectName: "desktopQueueRequeue"
@@ -629,13 +694,6 @@ FocusScope {
                         primary: true
                         text: qsTr("Request a fresh rig")
                         onClicked: root.requeueRequested()
-                    }
-                    DesktopButton {
-                        id: viewArtworkButton
-                        onMediaBackground: true
-                        visible: coverImage.status === Image.Ready
-                        text: qsTr("View artwork")
-                        onClicked: root.artworkViewerOpen = true
                     }
                     DesktopButton {
                         objectName: "desktopQueueRefresh"
@@ -662,13 +720,16 @@ FocusScope {
         id: artworkViewer
         anchors.fill: parent
         z: 50
-        visible: root.artworkViewerOpen
+        visible: root.artworkViewerOpen || opacity > 0.001
+        opacity: root.artworkViewerOpen ? 1 : 0
         color: "#F20B0F1A"
+        Behavior on opacity { NumberAnimation { duration: Theme.duration(200); easing.type: Easing.OutCubic } }
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("View artwork")
 
         MouseArea {
             anchors.fill: parent
+            enabled: root.artworkViewerOpen
             onClicked: root.artworkViewerOpen = false
         }
         Image {
@@ -680,6 +741,8 @@ FocusScope {
             asynchronous: true
             cache: true
             sourceSize: Qt.size(1600, 1600)
+            scale: root.artworkViewerOpen ? 1 : 0.96
+            Behavior on scale { NumberAnimation { duration: Theme.duration(280); easing.type: Easing.OutCubic } }
         }
         Text {
             anchors.left: parent.left

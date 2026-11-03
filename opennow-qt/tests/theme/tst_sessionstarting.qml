@@ -24,8 +24,10 @@ TestCase {
     function init() {
         ShellStore.previewThemePack = ""
         ShellStore.streamState = "preparing"
+        ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 21})
         AppController.route = "inserting"
         AppController.overlay = ""
+        AppController.reducedMotion = true
     }
 
     function descendants(item) {
@@ -100,29 +102,35 @@ TestCase {
         compare(shellText.color, DesktopTokens.textHigh)
     }
 
-    function test_queueInformationHierarchy() {
-        ShellStore.settings = {themePack: "nocturne", appTheme: "dark"}
-        ShellStore.streamState = "preparing"
-        AppController.route = "inserting"
-        const names = ["desktopQueuePanel", "desktopQueueArtwork", "desktopQueuePositionCard",
-            "desktopQueueJourney", "desktopQueueDetails", "desktopQueueRefresh", "desktopQueueCancel"]
-        for (const name of names) {
-            const item = descendants(screen).find(candidate => candidate.objectName === name)
-            verify(item !== undefined, "Missing queue element: " + name)
-            verify(visibleOnScreen(item), "Queue element is not visible: " + name)
-            verify(item.width > 0 && item.height > 0, "Queue element has no geometry: " + name)
-        }
-        compare(descendants(screen).find(item => item.objectName === "desktopQueuePanel").width,
-            Math.min(920, screen.width - 40))
-        verify(descendants(screen).find(item => item.objectName === "desktopQueueArtwork").width <= 96,
-            "Queue artwork stays a compact cover, not a second page")
-        compare(descendants(screen).find(item => item.objectName === "sessionQueueStatus").text,
-            screen.statusText)
-        compare(textItem("21").color, Theme.mediaForeground)
-        const cancel = descendants(screen).find(item => item.objectName === "desktopQueueCancel")
-        compare(cancel.text, "Cancel session")
-        compare(cancel.shortcutText, "Esc")
-        verify(cancel.enabled)
+    function test_queueMorphAndReducedMotion() {
+        const queue = descendants(screen).find(item => item.objectName === "desktopQueueExperience")
+        verify(queue !== undefined)
+        AppController.reducedMotion = true
+        compare(queue.sectionOpacity(3), 1)
+        compare(queue.sectionOffset(3, 18), 0)
+        const status = descendants(screen).find(item => item.objectName === "sessionQueueStatus")
+        compare(status.opacity, 1)
+        compare(status.parent.opacity, 1)
+
+        ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 32})
+        compare(queue.queuePosition, 32)
+        let number = descendants(screen).find(item => item.objectName === "sessionQueuePosition")
+        compare(number.text, "32")
+        compare(number.opacity, 1)
+
+        AppController.reducedMotion = false
+        ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 18})
+        compare(queue.queuePosition, 18)
+        number = descendants(screen).find(item => item.objectName === "sessionQueuePosition")
+        compare(number.text, "18")
+        verify(number.opacity < 1, "queue number should crossfade from its previous value")
+
+        queue.playEntrance()
+        compare(queue.entranceProgress, 0)
+        AppController.reducedMotion = true
+        compare(queue.entranceProgress, 1)
+        compare(number.opacity, 1)
+        ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 21})
     }
 
     function test_failureAndReconnect() {
