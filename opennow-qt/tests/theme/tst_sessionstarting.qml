@@ -22,6 +22,8 @@ TestCase {
     }
 
     function init() {
+        testCase.width = 1000
+        testCase.height = 700
         ShellStore.previewThemePack = ""
         ShellStore.streamState = "preparing"
         ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 21})
@@ -102,6 +104,42 @@ TestCase {
         compare(shellText.color, DesktopTokens.textHigh)
     }
 
+    function test_compactLayout_data() {
+        return [
+            {tag: "stacked-800x600", width: 800, height: 600},
+            {tag: "stacked-900x600", width: 900, height: 600},
+            {tag: "compact-1000x700", width: 1000, height: 700},
+            {tag: "compact-1280x720", width: 1280, height: 720},
+            {tag: "desktop-1440x900", width: 1440, height: 900}
+        ]
+    }
+
+    function test_compactLayout(data) {
+        testCase.width = data.width
+        testCase.height = data.height
+        ShellStore.activeSession = {sessionId: "layout-" + data.tag, seatSetupStep: 1, queuePosition: 21}
+        const items = descendants(screen)
+        const queue = items.find(item => item.objectName === "desktopQueueExperience")
+        const pass = items.find(item => item.objectName === "desktopQueuePass")
+        const position = items.find(item => item.objectName === "sessionQueuePositionBlock")
+        const cancel = items.find(item => item.objectName === "desktopQueueCancel")
+        verify(queue && pass && position && cancel)
+        tryCompare(queue, "width", data.width)
+        tryCompare(queue, "height", data.height)
+        waitForRendering(screen)
+
+        const passPoint = pass.mapToItem(queue, 0, 0)
+        const positionPoint = position.mapToItem(queue, 0, 0)
+        const cancelPoint = cancel.mapToItem(queue, 0, 0)
+        verify(passPoint.y >= 58 && passPoint.y < 100,
+            "Queue content must start in the initial viewport; y=" + passPoint.y)
+        verify(positionPoint.y >= 0 && positionPoint.y + position.height <= data.height,
+            "Queue position must be visible without scrolling; bottom=" + (positionPoint.y + position.height))
+        verify(cancelPoint.x >= 0 && cancelPoint.x + cancel.width <= data.width)
+        verify(cancelPoint.y + cancel.height <= data.height - 8,
+            "Queue actions must be visible without scrolling; bottom=" + (cancelPoint.y + cancel.height))
+    }
+
     function test_queueMorphAndReducedMotion() {
         const queue = descendants(screen).find(item => item.objectName === "desktopQueueExperience")
         verify(queue !== undefined)
@@ -131,6 +169,26 @@ TestCase {
         compare(queue.entranceProgress, 1)
         compare(number.opacity, 1)
         ShellStore.activeSession = Object.assign({}, ShellStore.activeSession, {queuePosition: 21})
+    }
+
+    function test_queueProgressSessionReset() {
+        const queue = descendants(screen).find(item => item.objectName === "desktopQueueExperience")
+        verify(queue !== undefined)
+        AppController.reducedMotion = true
+        ShellStore.activeSession = {sessionId: "queue-a", seatSetupStep: 1, queuePosition: 40}
+        compare(queue.queuePosition, 40)
+        compare(queue.peakPosition, 40)
+
+        ShellStore.activeSession = {sessionId: "queue-a", seatSetupStep: 1, queuePosition: 12}
+        compare(queue.queuePosition, 12)
+        compare(queue.peakPosition, 40)
+
+        // A reused component must not carry the previous session's baseline
+        // into a new queue, even when both sessions report the same position.
+        ShellStore.activeSession = {sessionId: "queue-b", seatSetupStep: 1, queuePosition: 12}
+        compare(queue.queuePosition, 12)
+        compare(queue.peakPosition, 12)
+        ShellStore.activeSession = {queuePosition: 21}
     }
 
     function test_failureAndReconnect() {
