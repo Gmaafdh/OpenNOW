@@ -330,6 +330,7 @@ if(BUILD_TESTING)
     qt_add_resources(opennow-theme-tests "theme-test-assets"
         PREFIX "/qt/qml/OpenNOW" FILES ${OPENNOW_KEYBOARD_ICON_FILES}
         res/brand/opennow-mark.png res/icons/desktop-play.svg
+        res/icons/desktop-play-filled.svg res/icons/desktop-info.svg
         res/icons/store-steam.svg res/icons/store-epic.svg res/icons/store-xbox.svg)
     add_test(NAME opennow-theme-tests COMMAND opennow-theme-tests
         -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/theme"

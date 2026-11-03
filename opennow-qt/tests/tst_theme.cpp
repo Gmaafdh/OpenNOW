@@ -52,6 +52,7 @@ public slots:
                                  {"DesktopGameModal", "desktop/components/DesktopGameModal.qml"},
                                  {"MotionProgress", "components/MotionProgress.qml"},
                                  {"CloudLibraryActions", "components/CloudLibraryActions.qml"},
+                                 {"DesktopLibraryHero", "desktop/library/DesktopLibraryHero.qml"},
                                  {"RoundedArtwork", "components/RoundedArtwork.qml"},
                                  {"ProfileAvatar", "components/ProfileAvatar.qml"},
                                  {"DesktopButton", "desktop/components/DesktopButton.qml"},

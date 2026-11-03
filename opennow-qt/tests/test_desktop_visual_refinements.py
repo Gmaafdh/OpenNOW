@@ -17,7 +17,7 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("alignArtworkRight: true", hero)
         self.assertNotIn("1.08 - 0.08", hero)
         self.assertNotRegex(hero, r"(?m)^\s*scale:\s*index === root\.currentIndex")
-        self.assertIn("duration: 520", hero)
+        self.assertIn("duration: Theme.duration(560)", hero)
 
     def test_home_scroll_is_only_explicit_navigation(self) -> None:
         home = qml("desktop/home/DesktopHomeScreen.qml")
