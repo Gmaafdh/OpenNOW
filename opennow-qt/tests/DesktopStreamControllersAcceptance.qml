@@ -139,17 +139,30 @@ QtObject {
                                 "streamInviteRow", "streamConsoleModeRow", "streamEndSessionRow"])
                 check(need(name).visible, name + " is shown")
             check(need("streamMenuBackToGame").activeFocus, "Back to game starts focused")
-            const nativeModel = need("desktopStreamOverlayHost").nativeOverlayModel(
-                "desktop-stream-menu", Date.now(), "")
+            const overlayHost = need("desktopStreamOverlayHost")
+            const nativeModel = overlayHost.nativeOverlayModel("desktop-stream-menu", Date.now(), "")
             check(nativeModel.kind === "menu" && nativeModel.inputBlocking
                 && nativeModel.hud.length === 0, "the native menu is modal and suppresses passive HUD items")
-            check(JSON.stringify(nativeModel.items.filter(item => item.enabled && item.action).map(item => item.action))
-                === JSON.stringify(["dismiss-overlay", "toggle-microphone", "toggle-anti-afk",
-                    "show-stats-expanded", "toggle-fullscreen", "toggle-clipboard-paste",
-                    "show-cursor", "toggle-console-mode", "stop-stream"]),
-                "every native menu action has an explicit shell-neutral mapping")
-            check(nativeModel.summary.length === 3 && nativeModel.footer.length > 0,
-                "the native menu includes the rich live summary and input hints")
+            const nativeActions = nativeModel.items.filter(item => item.enabled && item.action).map(item => item.action)
+            const requiredActions = ["toggle-recording", "screenshot", "toggle-stats", "stop-stream",
+                "open-stream-settings", "dismiss-overlay"]
+            const allowedActions = requiredActions.concat(["open-capture-folder", "save-clip", "toggle-microphone"])
+            check(requiredActions.every(action => nativeActions.indexOf(action) >= 0)
+                && nativeActions.every(action => allowedActions.indexOf(action) >= 0),
+                "every original-style native row has an explicit shell-neutral mapping")
+            check(nativeModel.summary.length === 0 && nativeModel.footer.length === 0
+                && nativeModel.title === qsTr("GeForce NOW")
+                && nativeModel.items.filter(item => item.role === "appbar").length === 2,
+                "the native menu uses the GFN app bar rather than the rejected dashboard summary")
+            check(overlayHost.nativeOverlayModel("desktop-stream-menu", Date.now(), "Screenshot saved").footer
+                === "Screenshot saved", "native action feedback reaches the menu renderer")
+            ShellStore.nativeStreamMenuPage = "system"
+            const systemModel = overlayHost.nativeOverlayModel("desktop-stream-menu", Date.now(), "")
+            check(systemModel.kind === "settings"
+                && JSON.stringify(systemModel.items.map(item => item.action))
+                    === JSON.stringify(["toggle-clipboard-paste", "stream-menu-back", "dismiss-overlay"]),
+                "Settings opens the native System page with Clipboard, Back, and Close")
+            ShellStore.nativeStreamMenuPage = "main"
             check(nativeModel.fontFamily.length > 0 && nativeModel.monoFontFamily.length > 0,
                 "the native renderer receives real shell font families")
             check(input.shellCaptureEnabled, "the open drawer keeps controller input away from the game")

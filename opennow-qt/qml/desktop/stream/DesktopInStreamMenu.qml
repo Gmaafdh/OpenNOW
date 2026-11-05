@@ -140,58 +140,92 @@ FocusScope {
     }
 
     // Localized, shell-neutral metadata for the native Direct2D presenter.
-    // No QML geometry, item pointers, or window handles cross this boundary.
-    function nativeViewModel(clockMs) {
+    // Structure and dimensions follow the original GFN MainMenuModule. Rows
+    // for unsupported OpenNOW capabilities stay hidden instead of becoming
+    // dead buttons; no QML objects or geometry cross this boundary.
+    function nativeViewModel(clockMs, controlToast) {
         const item = (id, action, label, value, role, enabled, checked, detail) => ({
             id: id, action: action, label: label, value: value || "", role: role,
             enabled: enabled !== false, checked: checked, detail: detail || ""
         })
-        const controllerValue = root.flightVisible
-            ? qsTr("%1 of %2 flight devices forwarded").arg(root.activeFlightCount).arg(root.flightDevices.length)
-            : root.pads.length === 0 ? qsTr("No controller connected")
-            : root.pads.length === 1 ? qsTr("1 connected · dead zones and vibration")
-            : qsTr("%1 connected · dead zones and vibration").arg(root.pads.length)
+        const appbar = (id, action, label) => item(id, action, label, "", "appbar", true, null, "")
+        const display = (id, role) => item(id, "", "", "", role, false, null, "")
+        const toast = String(controlToast || "")
+        if (ShellStore.nativeStreamMenuPage === "system") {
+            const pasteEnabled = ShellStore.settings.clipboardPaste === true
+            return {
+                kind: "settings",
+                title: qsTr("System"),
+                subtitle: "", status: "", detail: "", footer: toast,
+                inputBlocking: true, summary: [], opacity: 100,
+                items: [
+                    item("clipboard", "toggle-clipboard-paste", qsTr("Clipboard"), "",
+                        "setting", true, pasteEnabled,
+                        pasteEnabled
+                            ? qsTr("Turn off to block pasting text from the clipboard with Ctrl+V during gameplay. OpenNOW does not store your text. Plain text only, up to 64 KiB; no automatic clipboard sync.")
+                            : qsTr("Turn on to allow pasting text from the clipboard with Ctrl+V during gameplay. OpenNOW does not store your text. Plain text only, up to 64 KiB; no automatic clipboard sync.")),
+                    appbar("back", "stream-menu-back", qsTr("Back")),
+                    appbar("close", "dismiss-overlay", qsTr("Close"))
+                ]
+            }
+        }
+
+        const recordingBusy = ShellStore.streamRecordingStartRequestId !== ""
+            || ShellStore.streamRecordingStopRequestId !== ""
+            || ShellStore.mediaRecordingTargetRequestId !== ""
+        const recordingSeconds = Math.max(0, Math.floor(ShellStore.streamRecordingElapsedMs / 1000))
+        const recordingHours = Math.floor(recordingSeconds / 3600)
+        const recordingMinutes = Math.floor((recordingSeconds % 3600) / 60)
+        const recordingRemainder = recordingSeconds % 60
+        const recordingTime = (recordingHours > 0 ? recordingHours + ":" : "")
+            + String(recordingMinutes).padStart(2, "0") + ":"
+            + String(recordingRemainder).padStart(2, "0")
+        const recordShortcut = root.shortcut("shortcutToggleRecording", "F12")
+        const replaySeconds = Math.max(15, Number(ShellStore.settings.replayBufferSeconds || 30))
+        const streaming = String(root.live.status || "") === "streaming"
+        const items = []
+        if (String(ShellStore.mediaRootPath || "") !== "")
+            items.push(item("gallery", "open-capture-folder", qsTr("Gallery"), "",
+                "chevron", true, null, ""))
+        items.push(display("capture-start", "divider"))
+        items.push(item("record", "toggle-recording", qsTr("Record"),
+            ShellStore.streamRecordingActive ? recordingTime : "", "record",
+            streaming && !recordingBusy, ShellStore.streamRecordingActive,
+            recordingBusy ? qsTr("Please wait…")
+                : ShellStore.streamRecordingActive
+                    ? qsTr("%1 - Stop and save").arg(recordShortcut)
+                    : qsTr("%1 - Start").arg(recordShortcut)))
+        if (ShellStore.streamReplayEnabled && ShellStore.replayBufferRequested) {
+            items.push(item("replay-save", "save-clip", qsTr("Instant Replay"), "", "save",
+                !ShellStore.streamClipBusy, null,
+                ShellStore.streamClipBusy ? qsTr("Saving clip…")
+                    : qsTr("%1 - Save last %2 seconds").arg(root.shortcut("shortcutSaveClip", "Ctrl+F12")).arg(replaySeconds)))
+        }
+        items.push(display("capture-gap", "gap"))
+        items.push(item("screenshot", "screenshot", qsTr("Screenshot"), "", "row", streaming, null,
+            qsTr("%1 - Save a screenshot").arg(root.shortcut("shortcutScreenshot", "Ctrl+F11"))))
+        items.push(display("capture-end", "divider"))
+        if (ShellStore.microphoneToggleAvailable) {
+            items.push(item("microphone", "toggle-microphone", qsTr("Microphone"), "", "toggle",
+                ShellStore.microphoneCanToggle, ShellStore.microphoneEnabled,
+                ShellStore.microphoneCanToggle
+                    ? qsTr("%1 - Toggle on/off").arg(root.shortcut("shortcutToggleMicrophone", "Ctrl+Shift+M"))
+                    : ShellStore.microphoneLabel))
+            items.push(display("statistics-start", "divider"))
+        }
+        items.push(item("statistics", "toggle-stats", qsTr("Statistics"), "", "row", true, null,
+            qsTr("%1 - Change format").arg(root.shortcut("shortcutToggleStats", "Ctrl+N"))))
+        items.push(item("quit", "stop-stream",
+            qsTr("Quit %1").arg(String(root.game.title || qsTr("Game"))), "", "danger", true, null,
+            root.shortcut("shortcutStopStream", "Ctrl+Shift+Q")))
+        items.push(appbar("settings", "open-stream-settings", qsTr("Settings")))
+        items.push(appbar("close", "dismiss-overlay", qsTr("Close")))
         return {
             kind: "menu",
-            title: String(root.game.title || qsTr("GeForce NOW")),
-            subtitle: qsTr("LIVE · %1").arg(root.clockText(clockMs)),
-            status: [root.streamerStatus, root.transportText].join(" · "),
-            detail: [root.codecText, root.backendText].join(" · "),
-            footer: root.controllerHints
-                ? qsTr("↑↓ Move   A Select   B Back   Ctrl K Commands")
-                : qsTr("Esc Back   ·   Ctrl G Menu   ·   Ctrl+V Paste"),
-            inputBlocking: true,
-            summary: [
-                item("fps", "", qsTr("FPS"), root.fpsText + " FPS", "metric", false, null, ""),
-                item("output", "", qsTr("OUTPUT"), root.resolution + " · " + root.codecText,
-                    "metric", false, null, ""),
-                item("bitrate", "", qsTr("BITRATE"), root.bitrateText, "metric", false, null, "")
-            ],
-            items: [
-                item("resume", "dismiss-overlay", qsTr("Back to game"), "Esc", "primary", true, null, ""),
-                item("microphone", "toggle-microphone", qsTr("Microphone"), ShellStore.microphoneLabel,
-                    "toggle", ShellStore.microphoneCanToggle, ShellStore.microphoneEnabled,
-                    root.shortcut("shortcutToggleMicrophone", "Ctrl+Shift+M")),
-                item("anti-afk", "toggle-anti-afk", qsTr("Anti-AFK"), ShellStore.antiAfkEnabled ? qsTr("On") : qsTr("Off"),
-                    "toggle", true, ShellStore.antiAfkEnabled,
-                    root.shortcut("shortcutToggleAntiAfk", "Ctrl+Shift+K")),
-                item("stats", "show-stats-expanded", qsTr("Stats overlay"), qsTr("Opens over the game"),
-                    "toggle", true, null, root.shortcut("shortcutToggleStats", "Ctrl+N")),
-                item("fullscreen", "toggle-fullscreen", qsTr("Fullscreen"), root.fullscreen ? qsTr("On") : qsTr("Off"),
-                    "toggle", true, root.fullscreen, root.shortcut("shortcutToggleFullscreen", "F11")),
-                item("clipboard", "toggle-clipboard-paste", qsTr("Clipboard paste"),
-                    ShellStore.settings.clipboardPaste === true ? qsTr("On") : qsTr("Off"),
-                    "toggle", true, ShellStore.settings.clipboardPaste === true, qsTr("Ctrl+V · plain text")),
-                item("cursor", "show-cursor", qsTr("Cursor"), qsTr("Show"),
-                    "toggle", true, null,
-                    root.shortcut("shortcutTogglePointerLock", "F8") + " · " + qsTr("game lock")),
-                item("controllers", "", qsTr("Controllers"), controllerValue, "row", false, null, ""),
-                item("console", "toggle-console-mode", root.modeOn ? qsTr("Switch to desktop mode") : qsTr("Switch to console mode"),
-                    root.modePending ? qsTr("SWITCHING…") : root.modeOn ? qsTr("DESKTOP READY") : qsTr("GAMEPAD READY"),
-                    "row", !root.modePending, null, ""),
-                item("end", "stop-stream", qsTr("End session"), qsTr("Asks first, the stream keeps running"),
-                    "danger", true, null, root.shortcut("shortcutStopStream", "Ctrl+Shift+Q"))
-            ]
+            title: qsTr("GeForce NOW"),
+            subtitle: "", status: "", detail: "", footer: toast,
+            inputBlocking: true, summary: [], opacity: 100,
+            items: items
         }
     }
 

@@ -132,7 +132,8 @@ pub struct NativeOverlayItem {
     pub value: String,
     #[serde(default)]
     pub detail: String,
-    /// primary, toggle, row, danger, metric, hud-left, hud-right, or toast.
+    /// appbar, record, save, chevron, setting, divider, gap, primary, toggle,
+    /// row, danger, metric, hud-left, hud-right, or toast.
     #[serde(default)]
     pub role: String,
     #[serde(default = "default_native_overlay_item_enabled")]
@@ -163,7 +164,7 @@ fn default_native_overlay_item_enabled() -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeOverlay {
-    /// Empty, menu, stats, or exit. The native presenter never receives QML objects or HWNDs.
+    /// Empty, menu, settings, stats, or exit. The native presenter never receives QML objects or HWNDs.
     #[serde(default)]
     pub kind: String,
     #[serde(default)]

@@ -33,11 +33,15 @@ pub struct NativeOverlayLayout {
     pub panel: Option<NativeOverlayRect>,
     pub summary: Option<NativeOverlayRect>,
     pub footer: Option<NativeOverlayRect>,
+    /// Scrollable menu-content viewport. App-bar actions live outside it.
+    pub content: Option<NativeOverlayRect>,
     pub items: Vec<NativeOverlayPlacement>,
     pub hud: Vec<NativeOverlayPlacement>,
     pub scrim: bool,
     pub compact: bool,
     pub scale: f32,
+    pub scroll_offset: f32,
+    pub max_scroll: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +65,7 @@ pub struct NativeOverlaySnapshot {
     pub transition: u64,
     pub presentation_available: bool,
     pressed_action: Option<String>,
+    scroll_offset: f32,
 }
 
 impl Default for NativeOverlaySnapshot {
@@ -77,13 +82,20 @@ impl Default for NativeOverlaySnapshot {
             transition: 0,
             presentation_available: true,
             pressed_action: None,
+            scroll_offset: 0.0,
         }
     }
 }
 
 impl NativeOverlaySnapshot {
     pub fn layout(&self) -> NativeOverlayLayout {
-        layout_native_overlay(&self.view, self.width, self.height, self.dpi_scale)
+        layout_native_overlay_at(
+            &self.view,
+            self.width,
+            self.height,
+            self.dpi_scale,
+            self.scroll_offset,
+        )
     }
 
     pub fn modal(&self) -> bool {
@@ -205,16 +217,21 @@ impl NativeOverlayShared {
         state.width = width;
         state.height = height;
         state.dpi_scale = dpi_scale;
+        normalize_scroll(&mut state, true);
         state.generation = state.generation.wrapping_add(1);
     }
 
     pub fn update_view(&self, mut view: NativeOverlay) {
-        if !matches!(view.kind.as_str(), "" | "menu" | "stats" | "exit") {
+        if !matches!(
+            view.kind.as_str(),
+            "" | "menu" | "settings" | "stats" | "exit"
+        ) {
             view = NativeOverlay::default();
         }
         // Statistics and HUD-only models are deliberately passive. Only the
-        // menu and exit dialog may take modal ownership of gameplay input.
-        view.input_blocking = matches!(view.kind.as_str(), "menu" | "exit") && view.input_blocking;
+        // menu, its nested settings page, and exit dialog may own modal input.
+        view.input_blocking =
+            matches!(view.kind.as_str(), "menu" | "settings" | "exit") && view.input_blocking;
         view.items.truncate(64);
         view.summary.truncate(3);
         view.hud.truncate(16);
@@ -233,6 +250,7 @@ impl NativeOverlayShared {
             state.hovered = None;
             state.pressed = None;
             state.pressed_action = None;
+            state.scroll_offset = 0.0;
         }
         state.focused = previous_focus
             .as_deref()
@@ -247,6 +265,7 @@ impl NativeOverlayShared {
         if state.focused.is_none() && kind_changed {
             state.focused = first_focusable(&state.view.items);
         }
+        normalize_scroll(&mut state, true);
     }
 
     pub fn clear(&self) {
@@ -280,6 +299,8 @@ impl NativeOverlayShared {
             .and_then(|index| candidates.iter().find(|placement| placement.index == index))
         else {
             state.focused = Some(candidates[0].index);
+            normalize_scroll(&mut state, true);
+            state.generation = state.generation.wrapping_add(1);
             return true;
         };
         let (cx, cy) = current.rect.center();
@@ -321,6 +342,37 @@ impl NativeOverlayShared {
         state.focused = target;
         state.hovered = None;
         if changed {
+            normalize_scroll(&mut state, true);
+            state.generation = state.generation.wrapping_add(1);
+        }
+        changed
+    }
+
+    /// Scroll by native wheel units (120 per notch). Menu scrolling never
+    /// enters the gameplay queue, even when there is no further room to scroll.
+    pub fn scroll_wheel(&self, delta: i16) -> bool {
+        if !self.presentation_available() || delta == 0 {
+            return false;
+        }
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !matches!(state.view.kind.as_str(), "menu" | "settings") {
+            return false;
+        }
+        let layout = state.layout();
+        if layout.max_scroll <= 0.0 {
+            return false;
+        }
+        let next = (state.scroll_offset - f32::from(delta) / 120.0 * 72.0 * layout.scale)
+            .clamp(0.0, layout.max_scroll);
+        let changed = (next - state.scroll_offset).abs() > f32::EPSILON;
+        if changed {
+            state.scroll_offset = next;
+            state.hovered = None;
+            state.pressed = None;
+            state.pressed_action = None;
             state.generation = state.generation.wrapping_add(1);
         }
         changed
@@ -352,7 +404,11 @@ impl NativeOverlayShared {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        (!state.view.kind.is_empty()).then(|| "dismiss-overlay".to_owned())
+        match state.view.kind.as_str() {
+            "settings" => Some("stream-menu-back".to_owned()),
+            "" => None,
+            _ => Some("dismiss-overlay".to_owned()),
+        }
     }
 
     /// Returns true when the native UI owns this pointer event. Passive HUD
@@ -368,7 +424,8 @@ impl NativeOverlayShared {
         let layout = state.layout();
         let hovered = layout.items.iter().find_map(|placement| {
             let item = state.view.items.get(placement.index)?;
-            (placement.rect.contains(x, y) && focusable(item)).then_some(placement.index)
+            (placement_hit(&state.view, &layout, placement, x, y) && focusable(item))
+                .then_some(placement.index)
         });
         if state.hovered != hovered {
             state.generation = state.generation.wrapping_add(1);
@@ -394,7 +451,8 @@ impl NativeOverlayShared {
         state.pressed_action = action;
         let pressed = layout.items.iter().find_map(|placement| {
             let item = state.view.items.get(placement.index)?;
-            (placement.rect.contains(x, y) && focusable(item)).then_some(placement.index)
+            (placement_hit(&state.view, &layout, placement, x, y) && focusable(item))
+                .then_some(placement.index)
         });
         if state.pressed != pressed {
             state.generation = state.generation.wrapping_add(1);
@@ -461,9 +519,30 @@ fn nonempty_action(action: &str) -> Option<String> {
     (!action.is_empty()).then(|| action.to_owned())
 }
 
+fn placement_hit(
+    view: &NativeOverlay,
+    layout: &NativeOverlayLayout,
+    placement: &NativeOverlayPlacement,
+    x: f32,
+    y: f32,
+) -> bool {
+    if !placement.rect.contains(x, y) {
+        return false;
+    }
+    if matches!(view.kind.as_str(), "menu" | "settings")
+        && view
+            .items
+            .get(placement.index)
+            .is_some_and(|item| item.role != "appbar")
+    {
+        return layout.content.is_some_and(|content| content.contains(x, y));
+    }
+    true
+}
+
 fn action_at(view: &NativeOverlay, layout: &NativeOverlayLayout, x: f32, y: f32) -> Option<String> {
     for placement in &layout.items {
-        if placement.rect.contains(x, y) {
+        if placement_hit(view, layout, placement, x, y) {
             if let Some(action) = view.items.get(placement.index).and_then(action_for_item) {
                 return Some(action);
             }
@@ -474,8 +553,11 @@ fn action_at(view: &NativeOverlay, layout: &NativeOverlayLayout, x: f32, y: f32)
             return Some(action);
         }
     }
+    // The reference GFN CEF sidebar is full-height and ignores outside clicks.
+    // Keep that behavior for the menu and nested settings; only the exit
+    // confirmation retains OpenNOW's click-outside dismissal.
     if view.input_blocking
-        && matches!(view.kind.as_str(), "menu" | "exit")
+        && view.kind == "exit"
         && layout.panel.is_some_and(|panel| !panel.contains(x, y))
     {
         return Some("dismiss-overlay".to_owned());
@@ -483,11 +565,61 @@ fn action_at(view: &NativeOverlay, layout: &NativeOverlayLayout, x: f32, y: f32)
     None
 }
 
+fn normalize_scroll(state: &mut NativeOverlaySnapshot, reveal_focus: bool) {
+    state.scroll_offset = state
+        .scroll_offset
+        .clamp(0.0, state.layout().max_scroll.max(0.0));
+    if !reveal_focus || !matches!(state.view.kind.as_str(), "menu" | "settings") {
+        return;
+    }
+    let Some(focused) = state.focused else {
+        return;
+    };
+    if state
+        .view
+        .items
+        .get(focused)
+        .is_some_and(|item| item.role == "appbar")
+    {
+        return;
+    }
+    let layout = state.layout();
+    let Some(content) = layout.content else {
+        return;
+    };
+    let Some(rect) = layout
+        .items
+        .iter()
+        .find(|placement| placement.index == focused)
+        .map(|placement| placement.rect)
+    else {
+        return;
+    };
+    if rect.y < content.y {
+        state.scroll_offset = (state.scroll_offset - (content.y - rect.y)).max(0.0);
+    } else if rect.y + rect.height > content.y + content.height {
+        state.scroll_offset += rect.y + rect.height - content.y - content.height;
+    }
+    state.scroll_offset = state
+        .scroll_offset
+        .clamp(0.0, state.layout().max_scroll.max(0.0));
+}
+
 pub fn layout_native_overlay(
     view: &NativeOverlay,
     width: u32,
     height: u32,
     dpi_scale: f32,
+) -> NativeOverlayLayout {
+    layout_native_overlay_at(view, width, height, dpi_scale, 0.0)
+}
+
+fn layout_native_overlay_at(
+    view: &NativeOverlay,
+    width: u32,
+    height: u32,
+    dpi_scale: f32,
+    scroll_offset: f32,
 ) -> NativeOverlayLayout {
     let width = width.max(2) as f32;
     let height = height.max(2) as f32;
@@ -497,7 +629,7 @@ pub fn layout_native_overlay(
         ..NativeOverlayLayout::default()
     };
     match view.kind.as_str() {
-        "menu" => layout_menu(view, width, height, &mut layout),
+        "menu" | "settings" => layout_menu(view, width, height, scroll_offset, &mut layout),
         "stats" => layout_stats(view, width, height, &mut layout),
         "exit" => layout_exit(view, width, height, &mut layout),
         _ => {}
@@ -506,145 +638,98 @@ pub fn layout_native_overlay(
     layout
 }
 
-fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut NativeOverlayLayout) {
+fn layout_menu(
+    view: &NativeOverlay,
+    width: f32,
+    height: f32,
+    scroll_offset: f32,
+    layout: &mut NativeOverlayLayout,
+) {
     let s = layout.scale;
-    let logical_height = height / s;
-    let compact = logical_height <= 720.0;
-    let dense = logical_height < 620.0;
-    layout.compact = compact;
-    let margin = if dense {
-        8.0
-    } else if compact {
-        12.0
-    } else {
-        16.0
-    } * s;
+    // Match the original GFN IGO shell instead of inventing a dashboard:
+    // full-height 512 px sidebar, 56 px app bar, and no full-screen scrim.
     let panel = NativeOverlayRect {
-        x: margin,
-        y: margin,
-        width: (456.0 * s).min((width - 2.0 * margin).max(160.0)),
-        height: (height - 2.0 * margin).max(240.0),
+        x: 0.0,
+        y: 0.0,
+        width: (512.0 * s).min(width),
+        height,
     };
     layout.panel = Some(panel);
-    layout.scrim = true;
-    let inset = if compact { 16.0 } else { 20.0 } * s;
-    let content_x = panel.x + inset;
-    let content_width = (panel.width - 2.0 * inset).max(80.0);
-    let header = if compact { 104.0 } else { 116.0 } * s;
-    let footer_height = if view.footer.trim().is_empty() {
-        0.0
-    } else if dense {
-        20.0 * s
-    } else if compact {
-        26.0 * s
-    } else {
-        34.0 * s
-    };
-    let footer_y = panel.y + panel.height - footer_height;
-    let footer_gap = if dense { 4.0 } else { 8.0 };
-    let bottom = footer_y
-        - if footer_height > 0.0 {
-            footer_gap * s
-        } else {
-            0.0
-        };
-    if footer_height > 0.0 {
-        layout.footer = Some(NativeOverlayRect {
-            x: content_x,
-            y: footer_y,
-            width: content_width,
-            height: footer_height,
-        });
-    }
-    let spacing = if dense {
-        4.0
-    } else if compact {
-        6.0
-    } else {
-        9.0
-    } * s;
-    let gap = if dense {
-        6.0
-    } else if compact {
-        8.0
-    } else {
-        10.0
-    } * s;
-    let mut y = panel.y + header;
-    if !view.summary.is_empty() {
-        let summary_height = if dense {
-            64.0
-        } else if compact {
-            72.0
-        } else {
-            94.0
-        } * s;
-        layout.summary = Some(NativeOverlayRect {
-            x: content_x,
-            y,
-            width: content_width,
-            height: summary_height,
-        });
-        y += summary_height + spacing;
-    }
-    let mut index = 0_usize;
-    while index < view.items.len() {
-        let item = &view.items[index];
-        let role = item.role.as_str();
-        let item_height = if dense {
-            match role {
-                "primary" => 36.0 * s,
-                "toggle" => 46.0 * s,
-                "metric" => 34.0 * s,
-                _ => 36.0 * s,
-            }
-        } else {
-            match (role, compact) {
-                ("primary", true) => 44.0 * s,
-                ("primary", false) => 50.0 * s,
-                ("toggle", true) => 60.0 * s,
-                ("toggle", false) => 78.0 * s,
-                ("metric", true) => 40.0 * s,
-                ("metric", false) => 48.0 * s,
-                (_, true) => 46.0 * s,
-                (_, false) => 56.0 * s,
-            }
-        };
-        if y + item_height > bottom {
-            break;
-        }
-        if role == "toggle"
-            && view
-                .items
-                .get(index + 1)
-                .is_some_and(|next| next.role == "toggle")
-        {
-            let item_width = (content_width - gap) / 2.0;
-            for column in 0..2 {
-                layout.items.push(NativeOverlayPlacement {
-                    index: index + column,
-                    rect: NativeOverlayRect {
-                        x: content_x + column as f32 * (item_width + gap),
-                        y,
-                        width: item_width,
-                        height: item_height,
-                    },
-                });
-            }
-            index += 2;
-        } else {
+    layout.scrim = false;
+    layout.compact = false;
+    layout.content = Some(NativeOverlayRect {
+        x: panel.x,
+        y: panel.y + 56.0 * s,
+        width: panel.width,
+        height: (panel.height - 56.0 * s).max(0.0),
+    });
+
+    let appbar_count = view
+        .items
+        .iter()
+        .filter(|item| item.role == "appbar")
+        .count();
+    let mut appbar_order = 0_usize;
+    let mut rows = Vec::new();
+    let mut content_height = 16.0 * s; // Original host bottom padding.
+    for (index, item) in view.items.iter().enumerate() {
+        if item.role == "appbar" {
+            let from_end = appbar_count - 1 - appbar_order;
+            appbar_order += 1;
             layout.items.push(NativeOverlayPlacement {
                 index,
                 rect: NativeOverlayRect {
-                    x: content_x,
-                    y,
-                    width: content_width,
-                    height: item_height,
+                    x: panel.x + panel.width - 52.0 * s - from_end as f32 * 60.0 * s,
+                    y: panel.y + 10.0 * s,
+                    width: 36.0 * s,
+                    height: 36.0 * s,
                 },
             });
-            index += 1;
+            continue;
         }
-        y += item_height + spacing;
+        let height = match item.role.as_str() {
+            "divider" => 33.0,
+            "gap" => 16.0,
+            "setting" => 128.0,
+            _ if !item.detail.trim().is_empty() || !item.value.trim().is_empty() => 72.0,
+            _ => 48.0,
+        } * s;
+        rows.push((index, height));
+        content_height += height;
+    }
+
+    let viewport_height = layout.content.map_or(0.0, |content| content.height);
+    layout.max_scroll = (content_height - viewport_height).max(0.0);
+    layout.scroll_offset = if scroll_offset.is_finite() {
+        scroll_offset.clamp(0.0, layout.max_scroll)
+    } else {
+        0.0
+    };
+    let mut y = panel.y + 56.0 * s - layout.scroll_offset;
+    for (index, item_height) in rows {
+        layout.items.push(NativeOverlayPlacement {
+            index,
+            rect: NativeOverlayRect {
+                x: panel.x,
+                y,
+                width: panel.width,
+                height: item_height,
+            },
+        });
+        y += item_height;
+    }
+
+    // Action feedback is a transient toast over the game, not a permanent
+    // dashboard footer that changes the original sidebar's row geometry.
+    if !view.footer.trim().is_empty() {
+        let margin = 16.0 * s;
+        let toast_width = (420.0 * s).min((width - 2.0 * margin).max(120.0 * s));
+        layout.footer = Some(NativeOverlayRect {
+            x: (width - margin - toast_width).max(margin),
+            y: (height - margin - 48.0 * s).max(margin),
+            width: toast_width,
+            height: 48.0 * s,
+        });
     }
 }
 
@@ -830,10 +915,8 @@ mod tests {
             Some("dismiss-overlay".to_owned())
         );
         assert!(shared.pointer_down(1800.0, 800.0));
-        assert_eq!(
-            shared.pointer_up(1800.0, 800.0),
-            Some("dismiss-overlay".to_owned())
-        );
+        assert_eq!(shared.pointer_up(1800.0, 800.0), None);
+        assert_eq!(shared.snapshot().view.kind, "menu");
     }
 
     #[test]
@@ -897,29 +980,67 @@ mod tests {
     }
 
     #[test]
-    fn compact_menu_keeps_all_actions_at_minimum_size() {
+    fn original_sized_menu_scrolls_without_losing_actions() {
+        let shared = NativeOverlayShared::new();
+        shared.set_viewport(960, 540, 1.0);
         let mut view = menu();
-        view.items.insert(
-            5,
-            NativeOverlayItem {
-                label: "Controllers".to_owned(),
-                role: "row".to_owned(),
-                enabled: false,
-                ..NativeOverlayItem::default()
-            },
+        for item in &mut view.items {
+            item.detail = "Ctrl+X - Toggle on/off".to_owned();
+        }
+        view.items.splice(
+            0..0,
+            [
+                NativeOverlayItem {
+                    id: "capture-start".to_owned(),
+                    role: "divider".to_owned(),
+                    enabled: false,
+                    ..NativeOverlayItem::default()
+                },
+                item("gallery", "open-capture-folder", "chevron"),
+                item("record", "toggle-recording", "record"),
+                NativeOverlayItem {
+                    id: "capture-gap".to_owned(),
+                    role: "gap".to_owned(),
+                    enabled: false,
+                    ..NativeOverlayItem::default()
+                },
+            ],
         );
         view.items
-            .insert(6, item("console", "toggle-console-mode", "row"));
-        let layout = layout_native_overlay(&view, 960, 540, 1.0);
-        assert!(layout.compact);
+            .push(item("settings", "open-stream-settings", "appbar"));
+        view.items.push(item("close", "dismiss-overlay", "appbar"));
+        shared.update_view(view.clone());
+        let initial = shared.snapshot();
+        let layout = initial.layout();
+        let panel = layout.panel.expect("full-height sidebar");
+        assert_eq!(panel.x, 0.0);
+        assert_eq!(panel.y, 0.0);
+        assert_eq!(panel.width, 512.0);
+        assert_eq!(panel.height, 540.0);
+        assert!(!layout.scrim);
+        assert!(!layout.compact);
+        assert!(layout.summary.is_none());
+        assert_eq!(layout.content.expect("content viewport").y, 56.0);
         assert_eq!(layout.items.len(), view.items.len());
-        let panel = layout.panel.expect("menu panel");
-        assert!(
-            layout
-                .items
-                .iter()
-                .all(|item| { item.rect.y + item.rect.height <= panel.y + panel.height })
-        );
+        assert!(layout.max_scroll > 0.0);
+        for _ in 0..32 {
+            shared.scroll_wheel(-120);
+        }
+        let scrolled = shared.snapshot();
+        let layout = scrolled.layout();
+        assert_eq!(layout.scroll_offset, layout.max_scroll);
+        let end = layout
+            .items
+            .iter()
+            .find(|placement| view.items[placement.index].id == "end")
+            .expect("end action placement")
+            .rect;
+        let content = layout.content.expect("content viewport");
+        assert!(end.y >= content.y && end.y + end.height <= content.y + content.height);
+        let x = end.x + end.width / 2.0;
+        let y = end.y + end.height / 2.0;
+        assert!(shared.pointer_down(x, y));
+        assert_eq!(shared.pointer_up(x, y), Some("stop-stream".to_owned()));
     }
 
     #[test]
@@ -1027,57 +1148,58 @@ mod tests {
     }
 
     #[test]
-    fn rich_menu_keeps_summary_controls_and_footer_inside_panel() {
+    fn reference_menu_keeps_appbar_rows_and_toast_geometry() {
         let mut view = menu();
-        view.footer = "Esc Back · Ctrl G Menu".to_owned();
+        view.footer = "Screenshot saved".to_owned();
         view.summary = vec![
             item("fps", "", "metric"),
             item("output", "", "metric"),
             item("bitrate", "", "metric"),
         ];
-        view.items.splice(
-            5..5,
-            [
-                item("clipboard", "toggle-clipboard-paste", "toggle"),
-                item("cursor", "toggle-pointer-lock", "toggle"),
-                NativeOverlayItem {
-                    label: "Controllers".to_owned(),
-                    role: "row".to_owned(),
-                    enabled: false,
-                    ..NativeOverlayItem::default()
-                },
-                item("console", "toggle-console-mode", "row"),
-            ],
-        );
+        view.items
+            .push(item("settings", "open-stream-settings", "appbar"));
+        view.items.push(item("close", "dismiss-overlay", "appbar"));
         for (width, height) in [(1600, 900), (1280, 720), (960, 540)] {
             let layout = layout_native_overlay(&view, width, height, 1.0);
-            assert!(
-                layout.summary.is_some(),
-                "summary missing at {}x{}",
-                width,
-                height
-            );
-            assert!(
-                layout.footer.is_some(),
-                "footer missing at {}x{}",
-                width,
-                height
-            );
-            assert_eq!(
-                layout.items.len(),
-                view.items.len(),
-                "menu action truncated at {width}x{height}"
-            );
             let panel = layout.panel.expect("menu panel");
-            assert!(
-                layout
-                    .items
-                    .iter()
-                    .all(|item| { item.rect.y + item.rect.height <= panel.y + panel.height }),
-                "menu action outside panel at {}x{}",
-                width,
-                height
-            );
+            assert_eq!(panel.x, 0.0);
+            assert_eq!(panel.y, 0.0);
+            assert_eq!(panel.width, 512.0);
+            assert_eq!(panel.height, height as f32);
+            assert!(!layout.scrim, "GFN must not add a full-screen scrim");
+            assert!(layout.summary.is_none(), "dashboard summary returned");
+            assert!(layout.footer.is_some(), "action toast missing");
+            assert_eq!(layout.items.len(), view.items.len());
+            let appbar = layout
+                .items
+                .iter()
+                .filter(|placement| view.items[placement.index].role == "appbar")
+                .collect::<Vec<_>>();
+            assert_eq!(appbar.len(), 2);
+            assert!(appbar.iter().all(|placement| {
+                placement.rect.y == 10.0
+                    && placement.rect.width == 36.0
+                    && placement.rect.height == 36.0
+            }));
         }
+    }
+
+    #[test]
+    fn nested_settings_back_does_not_close_the_stream_menu() {
+        let shared = NativeOverlayShared::new();
+        shared.update_view(NativeOverlay {
+            kind: "settings".to_owned(),
+            input_blocking: true,
+            items: vec![
+                item("clipboard", "toggle-clipboard-paste", "setting"),
+                item("back", "stream-menu-back", "appbar"),
+                item("close", "dismiss-overlay", "appbar"),
+            ],
+            ..NativeOverlay::default()
+        });
+        assert_eq!(shared.cancel(), Some("stream-menu-back".to_owned()));
+        assert!(shared.pointer_down(900.0, 600.0));
+        assert_eq!(shared.pointer_up(900.0, 600.0), None);
+        assert_eq!(shared.snapshot().view.kind, "settings");
     }
 }

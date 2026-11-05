@@ -1330,7 +1330,7 @@ fn defaults() -> Map<String, Value> {
         "codec":"auto", "fallbackCodec":"auto", "decoderPreference":"auto",
         "encoderPreference":"auto", "colorQuality":"8bit_420", "enableHdr":false, "region":"", "regionProviderIdpId":"", "providerRegions":{},
         "suppressTenBitWarning":false,
-        "sessionProxyEnabled":false, "sessionProxyUrl":"", "clipboardPaste":false, "networkTest":false,
+        "sessionProxyEnabled":false, "sessionProxyUrl":"", "clipboardPaste":true, "networkTest":false,
         "suppressAwdlWhileStreaming":false,
         "enableGyroscopeControls":false, "steamControllerCompatibilityMode":false,
         "nativeCursorOverlay":true, "mouseSensitivity":1, "mouseAcceleration":1,
@@ -3190,6 +3190,11 @@ mod tests {
         assert_eq!(store.all()["leaveConsoleOnPointer"], json!(true));
         assert_eq!(store.all()["shortcutToggleFullscreen"], json!("F11"));
         assert_eq!(store.all()["shortcutScreenshot"], json!("Ctrl+F11"));
+        assert_eq!(store.all()["clipboardPaste"], json!(true));
+        assert_eq!(
+            store.set("clipboardPaste", json!(false)).unwrap(),
+            json!(false)
+        );
         assert_eq!(store.all()["statsOverlayPosition"], json!("top-right"));
         for key in [
             "statsShowFps",
@@ -3220,6 +3225,7 @@ mod tests {
         let preferences = SettingsStore::load(Some(directory.clone())).unwrap();
         assert_eq!(preferences.all()["desktopSidebarHover"], json!(false));
         assert_eq!(preferences.all()["confirmQuitWhenIdle"], json!(false));
+        assert_eq!(preferences.all()["clipboardPaste"], json!(false));
         assert_eq!(preferences.all()["statsShowFps"], json!(false));
         assert_eq!(preferences.all()["statsShowRegion"], json!(false));
         assert_eq!(preferences.all()["statsOverlayScale"], json!(1.5));

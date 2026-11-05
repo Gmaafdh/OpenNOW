@@ -1489,11 +1489,18 @@ impl SdlInputCapture {
             self.cursor_state,
             bytes.len(),
         );
-        if self.cursor_state == RemoteCursorState::Visible {
+        if self.cursor_state == RemoteCursorState::Visible && !self.native_overlay_modal {
             self.cursor_forced_visible = false;
         }
         if self.cursor_state == RemoteCursorState::Hidden {
-            if self.cursor_forced_visible {
+            if self.native_overlay_modal {
+                // Remote games commonly hide their cursor while a menu is
+                // open. That message must not re-lock or hide the local GFN
+                // cursor which the modal UI is actively using.
+                self.disable_relative_mouse(sdl, window);
+                window.set_mouse_grab(false);
+                sdl.mouse().show_cursor(true);
+            } else if self.cursor_forced_visible {
                 self.disable_relative_mouse(sdl, window);
                 sdl.mouse().show_cursor(true);
             } else {
@@ -1502,7 +1509,7 @@ impl SdlInputCapture {
             return;
         }
         self.disable_relative_mouse(sdl, window);
-        if !native_cursor_overlay_enabled() {
+        if !self.native_overlay_modal && !native_cursor_overlay_enabled() {
             sdl.mouse().show_cursor(false);
             return;
         }
@@ -1545,7 +1552,10 @@ impl SdlInputCapture {
             self.cursors.insert(cursor_key, cursor);
         }
         sdl.mouse().show_cursor(true);
-        if !was_cursor_visible && let Some(position) = parse_cursor_position(bytes) {
+        if !self.native_overlay_modal
+            && !was_cursor_visible
+            && let Some(position) = parse_cursor_position(bytes)
+        {
             let viewport = aspect_fit(
                 stream_size.0.max(1),
                 stream_size.1.max(1),
@@ -3068,9 +3078,11 @@ impl NativeOverlayInput {
                     NativeOverlayInputRoute::Forward
                 }
             }
-            CapturedInput::MouseMove { .. } | CapturedInput::MouseWheel { .. } if modal => {
+            CapturedInput::MouseWheel { delta_y, .. } if modal => {
+                self.shared.scroll_wheel(*delta_y);
                 NativeOverlayInputRoute::Consume
             }
+            CapturedInput::MouseMove { .. } if modal => NativeOverlayInputRoute::Consume,
             CapturedInput::Key {
                 virtual_key,
                 modifiers,
@@ -3101,6 +3113,14 @@ impl NativeOverlayInput {
                             Some("confirm-stream-exit".to_owned())
                         }
                         0x0d | 0x20 => self.shared.activate_focused(),
+                        0x21 => {
+                            self.shared.scroll_wheel(360);
+                            None
+                        }
+                        0x22 => {
+                            self.shared.scroll_wheel(-360);
+                            None
+                        }
                         _ => None,
                     };
                     if let Some(action) = action {

@@ -1781,7 +1781,7 @@ private slots:
     {
         const auto controls = source(QStringLiteral(
             "qml/desktop/settings/pages/DesktopSettingsControlsPage.qml"));
-        QVERIFY(controls.contains(QStringLiteral("boolSetting(\"clipboardPaste\", false)")));
+        QVERIFY(controls.contains(QStringLiteral("boolSetting(\"clipboardPaste\", true)")));
         QVERIFY(controls.contains(QStringLiteral("setSetting(\"clipboardPaste\", value)")));
         const auto console = source(QStringLiteral("qml/screens/SettingsScreen.qml"));
         QVERIFY(console.contains(QStringLiteral("qsTr(\"Clipboard paste\")")));

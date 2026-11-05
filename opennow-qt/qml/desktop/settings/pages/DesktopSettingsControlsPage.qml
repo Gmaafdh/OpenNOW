@@ -47,7 +47,7 @@ Column {
             description: qsTr("Paste local text into the stream with Ctrl+V (Command+V on macOS). Up to 64 KiB per paste. No automatic clipboard sync."); showDivider: false
             DesktopSettingsToggle {
                 objectName: "clipboardPasteToggle"
-                checked: controlsRoot.settingsScreen.boolSetting("clipboardPaste", false)
+                checked: controlsRoot.settingsScreen.boolSetting("clipboardPaste", true)
                 onValueChangedByUser: value => controlsRoot.settingsScreen.setSetting("clipboardPaste", value)
             }
         }
