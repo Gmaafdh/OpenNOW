@@ -374,6 +374,8 @@ pub enum StreamShortcutAction {
     ConfirmStreamExit,
     ToggleMicrophone,
     ToggleConsoleMode,
+    ToggleClipboardPaste,
+    ShowCursor,
     CopyStats,
 }
 
@@ -393,6 +395,8 @@ impl StreamShortcutAction {
             Self::ConfirmStreamExit => "confirm-stream-exit",
             Self::ToggleMicrophone => "toggle-microphone",
             Self::ToggleConsoleMode => "toggle-console-mode",
+            Self::ToggleClipboardPaste => "toggle-clipboard-paste",
+            Self::ShowCursor => "show-cursor",
             Self::CopyStats => "copy-stats",
         }
     }
@@ -412,6 +416,8 @@ impl StreamShortcutAction {
             "confirm-stream-exit" => Self::ConfirmStreamExit,
             "toggle-microphone" => Self::ToggleMicrophone,
             "toggle-console-mode" => Self::ToggleConsoleMode,
+            "toggle-clipboard-paste" => Self::ToggleClipboardPaste,
+            "show-cursor" => Self::ShowCursor,
             "copy-stats" => Self::CopyStats,
             _ => return None,
         })
@@ -576,6 +582,8 @@ pub struct MediaStreamConfig {
     /// CloudMatch accepted Cloud G-SYNC and the host presentation path is VRR-capable.
     pub cloud_gsync: bool,
     pub shortcuts: StreamShortcutBindings,
+    /// Enables explicit local Ctrl+V text submission for the native Windows surface.
+    pub clipboard_paste: bool,
 }
 
 impl Default for MediaStreamConfig {
@@ -590,6 +598,7 @@ impl Default for MediaStreamConfig {
             bitrate_bps: 75_000_000,
             cloud_gsync: false,
             shortcuts: StreamShortcutBindings::default(),
+            clipboard_paste: false,
         }
     }
 }
@@ -932,6 +941,11 @@ pub enum MediaFeedback {
     },
     NativeOverlayAvailability {
         available: bool,
+    },
+    /// Native UI actions bypass gameplay-input readiness but reuse shortcut policy.
+    NativeOverlayAction(StreamShortcutAction),
+    ClipboardPasteFailed {
+        message: String,
     },
     FullscreenChanged {
         fullscreen: bool,
@@ -5236,6 +5250,8 @@ mod tests {
             StreamShortcutAction::ConfirmStreamExit,
             StreamShortcutAction::ToggleMicrophone,
             StreamShortcutAction::ToggleConsoleMode,
+            StreamShortcutAction::ToggleClipboardPaste,
+            StreamShortcutAction::ShowCursor,
             StreamShortcutAction::CopyStats,
         ];
         for action in actions {

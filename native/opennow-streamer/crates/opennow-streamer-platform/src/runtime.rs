@@ -28,6 +28,8 @@ const MICROPHONE_HOST_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub enum MediaRuntimeControl {
     PointerLock,
     Fullscreen,
+    CursorVisible,
+    ClipboardPaste(bool),
 }
 
 #[cfg(target_os = "macos")]
@@ -830,14 +832,28 @@ impl MainThreadHost {
                     let _ = reply.send(result);
                 }
                 Ok(HostCommand::Control { control, reply }) => {
-                    let output_control = match control {
-                        MediaRuntimeControl::PointerLock => OutputControl::PointerLock,
-                        MediaRuntimeControl::Fullscreen => OutputControl::Fullscreen,
+                    let result = match control {
+                        MediaRuntimeControl::CursorVisible => active
+                            .as_mut()
+                            .ok_or_else(|| "native media output is not active".to_owned())
+                            .and_then(ActiveOutput::show_cursor),
+                        MediaRuntimeControl::ClipboardPaste(enabled) => active
+                            .as_mut()
+                            .ok_or_else(|| "native media output is not active".to_owned())
+                            .and_then(|output| output.set_clipboard_paste(enabled)),
+                        MediaRuntimeControl::PointerLock | MediaRuntimeControl::Fullscreen => {
+                            let output_control = match control {
+                                MediaRuntimeControl::PointerLock => OutputControl::PointerLock,
+                                MediaRuntimeControl::Fullscreen => OutputControl::Fullscreen,
+                                MediaRuntimeControl::CursorVisible
+                                | MediaRuntimeControl::ClipboardPaste(_) => unreachable!(),
+                            };
+                            active
+                                .as_mut()
+                                .ok_or_else(|| "native media output is not active".to_owned())
+                                .and_then(|output| output.control(output_control))
+                        }
                     };
-                    let result = active
-                        .as_mut()
-                        .ok_or_else(|| "native media output is not active".to_owned())
-                        .and_then(|output| output.control(output_control));
                     let _ = reply.send(result);
                 }
                 #[cfg(target_os = "macos")]
@@ -1014,6 +1030,18 @@ impl MainThreadHost {
                         if let Some(feedback) = feedback.as_ref() {
                             let _ = feedback
                                 .send(MediaFeedback::NativeOverlayAvailability { available });
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    Ok(OutputEvent::NativeOverlayAction(action)) => {
+                        if let Some(feedback) = feedback.as_ref() {
+                            let _ = feedback.send(MediaFeedback::NativeOverlayAction(action));
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    Ok(OutputEvent::ClipboardPasteFailed(message)) => {
+                        if let Some(feedback) = feedback.as_ref() {
+                            let _ = feedback.send(MediaFeedback::ClipboardPasteFailed { message });
                         }
                     }
                     #[cfg(target_os = "windows")]

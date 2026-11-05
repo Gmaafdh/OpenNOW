@@ -2976,6 +2976,30 @@ QtObject {
                 AppController.showOverlay(compact)
         } else if (action === "toggle-fullscreen") {
             fullscreenToggleRequested()
+        } else if (action === "show-cursor") {
+            streamControlMessage = qsTr("Cursor visible · F8 toggles game lock")
+            accessibilityMessage = streamControlMessage
+            const requestId = sendNativeCommand("show-cursor", {}, "show-cursor")
+            if (requestId === "") {
+                streamControlMessage = lastError
+                accessibilityMessage = lastError
+            }
+        } else if (action === "toggle-clipboard-paste") {
+            const enabled = settings.clipboardPaste !== true
+            setSetting("clipboardPaste", enabled, "native-stream-control")
+            streamControlMessage = enabled
+                ? qsTr("Clipboard paste on · Ctrl+V") : qsTr("Clipboard paste off")
+            accessibilityMessage = streamControlMessage
+            if (NativeStreamRuntime.usesExternalWindow === true && streamer
+                    && ["starting", "streaming"].indexOf(String(streamer.status)) >= 0) {
+                const requestId = sendNativeCommand("clipboard-paste", {
+                    enabled: enabled
+                }, "clipboard-paste")
+                if (requestId === "") {
+                    streamControlMessage = lastError
+                    accessibilityMessage = lastError
+                }
+            }
         } else if (action === "toggle-pointer-lock") {
             if (NativeStreamRuntime.usesHostedSurface === true)
                 controlStream(action)
@@ -3956,6 +3980,10 @@ QtObject {
                 streamControlRequestId = ""
                 streamControlAction = ""
                 streamControlMessage = message
+            } else if (pending.operation === "clipboard-paste"
+                    || pending.operation === "show-cursor") {
+                streamControlMessage = message
+                accessibilityMessage = message
             } else if (pending.operation === "microphone") {
                 if (requestId === microphoneRequestId) {
                     microphoneRequestId = ""

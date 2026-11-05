@@ -145,8 +145,11 @@ QtObject {
                 && nativeModel.hud.length === 0, "the native menu is modal and suppresses passive HUD items")
             check(JSON.stringify(nativeModel.items.filter(item => item.enabled && item.action).map(item => item.action))
                 === JSON.stringify(["dismiss-overlay", "toggle-microphone", "toggle-anti-afk",
-                    "show-stats-expanded", "toggle-fullscreen", "toggle-console-mode", "stop-stream"]),
+                    "show-stats-expanded", "toggle-fullscreen", "toggle-clipboard-paste",
+                    "show-cursor", "toggle-console-mode", "stop-stream"]),
                 "every native menu action has an explicit shell-neutral mapping")
+            check(nativeModel.summary.length === 3 && nativeModel.footer.length > 0,
+                "the native menu includes the rich live summary and input hints")
             check(nativeModel.fontFamily.length > 0 && nativeModel.monoFontFamily.length > 0,
                 "the native renderer receives real shell font families")
             check(input.shellCaptureEnabled, "the open drawer keeps controller input away from the game")

@@ -552,6 +552,7 @@ impl LinuxHardwareOutput {
             external_relative_motion,
             false,
             stream.shortcuts,
+            stream.clipboard_paste,
         );
         input_capture.enable_gamepads(&sdl);
         Ok(Self {
@@ -950,6 +951,11 @@ pub(crate) struct SdlInputCapture {
     external_mouse_buttons: bool,
     native_overlay_modal: bool,
     cursor_state: RemoteCursorState,
+    cursor_forced_visible: bool,
+    #[cfg(target_os = "windows")]
+    clipboard_paste: bool,
+    #[cfg(target_os = "windows")]
+    paste_requested: Option<usize>,
     cursors: HashMap<(u8, u8), sdl2::mouse::Cursor>,
     game_controller: Option<sdl2::GameControllerSubsystem>,
     gamepads: HashMap<u32, (u8, sdl2::controller::GameController)>,
@@ -987,6 +993,7 @@ impl SdlInputCapture {
         external_relative_motion: bool,
         external_mouse_buttons: bool,
         shortcuts: StreamShortcutBindings,
+        _clipboard_paste: bool,
     ) -> Self {
         Self {
             captured: Vec::new(),
@@ -1004,6 +1011,11 @@ impl SdlInputCapture {
             // update. GFN sends a distinct predefined cursor ID 0 when the
             // game actually wants locked relative input.
             cursor_state: RemoteCursorState::Unknown,
+            cursor_forced_visible: false,
+            #[cfg(target_os = "windows")]
+            clipboard_paste: _clipboard_paste,
+            #[cfg(target_os = "windows")]
+            paste_requested: None,
             cursors: HashMap::new(),
             game_controller: None,
             gamepads: HashMap::new(),
@@ -1180,6 +1192,35 @@ impl SdlInputCapture {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    pub(crate) fn set_clipboard_paste(&mut self, enabled: bool) {
+        self.clipboard_paste = enabled;
+        if !enabled {
+            self.paste_requested = None;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn take_clipboard_paste_request(&mut self) -> Option<usize> {
+        self.paste_requested.take()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn release_clipboard_modifiers(&mut self) {
+        let pressed = std::mem::take(&mut self.pressed_keys);
+        for (scancode, virtual_key) in pressed {
+            if ((0xa0..=0xa5).contains(&virtual_key)) || matches!(virtual_key, 0x5b | 0x5c) {
+                self.captured.push(CapturedInput::Key {
+                    virtual_key,
+                    modifiers: 0,
+                    pressed: false,
+                });
+            } else {
+                self.pressed_keys.insert(scancode, virtual_key);
+            }
+        }
+    }
+
     pub(crate) fn handle_event(
         &mut self,
         sdl: &sdl2::Sdl,
@@ -1233,6 +1274,27 @@ impl SdlInputCapture {
                     ));
                     return;
                 }
+                #[cfg(target_os = "windows")]
+                if self.clipboard_paste
+                    && !self.native_overlay_modal
+                    && scancode == sdl2::keyboard::Scancode::V
+                    && keymod
+                        .intersects(sdl2::keyboard::Mod::LCTRLMOD | sdl2::keyboard::Mod::RCTRLMOD)
+                    && !keymod.intersects(
+                        sdl2::keyboard::Mod::LALTMOD
+                            | sdl2::keyboard::Mod::RALTMOD
+                            | sdl2::keyboard::Mod::LGUIMOD
+                            | sdl2::keyboard::Mod::RGUIMOD,
+                    )
+                {
+                    // Match the Qt input path: never turn AltGr into paste,
+                    // consume the physical V release, and release game modifiers
+                    // before Unicode text is submitted to the shared queue.
+                    self.pressed_shortcuts.insert(scancode);
+                    self.release_clipboard_modifiers();
+                    self.paste_requested = Some(self.captured.len());
+                    return;
+                }
                 if let Some(virtual_key) = sdl_virtual_key(scancode)
                     && let Some(action) = self
                         .shortcuts
@@ -1274,7 +1336,9 @@ impl SdlInputCapture {
                 push_mouse_motion(&mut self.captured, xrel, yrel);
             }
             Event::MouseMotion { x, y, .. }
-                if self.cursor_state != RemoteCursorState::Hidden || self.native_overlay_modal =>
+                if self.cursor_state != RemoteCursorState::Hidden
+                    || self.cursor_forced_visible
+                    || self.native_overlay_modal =>
             {
                 let absolute =
                     map_window_point_to_stream_viewport((x, y), stream_size, window_size);
@@ -1289,7 +1353,7 @@ impl SdlInputCapture {
                 // A button event proves this window owns foreground input even
                 // if SDL delivered FocusGained later in the same pump batch.
                 self.focused = true;
-                if self.cursor_state == RemoteCursorState::Hidden {
+                if self.cursor_state == RemoteCursorState::Hidden && !self.cursor_forced_visible {
                     self.enable_relative_mouse(sdl, window);
                 }
                 if !self.external_mouse_buttons
@@ -1331,8 +1395,10 @@ impl SdlInputCapture {
                 ..
             } => {
                 self.focused = true;
-                if self.cursor_state == RemoteCursorState::Hidden {
+                if self.cursor_state == RemoteCursorState::Hidden && !self.cursor_forced_visible {
                     self.enable_relative_mouse(sdl, window);
+                } else if self.cursor_forced_visible {
+                    sdl.mouse().show_cursor(true);
                 }
             }
             Event::Window {
@@ -1365,15 +1431,36 @@ impl SdlInputCapture {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    pub(crate) fn show_cursor(&mut self, sdl: &sdl2::Sdl, window: &mut sdl2::video::Window) {
+        self.cursor_forced_visible = true;
+        self.disable_relative_mouse(sdl, window);
+        window.set_mouse_grab(false);
+        sdl.mouse().show_cursor(true);
+    }
+
     pub(crate) fn toggle_pointer_lock(
         &mut self,
         sdl: &sdl2::Sdl,
         window: &mut sdl2::video::Window,
     ) -> bool {
-        if self.relative_mouse {
+        if self.native_overlay_modal {
+            // Modal presentation always keeps the actual cursor visible. F8
+            // changes the preference applied on modal exit instead of locking
+            // the pointer underneath the menu.
+            self.cursor_forced_visible = !self.cursor_forced_visible;
             self.disable_relative_mouse(sdl, window);
             sdl.mouse().show_cursor(true);
+            return false;
+        }
+        if self.relative_mouse {
+            self.disable_relative_mouse(sdl, window);
+            // An explicit Visible choice survives modal exit and focus changes
+            // until the host next publishes a visible cursor or the user locks.
+            self.cursor_forced_visible = true;
+            sdl.mouse().show_cursor(true);
         } else {
+            self.cursor_forced_visible = false;
             self.enable_relative_mouse(sdl, window);
         }
         self.relative_mouse
@@ -1402,8 +1489,16 @@ impl SdlInputCapture {
             self.cursor_state,
             bytes.len(),
         );
+        if self.cursor_state == RemoteCursorState::Visible {
+            self.cursor_forced_visible = false;
+        }
         if self.cursor_state == RemoteCursorState::Hidden {
-            self.enable_relative_mouse(sdl, window);
+            if self.cursor_forced_visible {
+                self.disable_relative_mouse(sdl, window);
+                sdl.mouse().show_cursor(true);
+            } else {
+                self.enable_relative_mouse(sdl, window);
+            }
             return;
         }
         self.disable_relative_mouse(sdl, window);
@@ -1487,7 +1582,16 @@ impl SdlInputCapture {
             }
             sdl.mouse().show_cursor(true);
         } else if self.cursor_state == RemoteCursorState::Hidden {
-            self.enable_relative_mouse(sdl, window);
+            if self.cursor_forced_visible {
+                self.disable_relative_mouse(sdl, window);
+                sdl.mouse().show_cursor(true);
+            } else {
+                self.enable_relative_mouse(sdl, window);
+            }
+        } else if !native_cursor_overlay_enabled() {
+            // Modal menus always own a visible local cursor. Restore the
+            // setting-disabled remote-cursor policy when the modal closes.
+            sdl.mouse().show_cursor(false);
         }
         self.captured.drain(first_release..).collect()
     }
@@ -1684,6 +1788,7 @@ impl SoftwareOutput {
             external_relative_motion,
             false,
             stream.shortcuts,
+            stream.clipboard_paste,
         );
         input_capture.enable_gamepads(&sdl);
 
@@ -2653,6 +2758,55 @@ impl ActiveOutput {
         }
     }
 
+    pub(crate) fn show_cursor(&mut self) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            match self {
+                Self::Windows(output) => {
+                    let Some(surface) = output.external_surface.as_mut() else {
+                        return Err("Cursor control requires the external stream window".to_owned());
+                    };
+                    surface
+                        .input_capture
+                        .show_cursor(&surface.sdl, &mut surface.window);
+                    surface.sync_raw_input();
+                    Ok(())
+                }
+                _ => Err("Cursor control requires the Windows stream window".to_owned()),
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = self;
+            Err("Native cursor control is available on Windows".to_owned())
+        }
+    }
+
+    pub(crate) fn set_clipboard_paste(&mut self, enabled: bool) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            match self {
+                Self::Windows(output) => {
+                    let Some(surface) = output.external_surface.as_mut() else {
+                        return Err(
+                            "Clipboard paste requires the external Windows stream window"
+                                .to_owned(),
+                        );
+                    };
+                    surface.input_capture.set_clipboard_paste(enabled);
+                    Ok(())
+                }
+                _ => Err("Clipboard paste requires the Windows stream window".to_owned()),
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = self;
+            let _ = enabled;
+            Err("Native clipboard paste control is available on Windows".to_owned())
+        }
+    }
+
     pub(crate) fn control(&mut self, control: OutputControl) -> Result<(), String> {
         match self {
             Self::Software(output) => match control {
@@ -2763,6 +2917,10 @@ pub(crate) enum OutputEvent {
     PointerLockChanged(bool),
     #[cfg(target_os = "windows")]
     NativeOverlayAvailability(bool),
+    #[cfg(target_os = "windows")]
+    NativeOverlayAction(StreamShortcutAction),
+    #[cfg(target_os = "windows")]
+    ClipboardPasteFailed(String),
     #[cfg(target_os = "windows")]
     FullscreenChanged(bool),
     #[cfg(target_os = "windows")]
@@ -2969,6 +3127,18 @@ impl NativeOverlayInput {
             CapturedInput::Guide if active => {
                 NativeOverlayInputRoute::Action(StreamShortcutAction::DismissOverlay)
             }
+            CapturedInput::Shortcut(action) if active => {
+                // Local shortcuts are UI commands whenever a native panel is
+                // active. Never put them in the gameplay queue that NVST may
+                // clear while input is unavailable.
+                NativeOverlayInputRoute::Action(*action)
+            }
+            CapturedInput::Screenshot if active => {
+                NativeOverlayInputRoute::Action(StreamShortcutAction::Screenshot)
+            }
+            CapturedInput::RecordingToggle if active => {
+                NativeOverlayInputRoute::Action(StreamShortcutAction::ToggleRecording)
+            }
             CapturedInput::Shortcut(_)
             | CapturedInput::Screenshot
             | CapturedInput::RecordingToggle => NativeOverlayInputRoute::Forward,
@@ -3160,6 +3330,7 @@ impl WindowsExternalSdlSurface {
             external_relative_motion,
             raw_input.is_some(),
             stream.shortcuts,
+            stream.clipboard_paste,
         );
         input_capture.enable_gamepads(&sdl);
         input_capture.set_input_paused(true, &sdl, &mut window);
@@ -3396,24 +3567,45 @@ impl WindowsExternalSdlSurface {
         self.sync_raw_input();
     }
 
-    fn take_captured_input(&mut self) -> Vec<CapturedInput> {
+    fn take_captured_input(&mut self) -> (Vec<CapturedInput>, Option<usize>) {
+        let paste_marker = self.input_capture.take_clipboard_paste_request();
         let captured = self.input_capture.take();
+        let captured_len = captured.len();
         if !self.standalone {
-            return captured;
+            let mut forwarded = Vec::with_capacity(captured_len);
+            let mut paste_index = None;
+            for (index, input) in captured.into_iter().enumerate() {
+                if paste_marker == Some(index) {
+                    paste_index = Some(forwarded.len());
+                }
+                forwarded.push(input);
+            }
+            if paste_marker == Some(captured_len) {
+                paste_index = Some(forwarded.len());
+            }
+            return (forwarded, paste_index);
         }
         let window_size = self.window.size();
         self.native_overlay_input
             .set_relative_mouse(self.input_capture.relative_mouse_enabled());
         let mut forwarded = std::mem::take(&mut self.pending_gameplay_release);
-        forwarded.reserve(captured.len());
-        for input in captured {
+        forwarded.reserve(captured_len);
+        let mut paste_index = None;
+        for (index, input) in captured.into_iter().enumerate() {
+            if paste_marker == Some(index) {
+                paste_index = Some(forwarded.len());
+            }
             let input = match self
                 .native_overlay_input
                 .route(&input, self.stream_size, window_size)
             {
                 NativeOverlayInputRoute::Forward => input,
                 NativeOverlayInputRoute::Consume => continue,
-                NativeOverlayInputRoute::Action(action) => CapturedInput::Shortcut(action),
+                NativeOverlayInputRoute::Action(action) => {
+                    self.native_overlay
+                        .enqueue_action(action.protocol_name().to_owned());
+                    continue;
+                }
             };
             if matches!(
                 &input,
@@ -3424,7 +3616,24 @@ impl WindowsExternalSdlSurface {
                 forwarded.push(input);
             }
         }
-        forwarded
+        if paste_marker == Some(captured_len) {
+            paste_index = Some(forwarded.len());
+        }
+        (forwarded, paste_index)
+    }
+
+    fn take_native_overlay_action(&mut self) -> Option<StreamShortcutAction> {
+        while let Some(action) = self.native_overlay.take_action() {
+            let Some(action) = StreamShortcutAction::from_protocol_name(&action) else {
+                continue;
+            };
+            if self.standalone && standalone_owns_shortcut(action) {
+                self.toggle_fullscreen();
+                continue;
+            }
+            return Some(action);
+        }
+        None
     }
 
     fn update_cursor(&mut self, bytes: &[u8]) {
@@ -3455,6 +3664,64 @@ impl WindowsExternalSdlSurface {
 }
 
 #[cfg(target_os = "windows")]
+fn read_windows_clipboard_text() -> Result<Vec<u8>, String> {
+    use std::ptr::null_mut;
+
+    use windows_sys::Win32::Foundation::HGLOBAL;
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, OpenClipboard,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+
+    const CF_UNICODETEXT: u32 = 13;
+    struct ClipboardGuard;
+    impl Drop for ClipboardGuard {
+        fn drop(&mut self) {
+            unsafe { CloseClipboard() };
+        }
+    }
+    struct GlobalLockGuard(HGLOBAL);
+    impl Drop for GlobalLockGuard {
+        fn drop(&mut self) {
+            unsafe { GlobalUnlock(self.0) };
+        }
+    }
+
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return Err("The Windows clipboard is busy or unavailable".to_owned());
+        }
+        let _clipboard = ClipboardGuard;
+        let handle = GetClipboardData(CF_UNICODETEXT);
+        if handle.is_null() {
+            return Err("The Windows clipboard does not contain Unicode text".to_owned());
+        }
+        let byte_len = GlobalSize(handle);
+        let maximum_utf16_bytes = opennow_streamer_protocol::text_input::MAX_TEXT_BYTES * 2 + 2;
+        if byte_len < 2 || byte_len % 2 != 0 || byte_len > maximum_utf16_bytes {
+            return Err("Clipboard text is empty, invalid, or larger than 64 KiB".to_owned());
+        }
+        let memory = GlobalLock(handle);
+        if memory.is_null() {
+            return Err("The Windows clipboard text could not be locked".to_owned());
+        }
+        let _memory = GlobalLockGuard(handle);
+        let units = std::slice::from_raw_parts(memory.cast::<u16>(), byte_len / 2);
+        let text_len = units
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(units.len());
+        let text = String::from_utf16(&units[..text_len])
+            .map_err(|_| "Clipboard text is not valid UTF-16".to_owned())?;
+        let text = text.into_bytes();
+        if text.is_empty() || text.len() > opennow_streamer_protocol::text_input::MAX_TEXT_BYTES {
+            return Err("Clipboard text is empty or larger than 64 KiB of UTF-8".to_owned());
+        }
+        Ok(text)
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) struct WindowsOutput {
     backend: Arc<WindowsBackend>,
     graphics_api: WindowsGraphicsApi,
@@ -3463,6 +3730,7 @@ pub(crate) struct WindowsOutput {
     output: Arc<OutputBuffers>,
     external_surface: Option<WindowsExternalSdlSurface>,
     reported_native_overlay_availability: Option<bool>,
+    clipboard_paste_error: Option<String>,
     stopped: bool,
 }
 
@@ -3569,6 +3837,7 @@ impl WindowsOutput {
             output,
             external_surface,
             reported_native_overlay_availability: None,
+            clipboard_paste_error: None,
             stopped: false,
         })
     }
@@ -3603,10 +3872,19 @@ impl WindowsOutput {
     }
 
     fn pump(&mut self) -> Result<OutputEvent, String> {
-        let pointer_lock_change = self.external_surface.as_mut().and_then(|surface| {
+        if let Some(surface) = self.external_surface.as_mut() {
             surface.pump();
-            surface.take_pointer_lock_change()
-        });
+            if let Some(action) = surface.take_native_overlay_action() {
+                return Ok(OutputEvent::NativeOverlayAction(action));
+            }
+        }
+        if let Some(message) = self.clipboard_paste_error.take() {
+            return Ok(OutputEvent::ClipboardPasteFailed(message));
+        }
+        let pointer_lock_change = self
+            .external_surface
+            .as_mut()
+            .and_then(WindowsExternalSdlSurface::take_pointer_lock_change);
         if let Some(relative_mouse) = pointer_lock_change {
             return Ok(OutputEvent::PointerLockChanged(relative_mouse));
         }
@@ -3682,7 +3960,7 @@ impl WindowsOutput {
                 eprintln!("{error}");
             }
             let captured_input = self.output.captured_input();
-            for input in surface.take_captured_input() {
+            for input in surface.take_captured_input().0 {
                 captured_input.push(input);
             }
         }
@@ -3691,10 +3969,28 @@ impl WindowsOutput {
     }
 
     fn take_captured_input(&mut self) -> Vec<CapturedInput> {
-        self.external_surface
-            .as_mut()
-            .map(WindowsExternalSdlSurface::take_captured_input)
-            .unwrap_or_default()
+        let Some(surface) = self.external_surface.as_mut() else {
+            return Vec::new();
+        };
+        let (mut captured, paste_index) = surface.take_captured_input();
+        let Some(paste_index) = paste_index else {
+            return captured;
+        };
+        let paste_index = paste_index.min(captured.len());
+        let suffix = captured.split_off(paste_index);
+        let captured_input = self.output.captured_input();
+        for input in captured {
+            captured_input.push(input);
+        }
+        let result = read_windows_clipboard_text().and_then(|text| {
+            captured_input
+                .submit_text(&text)
+                .map_err(|error| format!("Clipboard text could not be queued: {error:?}"))
+        });
+        if let Err(message) = result {
+            self.clipboard_paste_error = Some(message);
+        }
+        suffix
     }
 
     fn update_cursor(&mut self, bytes: &[u8]) {
@@ -4157,7 +4453,8 @@ mod tests {
 
     #[test]
     fn native_input_capture_waits_for_the_first_server_cursor_mode() {
-        let capture = SdlInputCapture::new(true, false, false, StreamShortcutBindings::default());
+        let capture =
+            SdlInputCapture::new(true, false, false, StreamShortcutBindings::default(), false);
         assert!(!capture.focused);
         assert!(!capture.relative_mouse);
         assert_eq!(capture.cursor_state, RemoteCursorState::Unknown);
@@ -4212,7 +4509,7 @@ mod tests {
                 sizes.0,
                 sizes.1,
             ),
-            NativeOverlayInputRoute::Forward
+            NativeOverlayInputRoute::Action(StreamShortcutAction::ToggleStats)
         );
         assert_eq!(
             input.route(

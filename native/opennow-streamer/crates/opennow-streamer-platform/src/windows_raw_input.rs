@@ -28,7 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW,
 };
 
-use crate::media::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+use crate::media::{CapturedInput, CapturedInputQueue};
 use opennow_streamer_platform_windows::native_overlay::NativeOverlayShared;
 
 const RAW_INPUT_CLASS: &[u16] = &[
@@ -430,10 +430,7 @@ fn filter_native_mouse_buttons_at(
                 if button == 1 {
                     if let Some((x, y)) = point {
                         if let Some(action) = state.native_overlay.pointer_up(x, y) {
-                            if let Some(action) = StreamShortcutAction::from_protocol_name(&action)
-                            {
-                                state.captured_input.push(CapturedInput::Shortcut(action));
-                            }
+                            state.native_overlay.enqueue_action(action);
                         }
                     }
                 }
@@ -596,7 +593,7 @@ mod tests {
         NativeOverlayShared, RawInputState, filter_native_mouse_buttons_at, overlay_exclusions,
         point_in_exclusions, push_mouse_delta, push_raw_mouse_buttons, release_pressed_buttons,
     };
-    use crate::media::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+    use crate::media::{CapturedInput, CapturedInputQueue};
     use opennow_streamer_protocol::{NativeOverlay, NativeOverlayItem, RenderSurfaceRect};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
@@ -745,12 +742,11 @@ mod tests {
             filter_native_mouse_buttons_at(&state, RI_MOUSE_LEFT_BUTTON_UP as u16, point),
             0
         );
-        assert_eq!(
-            state.captured_input.take(),
-            Some(CapturedInput::Shortcut(
-                StreamShortcutAction::DismissOverlay
-            ))
-        );
         assert_eq!(state.captured_input.take(), None);
+        assert_eq!(
+            state.native_overlay.take_action(),
+            Some("dismiss-overlay".to_owned())
+        );
+        assert_eq!(state.native_overlay.take_action(), None);
     }
 }

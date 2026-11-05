@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +31,8 @@ pub struct NativeOverlayPlacement {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NativeOverlayLayout {
     pub panel: Option<NativeOverlayRect>,
+    pub summary: Option<NativeOverlayRect>,
+    pub footer: Option<NativeOverlayRect>,
     pub items: Vec<NativeOverlayPlacement>,
     pub hud: Vec<NativeOverlayPlacement>,
     pub scrim: bool,
@@ -91,6 +94,7 @@ impl NativeOverlaySnapshot {
 #[derive(Debug)]
 pub struct NativeOverlayShared {
     state: Mutex<NativeOverlaySnapshot>,
+    actions: Mutex<VecDeque<String>>,
     presentation_available: AtomicBool,
 }
 
@@ -98,6 +102,7 @@ impl Default for NativeOverlayShared {
     fn default() -> Self {
         Self {
             state: Mutex::new(NativeOverlaySnapshot::default()),
+            actions: Mutex::new(VecDeque::new()),
             presentation_available: AtomicBool::new(true),
         }
     }
@@ -150,7 +155,40 @@ impl NativeOverlayShared {
             .store(available, Ordering::Release);
         if !available {
             self.release_pointer();
+            self.actions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
         }
+    }
+
+    /// Queue a shell action independently of gameplay-input readiness. The
+    /// output pump turns this into media feedback before NVST can clear its
+    /// gameplay queue. A bound prevents repeated controller/mouse activation
+    /// from growing without limit while the shell is busy.
+    pub fn enqueue_action(&self, action: String) -> bool {
+        if !self.presentation_available() || action.trim().is_empty() {
+            return false;
+        }
+        let mut actions = self
+            .actions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if actions.len() >= 32 {
+            return false;
+        }
+        actions.push_back(action);
+        true
+    }
+
+    pub fn take_action(&self) -> Option<String> {
+        if !self.presentation_available() {
+            return None;
+        }
+        self.actions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
     }
 
     pub fn set_viewport(&self, width: u32, height: u32, dpi_scale: f32) {
@@ -178,6 +216,7 @@ impl NativeOverlayShared {
         // menu and exit dialog may take modal ownership of gameplay input.
         view.input_blocking = matches!(view.kind.as_str(), "menu" | "exit") && view.input_blocking;
         view.items.truncate(64);
+        view.summary.truncate(3);
         view.hud.truncate(16);
         let mut state = self
             .state
@@ -212,6 +251,10 @@ impl NativeOverlayShared {
 
     pub fn clear(&self) {
         self.update_view(NativeOverlay::default());
+        self.actions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 
     pub fn move_focus(&self, direction: NativeOverlayDirection) -> bool {
@@ -465,7 +508,7 @@ pub fn layout_native_overlay(
 
 fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut NativeOverlayLayout) {
     let s = layout.scale;
-    let compact = height / s < 680.0;
+    let compact = height / s < 720.0;
     layout.compact = compact;
     let margin = if compact { 12.0 } else { 16.0 } * s;
     let panel = NativeOverlayRect {
@@ -479,12 +522,37 @@ fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut Nativ
     let inset = if compact { 16.0 } else { 20.0 } * s;
     let content_x = panel.x + inset;
     let content_width = (panel.width - 2.0 * inset).max(80.0);
-    let header = if compact { 112.0 } else { 154.0 } * s;
-    let footer = if compact { 28.0 } else { 42.0 } * s;
-    let mut y = panel.y + header;
-    let bottom = panel.y + panel.height - footer;
-    let spacing = if compact { 6.0 } else { 10.0 } * s;
+    let header = if compact { 104.0 } else { 116.0 } * s;
+    let footer_height = if view.footer.trim().is_empty() {
+        0.0
+    } else if compact {
+        26.0 * s
+    } else {
+        34.0 * s
+    };
+    let footer_y = panel.y + panel.height - footer_height;
+    let bottom = footer_y - if footer_height > 0.0 { 8.0 * s } else { 0.0 };
+    if footer_height > 0.0 {
+        layout.footer = Some(NativeOverlayRect {
+            x: content_x,
+            y: footer_y,
+            width: content_width,
+            height: footer_height,
+        });
+    }
+    let spacing = if compact { 7.0 } else { 9.0 } * s;
     let gap = if compact { 8.0 } else { 10.0 } * s;
+    let mut y = panel.y + header;
+    if !view.summary.is_empty() {
+        let summary_height = if compact { 80.0 } else { 94.0 } * s;
+        layout.summary = Some(NativeOverlayRect {
+            x: content_x,
+            y,
+            width: content_width,
+            height: summary_height,
+        });
+        y += summary_height + spacing;
+    }
     let mut index = 0_usize;
     while index < view.items.len() {
         let item = &view.items[index];
@@ -492,12 +560,12 @@ fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut Nativ
         let item_height = match (role, compact) {
             ("primary", true) => 44.0 * s,
             ("primary", false) => 50.0 * s,
-            ("toggle", true) => 64.0 * s,
-            ("toggle", false) => 88.0 * s,
+            ("toggle", true) => 60.0 * s,
+            ("toggle", false) => 78.0 * s,
             ("metric", true) => 40.0 * s,
             ("metric", false) => 48.0 * s,
             (_, true) => 46.0 * s,
-            (_, false) => 58.0 * s,
+            (_, false) => 56.0 * s,
         };
         if y + item_height > bottom {
             break;
@@ -894,6 +962,60 @@ mod tests {
         assert_eq!(
             shared.activate_focused(),
             Some("confirm-stream-exit".to_owned())
+        );
+    }
+
+    #[test]
+    fn native_actions_are_bounded_and_cleared_with_presentation() {
+        let shared = NativeOverlayShared::new();
+        shared.update_view(menu());
+        assert!(!shared.enqueue_action("  ".to_owned()));
+        assert!(shared.enqueue_action("dismiss-overlay".to_owned()));
+        for _ in 0..31 {
+            assert!(shared.enqueue_action("toggle-stats".to_owned()));
+        }
+        assert!(!shared.enqueue_action("stop-stream".to_owned()));
+        shared.set_presentation_available(false);
+        assert_eq!(shared.take_action(), None);
+        shared.set_presentation_available(true);
+        assert!(shared.enqueue_action("dismiss-overlay".to_owned()));
+        assert_eq!(shared.take_action(), Some("dismiss-overlay".to_owned()));
+        assert_eq!(shared.take_action(), None);
+    }
+
+    #[test]
+    fn rich_menu_keeps_summary_controls_and_footer_inside_panel() {
+        let mut view = menu();
+        view.footer = "Esc Back · Ctrl G Menu".to_owned();
+        view.summary = vec![
+            item("fps", "", "metric"),
+            item("output", "", "metric"),
+            item("bitrate", "", "metric"),
+        ];
+        view.items.splice(
+            5..5,
+            [
+                item("clipboard", "toggle-clipboard-paste", "toggle"),
+                item("cursor", "toggle-pointer-lock", "toggle"),
+                NativeOverlayItem {
+                    label: "Controllers".to_owned(),
+                    role: "row".to_owned(),
+                    enabled: false,
+                    ..NativeOverlayItem::default()
+                },
+                item("console", "toggle-console-mode", "row"),
+            ],
+        );
+        let layout = layout_native_overlay(&view, 1600, 900, 1.0);
+        assert!(layout.summary.is_some());
+        assert!(layout.footer.is_some());
+        assert_eq!(layout.items.len(), view.items.len());
+        let panel = layout.panel.expect("menu panel");
+        assert!(
+            layout
+                .items
+                .iter()
+                .all(|item| { item.rect.y + item.rect.height <= panel.y + panel.height })
         );
     }
 }

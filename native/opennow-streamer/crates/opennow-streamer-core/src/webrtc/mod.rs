@@ -661,6 +661,15 @@ impl Worker {
                 "native-overlay-state",
                 json!({"available":available,"source":"native"}),
             ),
+            MediaFeedback::NativeOverlayAction(action) => {
+                if self.active() {
+                    forward_shortcut_action(&self.output, self.runtime.as_ref(), action);
+                }
+            }
+            MediaFeedback::ClipboardPasteFailed { message } => self.emit(
+                "text-input-error",
+                json!({"message":message,"source":"native-clipboard"}),
+            ),
             MediaFeedback::FullscreenChanged { fullscreen } => self.emit(
                 "native-fullscreen-changed",
                 json!({"fullscreen":fullscreen,"source":"native"}),

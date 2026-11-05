@@ -454,6 +454,8 @@ impl Engine {
             ]),
             "standalone-fullscreen-toggle" => self.standalone_fullscreen(command),
             "pointer-lock-toggle" => self.pointer_lock(command),
+            "show-cursor" => self.show_cursor(command),
+            "clipboard-paste" => self.set_clipboard_paste(command),
             "surface-focus" => self.focus_surface(command),
             "anti-afk-pulse" => self.anti_afk_pulse(command),
             "recording-start" => self.start_recording(command),
@@ -1265,6 +1267,41 @@ impl Engine {
         Ok(vec![response(command.id, "ok")])
     }
 
+    fn show_cursor(&self, command: Command) -> Result<Vec<Value>, Value> {
+        let runtime = self.media_runtime.as_ref().ok_or_else(|| {
+            error(
+                Some(&command.id),
+                "unsupported-command",
+                "Native streamer has no cursor output runtime",
+            )
+        })?;
+        runtime
+            .control(MediaRuntimeControl::CursorVisible)
+            .map_err(|message| error(Some(&command.id), "cursor-unavailable", message))?;
+        Ok(vec![response(command.id, "ok")])
+    }
+
+    fn set_clipboard_paste(&self, command: Command) -> Result<Vec<Value>, Value> {
+        let enabled = command.enabled.ok_or_else(|| {
+            error(
+                Some(&command.id),
+                "invalid-command",
+                "clipboard-paste requires a boolean enabled value",
+            )
+        })?;
+        let runtime = self.media_runtime.as_ref().ok_or_else(|| {
+            error(
+                Some(&command.id),
+                "unsupported-command",
+                "Native streamer has no media output runtime",
+            )
+        })?;
+        runtime
+            .control(MediaRuntimeControl::ClipboardPaste(enabled))
+            .map_err(|message| error(Some(&command.id), "clipboard-unavailable", message))?;
+        Ok(vec![response(command.id, "ok")])
+    }
+
     fn pointer_lock(&self, command: Command) -> Result<Vec<Value>, Value> {
         #[cfg(not(target_os = "windows"))]
         {
@@ -2040,6 +2077,12 @@ fn forward_nvst_session_events<R: NvstSessionResources>(
         flush_control_output(output, lifecycle, generation, &mut pending_control_output);
         if let Some(feedback) = media_feedback.as_ref() {
             while let Ok(feedback) = feedback.try_recv() {
+                if let MediaFeedback::NativeOverlayAction(action) = &feedback {
+                    if lock_lifecycle(lifecycle).generation == generation {
+                        forward_shortcut_action(output, shortcut_runtime.as_ref(), *action);
+                    }
+                    continue;
+                }
                 forward_nvst_media_feedback(
                     output,
                     lifecycle,
@@ -3105,6 +3148,15 @@ fn forward_nvst_media_feedback<R: NvstSessionResources>(
                 json!({"available":available, "source":"native"}),
             ));
         }
+        MediaFeedback::NativeOverlayAction(_) => {
+            unreachable!("native overlay actions are handled before NVST media feedback")
+        }
+        MediaFeedback::ClipboardPasteFailed { message } => {
+            let _ = output.send(event(
+                "text-input-error",
+                json!({"message":message, "source":"native-clipboard"}),
+            ));
+        }
         MediaFeedback::FullscreenChanged { fullscreen } => {
             let _ = output.send(event(
                 "native-fullscreen-changed",
@@ -3443,6 +3495,7 @@ fn media_stream_config(context: &SessionContext) -> MediaStreamConfig {
         bitrate_bps,
         cloud_gsync,
         shortcuts: StreamShortcutBindings::from_json(&context.shortcuts),
+        clipboard_paste: context.settings["clipboardPaste"].as_bool() == Some(true),
     }
 }
 
@@ -6918,6 +6971,7 @@ mod tests {
                 bitrate_bps: 75_000_000,
                 cloud_gsync: true,
                 shortcuts: StreamShortcutBindings::default(),
+                clipboard_paste: false,
             }
         );
         let mut low_rate = context.clone();

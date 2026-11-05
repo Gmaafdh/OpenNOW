@@ -155,9 +155,18 @@ FocusScope {
             kind: "menu",
             title: String(root.game.title || qsTr("GeForce NOW")),
             subtitle: qsTr("LIVE · %1").arg(root.clockText(clockMs)),
-            status: [root.streamerStatus, root.fpsText + " FPS", root.resolution, root.bitrateText].join(" · "),
-            detail: [root.transportText, root.codecText, root.backendText].join(" · "),
+            status: [root.streamerStatus, root.transportText].join(" · "),
+            detail: [root.codecText, root.backendText].join(" · "),
+            footer: root.controllerHints
+                ? qsTr("↑↓ Move   A Select   B Back   Ctrl K Commands")
+                : qsTr("Esc Back   ·   Ctrl G Menu   ·   Ctrl+V Paste"),
             inputBlocking: true,
+            summary: [
+                item("fps", "", qsTr("FPS"), root.fpsText + " FPS", "metric", false, null, ""),
+                item("output", "", qsTr("OUTPUT"), root.resolution + " · " + root.codecText,
+                    "metric", false, null, ""),
+                item("bitrate", "", qsTr("BITRATE"), root.bitrateText, "metric", false, null, "")
+            ],
             items: [
                 item("resume", "dismiss-overlay", qsTr("Back to game"), "Esc", "primary", true, null, ""),
                 item("microphone", "toggle-microphone", qsTr("Microphone"), ShellStore.microphoneLabel,
@@ -170,6 +179,12 @@ FocusScope {
                     "toggle", true, null, root.shortcut("shortcutToggleStats", "Ctrl+N")),
                 item("fullscreen", "toggle-fullscreen", qsTr("Fullscreen"), root.fullscreen ? qsTr("On") : qsTr("Off"),
                     "toggle", true, root.fullscreen, root.shortcut("shortcutToggleFullscreen", "F11")),
+                item("clipboard", "toggle-clipboard-paste", qsTr("Clipboard paste"),
+                    ShellStore.settings.clipboardPaste === true ? qsTr("On") : qsTr("Off"),
+                    "toggle", true, ShellStore.settings.clipboardPaste === true, qsTr("Ctrl+V · plain text")),
+                item("cursor", "show-cursor", qsTr("Cursor"), qsTr("Show"),
+                    "toggle", true, null,
+                    root.shortcut("shortcutTogglePointerLock", "F8") + " · " + qsTr("game lock")),
                 item("controllers", "", qsTr("Controllers"), controllerValue, "row", false, null, ""),
                 item("console", "toggle-console-mode", root.modeOn ? qsTr("Switch to desktop mode") : qsTr("Switch to console mode"),
                     root.modePending ? qsTr("SWITCHING…") : root.modeOn ? qsTr("DESKTOP READY") : qsTr("GAMEPAD READY"),

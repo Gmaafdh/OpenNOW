@@ -174,6 +174,9 @@ pub struct NativeOverlay {
     pub status: String,
     #[serde(default)]
     pub detail: String,
+    /// Localized input hints shown below the native menu. Passive layouts ignore it.
+    #[serde(default)]
+    pub footer: String,
     #[serde(default)]
     pub expanded: bool,
     #[serde(default)]
@@ -182,6 +185,9 @@ pub struct NativeOverlay {
     pub panel_action: String,
     #[serde(default)]
     pub items: Vec<NativeOverlayItem>,
+    /// Non-interactive live metrics presented as the menu's summary card.
+    #[serde(default)]
+    pub summary: Vec<NativeOverlayItem>,
     #[serde(default)]
     pub hud: Vec<NativeOverlayItem>,
     #[serde(default = "default_native_overlay_scale")]
@@ -209,10 +215,12 @@ impl Default for NativeOverlay {
             subtitle: String::new(),
             status: String::new(),
             detail: String::new(),
+            footer: String::new(),
             expanded: false,
             input_blocking: false,
             panel_action: String::new(),
             items: Vec::new(),
+            summary: Vec::new(),
             hud: Vec::new(),
             scale: 1.0,
             opacity: 88,

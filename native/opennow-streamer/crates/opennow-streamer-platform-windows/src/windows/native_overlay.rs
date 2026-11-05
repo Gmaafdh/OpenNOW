@@ -393,19 +393,24 @@ impl NativeOverlayRenderer {
             );
         }
         if let Some(panel) = layout.panel {
+            let panel_opacity = if snapshot.view.kind == "menu" {
+                (snapshot.view.opacity as f32 / 100.0).max(0.96)
+            } else {
+                snapshot.view.opacity as f32 / 100.0
+            };
             fill_round_rect(
                 &device.context,
                 &device.brushes.panel,
                 panel,
-                18.0 * layout.scale,
-                color(0.035, 0.052, 0.068, snapshot.view.opacity as f32 / 100.0),
+                20.0 * layout.scale,
+                color(0.035, 0.052, 0.068, panel_opacity),
                 alpha,
             );
             stroke_round_rect(
                 &device.context,
                 &device.brushes.surface,
                 panel,
-                18.0 * layout.scale,
+                20.0 * layout.scale,
                 1.0,
                 color(1.0, 1.0, 1.0, 0.09),
                 alpha,
@@ -482,19 +487,98 @@ fn draw_menu(
     alpha: f32,
 ) {
     let s = layout.scale;
-    let inset = 24.0 * s;
+    let inset = if layout.compact { 16.0 } else { 20.0 } * s;
     let text = color(0.94, 0.97, 0.98, 1.0);
     let muted = color(0.60, 0.68, 0.72, 1.0);
-    let title_top = if layout.compact { 10.0 } else { 20.0 } * s;
-    let subtitle_top = if layout.compact { 42.0 } else { 60.0 } * s;
-    let status_top = if layout.compact { 66.0 } else { 91.0 } * s;
-    let detail_top = if layout.compact { 88.0 } else { 119.0 } * s;
+    let accent = accent(&snapshot.view);
+    let avatar = NativeOverlayRect {
+        x: panel.x + inset,
+        y: panel.y + 16.0 * s,
+        width: 46.0 * s,
+        height: 46.0 * s,
+    };
+    fill_round_rect(
+        &device.context,
+        &device.brushes.accent,
+        avatar,
+        15.0 * s,
+        color(accent.r, accent.g, accent.b, 0.22),
+        alpha,
+    );
+    stroke_round_rect(
+        &device.context,
+        &device.brushes.accent,
+        avatar,
+        15.0 * s,
+        1.0 * s,
+        color(accent.r, accent.g, accent.b, 0.48),
+        alpha,
+    );
+    let monogram = snapshot
+        .view
+        .title
+        .trim()
+        .chars()
+        .next()
+        .unwrap_or('G')
+        .to_string();
+    draw_text(
+        &device.context,
+        &formats.title,
+        &device.brushes.text,
+        &monogram,
+        NativeOverlayRect {
+            x: avatar.x + 12.0 * s,
+            y: avatar.y + 9.0 * s,
+            width: 28.0 * s,
+            height: 28.0 * s,
+        },
+        text,
+        alpha,
+        false,
+    );
+    let escape = NativeOverlayRect {
+        x: panel.x + panel.width - inset - 40.0 * s,
+        y: panel.y + 16.0 * s,
+        width: 40.0 * s,
+        height: 24.0 * s,
+    };
+    fill_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        escape,
+        7.0 * s,
+        color(1.0, 1.0, 1.0, 0.055),
+        alpha,
+    );
+    draw_text(
+        &device.context,
+        &formats.small,
+        &device.brushes.muted,
+        "ESC",
+        NativeOverlayRect {
+            x: escape.x + 9.0 * s,
+            y: escape.y + 5.0 * s,
+            width: 26.0 * s,
+            height: 14.0 * s,
+        },
+        muted,
+        alpha,
+        false,
+    );
+    let title_x = panel.x + inset + 60.0 * s;
+    let title_width = (escape.x - title_x - 10.0 * s).max(40.0 * s);
     draw_text(
         &device.context,
         &formats.menu_title,
         &device.brushes.text,
         &snapshot.view.title,
-        line_rect(panel, inset, title_top, inset, 32.0 * s),
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 10.0 * s,
+            width: title_width,
+            height: 31.0 * s,
+        },
         text,
         alpha,
         false,
@@ -504,7 +588,12 @@ fn draw_menu(
         &formats.body,
         &device.brushes.muted,
         &snapshot.view.subtitle,
-        line_rect(panel, inset, subtitle_top, inset, 20.0 * s),
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 43.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 19.0 * s,
+        },
         muted,
         alpha,
         false,
@@ -514,8 +603,13 @@ fn draw_menu(
         &formats.caption,
         &device.brushes.accent,
         &snapshot.view.status,
-        line_rect(panel, inset, status_top, inset, 17.0 * s),
-        accent(&snapshot.view),
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 67.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 16.0 * s,
+        },
+        accent,
         alpha,
         false,
     );
@@ -524,12 +618,117 @@ fn draw_menu(
         &formats.small,
         &device.brushes.muted,
         &snapshot.view.detail,
-        line_rect(panel, inset, detail_top, inset, 16.0 * s),
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 88.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 14.0 * s,
+        },
         muted,
         alpha,
         false,
     );
+    draw_menu_summary(device, formats, snapshot, layout, alpha);
     draw_items(device, formats, snapshot, layout, alpha);
+    if let Some(footer) = layout.footer {
+        draw_text(
+            &device.context,
+            &formats.small,
+            &device.brushes.muted,
+            &snapshot.view.footer,
+            NativeOverlayRect {
+                x: footer.x,
+                y: footer.y + 8.0 * s,
+                width: footer.width,
+                height: (footer.height - 8.0 * s).max(12.0 * s),
+            },
+            color(0.52, 0.60, 0.65, 1.0),
+            alpha,
+            false,
+        );
+    }
+}
+
+fn draw_menu_summary(
+    device: &NativeOverlayDevice,
+    formats: &NativeTextFormats,
+    snapshot: &NativeOverlaySnapshot,
+    layout: &NativeOverlayLayout,
+    alpha: f32,
+) {
+    let Some(rect) = layout.summary else {
+        return;
+    };
+    let s = layout.scale;
+    fill_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        rect,
+        14.0 * s,
+        color(1.0, 1.0, 1.0, 0.045),
+        alpha,
+    );
+    stroke_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        rect,
+        14.0 * s,
+        1.0 * s,
+        color(1.0, 1.0, 1.0, 0.055),
+        alpha,
+    );
+    let count = snapshot.view.summary.len().min(3);
+    if count == 0 {
+        return;
+    }
+    let column_width = rect.width / count as f32;
+    for (index, item) in snapshot.view.summary.iter().take(count).enumerate() {
+        let x = rect.x + index as f32 * column_width;
+        if index > 0 {
+            fill_rect(
+                &device.context,
+                &device.brushes.surface,
+                NativeOverlayRect {
+                    x,
+                    y: rect.y + 14.0 * s,
+                    width: 1.0 * s,
+                    height: (rect.height - 28.0 * s).max(1.0),
+                },
+                color(1.0, 1.0, 1.0, 0.065),
+                alpha,
+            );
+        }
+        draw_text(
+            &device.context,
+            &formats.small,
+            &device.brushes.muted,
+            &item.label,
+            NativeOverlayRect {
+                x: x + 12.0 * s,
+                y: rect.y + 12.0 * s,
+                width: (column_width - 20.0 * s).max(20.0 * s),
+                height: 14.0 * s,
+            },
+            color(0.55, 0.63, 0.68, 1.0),
+            alpha,
+            false,
+        );
+        draw_text(
+            &device.context,
+            &formats.body_bold,
+            &device.brushes.text,
+            &item.value,
+            NativeOverlayRect {
+                x: x + 12.0 * s,
+                y: rect.y + (if layout.compact { 37.0 } else { 43.0 }) * s,
+                width: (column_width - 20.0 * s).max(20.0 * s),
+                height: 23.0 * s,
+            },
+            color(0.93, 0.96, 0.97, 1.0),
+            alpha,
+            false,
+        );
+    }
 }
 
 fn draw_stats(
@@ -634,6 +833,16 @@ fn draw_items(
         let pressed = snapshot.pressed == Some(placement.index);
         let role = item.role.as_str();
         let accent = accent(&snapshot.view);
+        let delay = if snapshot.view.kind == "menu" {
+            (placement.index as f32 * 0.035).min(0.21)
+        } else {
+            0.0
+        };
+        let item_alpha = ((alpha - delay) / (1.0 - delay)).clamp(0.0, 1.0);
+        let mut rect = placement.rect;
+        if snapshot.view.kind == "menu" {
+            rect.y += (1.0 - item_alpha) * 10.0 * layout.scale;
+        }
         let mut fill = match role {
             "primary" => accent,
             "danger" => color(0.30, 0.08, 0.09, 0.70),
@@ -641,7 +850,12 @@ fn draw_items(
             _ => color(1.0, 1.0, 1.0, 0.055),
         };
         if focused && role != "primary" {
-            fill = color(0.12, 0.65, 0.33, if pressed { 0.34 } else { 0.18 });
+            fill = color(
+                accent.r,
+                accent.g,
+                accent.b,
+                if pressed { 0.34 } else { 0.18 },
+            );
         }
         if pressed && role == "primary" {
             fill = color(accent.r * 0.78, accent.g * 0.78, accent.b * 0.78, accent.a);
@@ -651,31 +865,31 @@ fn draw_items(
             fill_round_rect(
                 &device.context,
                 &device.brushes.surface,
-                placement.rect,
+                rect,
                 radius,
                 fill,
-                alpha,
+                item_alpha,
             );
         }
         if focused && item.enabled {
             stroke_round_rect(
                 &device.context,
                 &device.brushes.accent,
-                placement.rect,
+                rect,
                 radius,
                 1.5 * layout.scale,
                 accent,
-                alpha,
+                item_alpha,
             );
         } else if role == "danger" {
             stroke_round_rect(
                 &device.context,
                 &device.brushes.danger,
-                placement.rect,
+                rect,
                 radius,
                 1.0,
                 color(1.0, 0.42, 0.40, 0.28),
-                alpha,
+                item_alpha,
             );
         }
         draw_item_text(
@@ -683,13 +897,53 @@ fn draw_items(
             formats,
             snapshot,
             item,
-            placement.rect,
+            rect,
             role,
             focused,
             layout.scale,
             layout.compact,
-            alpha,
+            item_alpha,
         );
+        if role == "toggle"
+            && let Some(checked) = item.checked
+        {
+            let track = NativeOverlayRect {
+                x: rect.x + rect.width - 40.0 * layout.scale,
+                y: rect.y + 11.0 * layout.scale,
+                width: 28.0 * layout.scale,
+                height: 14.0 * layout.scale,
+            };
+            fill_round_rect(
+                &device.context,
+                if checked {
+                    &device.brushes.accent
+                } else {
+                    &device.brushes.muted
+                },
+                track,
+                7.0 * layout.scale,
+                if checked {
+                    accent
+                } else {
+                    color(0.42, 0.49, 0.53, 0.65)
+                },
+                item_alpha,
+            );
+            let knob = NativeOverlayRect {
+                x: track.x + if checked { 16.0 } else { 2.0 } * layout.scale,
+                y: track.y + 2.0 * layout.scale,
+                width: 10.0 * layout.scale,
+                height: 10.0 * layout.scale,
+            };
+            fill_round_rect(
+                &device.context,
+                &device.brushes.text,
+                knob,
+                5.0 * layout.scale,
+                color(0.96, 0.98, 0.98, 1.0),
+                item_alpha,
+            );
+        }
     }
 }
 
@@ -731,7 +985,12 @@ fn draw_item_text(
                 rect,
                 padding,
                 (if compact { 4.0 } else { 8.0 }) * s,
-                padding,
+                padding
+                    + if item.checked.is_some() {
+                        36.0 * s
+                    } else {
+                        0.0
+                    },
                 (if compact { 16.0 } else { 20.0 }) * s,
             ),
             muted,
