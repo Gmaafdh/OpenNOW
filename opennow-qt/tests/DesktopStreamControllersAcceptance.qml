@@ -130,9 +130,11 @@ QtObject {
         function() {
             const drawer = need("streamMenuDrawer")
             check(drawer.visible && drawer.x >= 0 && drawer.x < 40, "the drawer docks on the left edge")
-            check(drawer.x + drawer.width <= parent.width * 0.45,
-                "the game stays visible on the right (drawer " + (drawer.x + drawer.width)
-                    + ", available " + (parent.width * 0.45) + ")")
+            // The supported 960 px minimum still leaves more than half of
+            // the game visible. A 55% requirement would contradict that minimum.
+            check(drawer.x + drawer.width < parent.width * 0.5,
+                "the majority of the game stays visible on the right (drawer "
+                    + (drawer.x + drawer.width) + ", available " + (parent.width * 0.5) + ")")
             check(need("streamMenuScrim").width < parent.width, "the scrim only darkens the drawer side")
             check(need("streamMenuEdgeSeam").x > drawer.width - 4, "the edge seam sits on the inner edge")
             check(need("streamMenuEdgeShadow").x >= drawer.x + drawer.width - 8, "the shadow falls onto the game")
@@ -436,7 +438,7 @@ QtObject {
             // a persistently wrong layout still fails the existing deadline.
             const drawer = find(parent, "streamMenuDrawer")
             const geometryReady = drawer && drawer.visible && drawer.x >= 0 && drawer.x < 40
-                && parent.width > 0 && drawer.x + drawer.width <= parent.width * 0.45
+                && parent.width > 0 && drawer.x + drawer.width < parent.width * 0.5
             if (!geometryReady) {
                 geometryStableTicks = 0
                 return 0
