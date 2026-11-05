@@ -508,9 +508,17 @@ pub fn layout_native_overlay(
 
 fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut NativeOverlayLayout) {
     let s = layout.scale;
-    let compact = height / s < 720.0;
+    let logical_height = height / s;
+    let compact = logical_height <= 720.0;
+    let dense = logical_height < 620.0;
     layout.compact = compact;
-    let margin = if compact { 12.0 } else { 16.0 } * s;
+    let margin = if dense {
+        8.0
+    } else if compact {
+        12.0
+    } else {
+        16.0
+    } * s;
     let panel = NativeOverlayRect {
         x: margin,
         y: margin,
@@ -525,13 +533,21 @@ fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut Nativ
     let header = if compact { 104.0 } else { 116.0 } * s;
     let footer_height = if view.footer.trim().is_empty() {
         0.0
+    } else if dense {
+        20.0 * s
     } else if compact {
         26.0 * s
     } else {
         34.0 * s
     };
     let footer_y = panel.y + panel.height - footer_height;
-    let bottom = footer_y - if footer_height > 0.0 { 8.0 * s } else { 0.0 };
+    let footer_gap = if dense { 4.0 } else { 8.0 };
+    let bottom = footer_y
+        - if footer_height > 0.0 {
+            footer_gap * s
+        } else {
+            0.0
+        };
     if footer_height > 0.0 {
         layout.footer = Some(NativeOverlayRect {
             x: content_x,
@@ -540,11 +556,29 @@ fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut Nativ
             height: footer_height,
         });
     }
-    let spacing = if compact { 7.0 } else { 9.0 } * s;
-    let gap = if compact { 8.0 } else { 10.0 } * s;
+    let spacing = if dense {
+        4.0
+    } else if compact {
+        6.0
+    } else {
+        9.0
+    } * s;
+    let gap = if dense {
+        6.0
+    } else if compact {
+        8.0
+    } else {
+        10.0
+    } * s;
     let mut y = panel.y + header;
     if !view.summary.is_empty() {
-        let summary_height = if compact { 80.0 } else { 94.0 } * s;
+        let summary_height = if dense {
+            64.0
+        } else if compact {
+            72.0
+        } else {
+            94.0
+        } * s;
         layout.summary = Some(NativeOverlayRect {
             x: content_x,
             y,
@@ -557,15 +591,24 @@ fn layout_menu(view: &NativeOverlay, width: f32, height: f32, layout: &mut Nativ
     while index < view.items.len() {
         let item = &view.items[index];
         let role = item.role.as_str();
-        let item_height = match (role, compact) {
-            ("primary", true) => 44.0 * s,
-            ("primary", false) => 50.0 * s,
-            ("toggle", true) => 60.0 * s,
-            ("toggle", false) => 78.0 * s,
-            ("metric", true) => 40.0 * s,
-            ("metric", false) => 48.0 * s,
-            (_, true) => 46.0 * s,
-            (_, false) => 56.0 * s,
+        let item_height = if dense {
+            match role {
+                "primary" => 36.0 * s,
+                "toggle" => 46.0 * s,
+                "metric" => 34.0 * s,
+                _ => 36.0 * s,
+            }
+        } else {
+            match (role, compact) {
+                ("primary", true) => 44.0 * s,
+                ("primary", false) => 50.0 * s,
+                ("toggle", true) => 60.0 * s,
+                ("toggle", false) => 78.0 * s,
+                ("metric", true) => 40.0 * s,
+                ("metric", false) => 48.0 * s,
+                (_, true) => 46.0 * s,
+                (_, false) => 56.0 * s,
+            }
         };
         if y + item_height > bottom {
             break;
@@ -1006,16 +1049,35 @@ mod tests {
                 item("console", "toggle-console-mode", "row"),
             ],
         );
-        let layout = layout_native_overlay(&view, 1600, 900, 1.0);
-        assert!(layout.summary.is_some());
-        assert!(layout.footer.is_some());
-        assert_eq!(layout.items.len(), view.items.len());
-        let panel = layout.panel.expect("menu panel");
-        assert!(
-            layout
-                .items
-                .iter()
-                .all(|item| { item.rect.y + item.rect.height <= panel.y + panel.height })
-        );
+        for (width, height) in [(1600, 900), (1280, 720), (960, 540)] {
+            let layout = layout_native_overlay(&view, width, height, 1.0);
+            assert!(
+                layout.summary.is_some(),
+                "summary missing at {}x{}",
+                width,
+                height
+            );
+            assert!(
+                layout.footer.is_some(),
+                "footer missing at {}x{}",
+                width,
+                height
+            );
+            assert_eq!(
+                layout.items.len(),
+                view.items.len(),
+                "menu action truncated at {width}x{height}"
+            );
+            let panel = layout.panel.expect("menu panel");
+            assert!(
+                layout
+                    .items
+                    .iter()
+                    .all(|item| { item.rect.y + item.rect.height <= panel.y + panel.height }),
+                "menu action outside panel at {}x{}",
+                width,
+                height
+            );
+        }
     }
 }
