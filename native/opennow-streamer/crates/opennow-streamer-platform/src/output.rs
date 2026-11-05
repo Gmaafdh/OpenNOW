@@ -2790,6 +2790,7 @@ struct NativeOverlayGamepadState {
 struct NativeOverlayInput {
     shared: Arc<opennow_streamer_platform_windows::native_overlay::NativeOverlayShared>,
     pointer: Option<(f32, f32)>,
+    relative_mouse: bool,
     owned_keys: HashSet<u16>,
     owned_buttons: HashSet<u8>,
     gamepads: [NativeOverlayGamepadState; 4],
@@ -2803,9 +2804,18 @@ impl NativeOverlayInput {
         Self {
             shared,
             pointer: None,
+            relative_mouse: false,
             owned_keys: HashSet::new(),
             owned_buttons: HashSet::new(),
             gamepads: [NativeOverlayGamepadState::default(); 4],
+        }
+    }
+
+    fn set_relative_mouse(&mut self, relative: bool) {
+        self.relative_mouse = relative;
+        if relative {
+            // A hidden/locked cursor has no meaningful client coordinate.
+            self.pointer = None;
         }
     }
 
@@ -2827,6 +2837,14 @@ impl NativeOverlayInput {
                 width,
                 height,
             } => {
+                if self.relative_mouse {
+                    self.pointer = None;
+                    return if modal {
+                        NativeOverlayInputRoute::Consume
+                    } else {
+                        NativeOverlayInputRoute::Forward
+                    };
+                }
                 let viewport = aspect_fit(
                     stream_size.0.max(1),
                     stream_size.1.max(1),
@@ -2858,15 +2876,16 @@ impl NativeOverlayInput {
                     // is modal. Using `modal || pointer_down(...)` here would
                     // short-circuit the hit-test and leave pointer_up with no
                     // action to activate.
-                    let owned = active
-                        && (self.owned_buttons.contains(button)
-                            || if *button == 1 {
+                    let owned = self.owned_buttons.contains(button)
+                        || (active
+                            && !self.relative_mouse
+                            && (if *button == 1 {
                                 self.pointer
                                     .is_some_and(|(x, y)| self.shared.pointer_down(x, y))
                                     || modal
                             } else {
                                 modal
-                            });
+                            }));
                     if owned {
                         self.owned_buttons.insert(*button);
                         return NativeOverlayInputRoute::Consume;
@@ -3383,6 +3402,8 @@ impl WindowsExternalSdlSurface {
             return captured;
         }
         let window_size = self.window.size();
+        self.native_overlay_input
+            .set_relative_mouse(self.input_capture.relative_mouse_enabled());
         let mut forwarded = std::mem::take(&mut self.pending_gameplay_release);
         forwarded.reserve(captured.len());
         for input in captured {
@@ -4294,6 +4315,45 @@ mod tests {
                 NativeOverlayInputRoute::Forward
             );
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_passive_stats_ignore_stale_coordinates_while_pointer_locked() {
+        let shared = opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new();
+        shared.update_view(opennow_streamer_protocol::NativeOverlay {
+            kind: "stats".to_owned(),
+            panel_action: "toggle-stats".to_owned(),
+            ..Default::default()
+        });
+        let panel = shared.snapshot().layout().panel.expect("stats panel");
+        let point = CapturedInput::MouseAbsolute {
+            x: (panel.x + panel.width / 2.0) as u16,
+            y: (panel.y + panel.height / 2.0) as u16,
+            width: 1280,
+            height: 720,
+        };
+        let mut input = NativeOverlayInput::new(shared);
+        assert_eq!(
+            input.route(&point, (1280, 720), (1280, 720)),
+            NativeOverlayInputRoute::Consume
+        );
+        input.set_relative_mouse(true);
+        assert_eq!(
+            input.route(&point, (1280, 720), (1280, 720)),
+            NativeOverlayInputRoute::Forward
+        );
+        for pressed in [true, false] {
+            assert_eq!(
+                input.route(
+                    &CapturedInput::MouseButton { button: 1, pressed },
+                    (1280, 720),
+                    (1280, 720),
+                ),
+                NativeOverlayInputRoute::Forward
+            );
+        }
+        assert!(input.pointer.is_none());
     }
 
     #[test]
