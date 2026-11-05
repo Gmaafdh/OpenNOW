@@ -1322,6 +1322,13 @@
     "serverEnded": "The server ended the session.",
     "textInputRetry": "Text input could not be delivered. Try pasting again.",
     "textInputUnavailable": "Text input unavailable",
+    "nativeFooterController": "↑↓ Move   A Select   B Back   Ctrl K Commands",
+    "nativeFooterKeyboard": "Esc Back   ·   Ctrl G Menu   ·   Ctrl+V Paste",
+    "nativeClipboardHint": "Ctrl+V · plain text",
+    "nativeCursorVisible": "Cursor visible · F8 toggles game lock",
+    "nativeGameLock": "game lock",
+    "nativeClipboardOn": "Clipboard paste on · Ctrl+V",
+    "nativeClipboardOff": "Clipboard paste off",
     "sessionStarted": {
       "kicker": "Ready",
       "title": "Session started"
