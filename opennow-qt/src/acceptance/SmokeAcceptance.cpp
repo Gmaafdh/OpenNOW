@@ -889,7 +889,12 @@ int AcceptanceSession::startSmokeWorkload()
                     return;
                 auto *timer = new QTimer(this);
                 timer->setInterval(25);
-                connect(timer, &QTimer::timeout, this, [this, fixture, window, timer, deadline = QDeadlineTimer(15000)] {
+                // The full controller fixture includes several focus, settings,
+                // and overlay round trips. Allow extra time for Windows-QPA
+                // software rendering without changing other interactive fixtures.
+                const auto interactiveTimeout = m_arguments.contains(u"--smoke-stream-controllers"_s)
+                    ? 60'000 : 15'000;
+                connect(timer, &QTimer::timeout, this, [this, fixture, window, timer, deadline = QDeadlineTimer(interactiveTimeout)] {
                     const auto key = fixture->property("key").toInt();
                     if (key != 0) {
                         fixture->setProperty("key", 0);
@@ -926,7 +931,17 @@ int AcceptanceSession::startSmokeWorkload()
                         success = shot + 1 < m_arguments.size() && QFileInfo(m_arguments.at(shot + 1)).isAbsolute()
                             && image.save(m_arguments.at(shot + 1));
                     }
-                    if (!success) qCritical("Interactive shell acceptance failed");
+                    if (!success) {
+                        qCritical("Interactive shell acceptance failed");
+                        qCritical() << "Interactive fixture diagnostics: step"
+                                    << fixture->property("step").toInt() << "state" << state.toInt()
+                                    << "timeout" << deadline.hasExpired() << "window" << window->size()
+                                    << "content" << window->contentItem()->size();
+                        if (const auto *drawer = window->findChild<QQuickItem *>(u"streamMenuDrawer"_s)) {
+                            qCritical() << "Stream menu drawer geometry:" << drawer->x() << drawer->y()
+                                        << drawer->width() << drawer->height();
+                        }
+                    }
                     m_application.exit(success ? EXIT_SUCCESS : EXIT_FAILURE);
                 });
                 timer->start();

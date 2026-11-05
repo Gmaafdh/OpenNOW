@@ -385,6 +385,7 @@ QtObject {
     property real endBeforeY: -1
     property bool sceneReady: false
     property int sceneTicks: 0
+    property int geometryStableTicks: 0
     function scene() {
         const name = argument("--controller-scene", "")
         if (name === "") return true
@@ -430,12 +431,18 @@ QtObject {
     function advance() {
         if (step >= steps.length) return 1
         if (step === 0 && parent) {
-            // Windows-QPA completes resize delivery asynchronously. Do not
-            // compare the newly sized drawer with stale content geometry.
-            const expectedWidth = Number(argument("--smoke-width", "1600"))
-            const expectedHeight = Number(argument("--smoke-height", "900"))
-            if (Math.abs(parent.width - expectedWidth) > 2
-                    || Math.abs(parent.height - expectedHeight) > 2) return 0
+            // Windows-QPA completes resize and enter-motion delivery
+            // asynchronously. Require two stable ticks before interacting;
+            // a persistently wrong layout still fails the existing deadline.
+            const drawer = find(parent, "streamMenuDrawer")
+            const geometryReady = drawer && drawer.visible && drawer.x >= 0 && drawer.x < 40
+                && parent.width > 0 && drawer.x + drawer.width <= parent.width * 0.45
+            if (!geometryReady) {
+                geometryStableTicks = 0
+                return 0
+            }
+            geometryStableTicks += 1
+            if (geometryStableTicks < 2) return 0
         }
         const result = steps[step]()
         if (result !== false) step += 1
