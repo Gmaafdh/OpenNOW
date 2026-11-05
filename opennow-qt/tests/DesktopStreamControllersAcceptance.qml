@@ -130,7 +130,9 @@ QtObject {
         function() {
             const drawer = need("streamMenuDrawer")
             check(drawer.visible && drawer.x >= 0 && drawer.x < 40, "the drawer docks on the left edge")
-            check(drawer.x + drawer.width <= parent.width * 0.45, "the game stays visible on the right")
+            check(drawer.x + drawer.width <= parent.width * 0.45,
+                "the game stays visible on the right (drawer " + (drawer.x + drawer.width)
+                    + ", available " + (parent.width * 0.45) + ")")
             check(need("streamMenuScrim").width < parent.width, "the scrim only darkens the drawer side")
             check(need("streamMenuEdgeSeam").x > drawer.width - 4, "the edge seam sits on the inner edge")
             check(need("streamMenuEdgeShadow").x >= drawer.x + drawer.width - 8, "the shadow falls onto the game")
@@ -427,6 +429,14 @@ QtObject {
 
     function advance() {
         if (step >= steps.length) return 1
+        if (step === 0 && parent) {
+            // Windows-QPA completes resize delivery asynchronously. Do not
+            // compare the newly sized drawer with stale content geometry.
+            const expectedWidth = Number(argument("--smoke-width", "1600"))
+            const expectedHeight = Number(argument("--smoke-height", "900"))
+            if (Math.abs(parent.width - expectedWidth) > 2
+                    || Math.abs(parent.height - expectedHeight) > 2) return 0
+        }
         const result = steps[step]()
         if (result !== false) step += 1
         return step >= steps.length ? 1 : 0
