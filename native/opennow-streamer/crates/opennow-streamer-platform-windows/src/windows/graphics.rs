@@ -53,6 +53,7 @@ use ::windows::Win32::Graphics::Dxgi::{
 use ::windows::Win32::Media::MediaFoundation::{IMFDXGIDeviceManager, MFCreateDXGIDeviceManager};
 use ::windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use ::windows::Win32::System::Threading::WaitForSingleObject;
+use ::windows::Win32::UI::HiDpi::GetDpiForWindow;
 #[cfg(test)]
 use ::windows::Win32::UI::WindowsAndMessaging::WS_POPUP;
 use ::windows::Win32::UI::WindowsAndMessaging::{
@@ -71,6 +72,7 @@ use crate::{
 };
 
 use super::decoder::DecoderDevice;
+use super::native_overlay::NativeOverlayRenderer;
 
 const WINDOW_CLASS: ::windows::core::PCWSTR = w!("OpenNOWStreamerD3D11Surface");
 
@@ -416,6 +418,8 @@ static FORMAT_PROBE_CACHE: std::sync::Mutex<[Option<FormatProbeCache>; 2]> =
 
 pub(super) struct Graphics {
     processor: Option<ProcessorResources>,
+    native_overlay: NativeOverlayRenderer,
+    native_overlay_failed: bool,
     composition: Option<CompositionResources>,
     direct_composition: bool,
     swap_chain: IDXGISwapChain1,
@@ -602,6 +606,22 @@ impl Graphics {
         target: SurfaceTarget,
         video_format: VideoFormat,
     ) -> Result<Self, String> {
+        Self::new_with_overlay(
+            api,
+            adapter_luid,
+            target,
+            video_format,
+            crate::native_overlay::NativeOverlayShared::new(),
+        )
+    }
+
+    pub(super) fn new_with_overlay(
+        api: WindowsGraphicsApi,
+        adapter_luid: Option<WindowsAdapterLuid>,
+        target: SurfaceTarget,
+        video_format: VideoFormat,
+        native_overlay: std::sync::Arc<crate::native_overlay::NativeOverlayShared>,
+    ) -> Result<Self, String> {
         validate_standalone_color(video_format)?;
         let direct_composition = uses_direct_composition(target);
         let resources = DeviceResources::new(api, adapter_luid)?;
@@ -624,6 +644,8 @@ impl Graphics {
         );
         let mut graphics = Self {
             processor: None,
+            native_overlay: NativeOverlayRenderer::new(native_overlay),
+            native_overlay_failed: false,
             composition: swap_chain.composition,
             direct_composition,
             swap_chain: swap_chain.swap_chain,
@@ -697,6 +719,10 @@ impl Graphics {
             swap_format,
             direct_composition,
         )?;
+        if let Some(composition) = self.composition.as_ref() {
+            self.native_overlay
+                .detach(&composition._device, &composition._visual)?;
+        }
         self.processor = None;
         let old_composition = std::mem::replace(&mut self.composition, swap_chain.composition);
         let old_swap_chain = std::mem::replace(&mut self.swap_chain, swap_chain.swap_chain);
@@ -741,6 +767,40 @@ impl Graphics {
                 "unexpected DXGI frame-latency wait result: {}",
                 result.0
             ))
+        }
+    }
+
+    pub(super) fn present_native_overlay(&mut self) -> Result<bool, String> {
+        let available =
+            !self.native_overlay_failed && self.direct_composition && self.composition.is_some();
+        self.native_overlay.set_presentation_available(available);
+        if !available {
+            return Ok(false);
+        }
+        let Some(composition) = self.composition.as_ref() else {
+            return Ok(false);
+        };
+        let size = self.window.client_size()?;
+        let dpi = unsafe { GetDpiForWindow(self.window.hwnd()) };
+        self.native_overlay.render(
+            &self.resources.device,
+            &composition._device,
+            &composition._visual,
+            size,
+            if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 },
+        )
+    }
+
+    pub(super) fn disable_native_overlay(&mut self) {
+        self.native_overlay_failed = true;
+        self.native_overlay.set_presentation_available(false);
+        if let Some(composition) = self.composition.as_ref() {
+            if let Err(error) = self
+                .native_overlay
+                .detach(&composition._device, &composition._visual)
+            {
+                eprintln!("Native overlay visual cleanup failed: {error}");
+            }
         }
     }
 

@@ -1664,6 +1664,15 @@ void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &s
                 || object.value(u"startId"_s).toString() != d->sessionStartId
                 || !object.value(u"relativeMouse"_s).isBool()) continue;
         }
+        if (message.event && (kind == u"native-overlay-state"_s
+                || kind == u"native-fullscreen-changed"_s)) {
+            const auto object = document.object();
+            const auto value = kind == u"native-overlay-state"_s
+                ? object.value(u"available"_s) : object.value(u"fullscreen"_s);
+            if (d->sessionStartId.isEmpty()
+                || object.value(u"startId"_s).toString() != d->sessionStartId
+                || !value.isBool()) continue;
+        }
         if (message.event && kind == u"cursor-capture"_s) {
             if (d->cursorStartId.isEmpty()
                 || document.object().value(u"startId"_s).toString() != d->cursorStartId) continue;

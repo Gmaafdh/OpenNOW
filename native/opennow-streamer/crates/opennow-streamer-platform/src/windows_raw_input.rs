@@ -23,11 +23,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP, RI_MOUSE_HWHEEL, RI_MOUSE_LEFT_BUTTON_DOWN,
     RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP,
     RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL, RegisterClassW,
-    SetWindowLongPtrW, TranslateMessage, WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE, WM_NCDESTROY,
-    WNDCLASSW,
+    ScreenToClient, SetWindowLongPtrW, TranslateMessage, WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE,
+    WM_NCDESTROY, WNDCLASSW,
 };
 
-use crate::media::{CapturedInput, CapturedInputQueue};
+use crate::media::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+use opennow_streamer_platform_windows::native_overlay::NativeOverlayShared;
 
 const RAW_INPUT_CLASS: &[u16] = &[
     b'O' as u16,
@@ -58,6 +59,8 @@ struct RawInputState {
     relative_motion: AtomicBool,
     exclusions: Mutex<ScreenExclusions>,
     pressed_buttons: Mutex<HashSet<u8>>,
+    native_buttons: Mutex<HashSet<u8>>,
+    native_overlay: Arc<NativeOverlayShared>,
     captured_input: Arc<CapturedInputQueue>,
 }
 
@@ -71,6 +74,7 @@ impl WindowsRawInputController {
     pub(crate) fn start(
         foreground_owner: isize,
         captured_input: Arc<CapturedInputQueue>,
+        native_overlay: Arc<NativeOverlayShared>,
     ) -> Result<Self, String> {
         let state = Arc::new(RawInputState {
             presentation_window: foreground_owner,
@@ -79,6 +83,8 @@ impl WindowsRawInputController {
             relative_motion: AtomicBool::new(false),
             exclusions: Mutex::new(Vec::new()),
             pressed_buttons: Mutex::new(HashSet::new()),
+            native_buttons: Mutex::new(HashSet::new()),
+            native_overlay,
             captured_input,
         });
         let thread_state = Arc::clone(&state);
@@ -340,6 +346,105 @@ fn cursor_in_exclusions(state: &RawInputState) -> bool {
     point_in_exclusions(point.x, point.y, &exclusions)
 }
 
+fn native_cursor_point(state: &RawInputState) -> Option<(f32, f32)> {
+    let mut point = POINT::default();
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return None;
+    }
+    if unsafe { ScreenToClient(state.presentation_window as HWND, &mut point) } == 0 {
+        return None;
+    }
+    Some((point.x as f32, point.y as f32))
+}
+
+/// Removes mouse flags owned by native UI and leaves all other flags on the
+/// established Raw Input gameplay path. Native button ownership survives an
+/// overlay closing until the physical release arrives.
+fn filter_native_mouse_buttons(state: &RawInputState, flags: u16) -> u16 {
+    filter_native_mouse_buttons_at(state, flags, native_cursor_point(state))
+}
+
+fn filter_native_mouse_buttons_at(
+    state: &RawInputState,
+    flags: u16,
+    point: Option<(f32, f32)>,
+) -> u16 {
+    const BUTTON_FLAGS: &[(u16, u16, u8)] = &[
+        (
+            RI_MOUSE_LEFT_BUTTON_DOWN as u16,
+            RI_MOUSE_LEFT_BUTTON_UP as u16,
+            1,
+        ),
+        (
+            RI_MOUSE_MIDDLE_BUTTON_DOWN as u16,
+            RI_MOUSE_MIDDLE_BUTTON_UP as u16,
+            2,
+        ),
+        (
+            RI_MOUSE_RIGHT_BUTTON_DOWN as u16,
+            RI_MOUSE_RIGHT_BUTTON_UP as u16,
+            3,
+        ),
+        (
+            RI_MOUSE_BUTTON_4_DOWN as u16,
+            RI_MOUSE_BUTTON_4_UP as u16,
+            4,
+        ),
+        (
+            RI_MOUSE_BUTTON_5_DOWN as u16,
+            RI_MOUSE_BUTTON_5_UP as u16,
+            5,
+        ),
+    ];
+    if flags == 0 {
+        return flags;
+    }
+    let snapshot = state.native_overlay.snapshot();
+    let active = !snapshot.view.kind.is_empty();
+    let modal = snapshot.modal();
+    let mut native_buttons = state
+        .native_buttons
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut forwarded = flags;
+    for &(down, up, button) in BUTTON_FLAGS {
+        if flags & down != 0 {
+            // A modal left click still needs the shared press state: modal
+            // ownership decides routing, while pointer_down records which
+            // action a matching release should activate.
+            let owned = native_buttons.contains(&button)
+                || (active
+                    && (if button == 1 {
+                        point.is_some_and(|(x, y)| state.native_overlay.pointer_down(x, y)) || modal
+                    } else {
+                        modal
+                    }));
+            if owned {
+                native_buttons.insert(button);
+                forwarded &= !down;
+            }
+        }
+        if flags & up != 0 {
+            if native_buttons.remove(&button) {
+                if button == 1 {
+                    if let Some((x, y)) = point {
+                        if let Some(action) = state.native_overlay.pointer_up(x, y) {
+                            if let Some(action) = StreamShortcutAction::from_protocol_name(&action)
+                            {
+                                state.captured_input.push(CapturedInput::Shortcut(action));
+                            }
+                        }
+                    }
+                }
+                forwarded &= !up;
+            } else if modal {
+                forwarded &= !up;
+            }
+        }
+    }
+    forwarded
+}
+
 unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
     if !state.enabled.load(Ordering::Acquire) {
         return;
@@ -381,7 +486,11 @@ unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
         && cursor_in_exclusions(state);
     let owns_pointer = owns_foreground && !pointer_excluded;
     let button_flags = if owns_pointer {
-        buttons.usButtonFlags
+        if relative_motion {
+            buttons.usButtonFlags
+        } else {
+            filter_native_mouse_buttons(state, buttons.usButtonFlags)
+        }
     } else {
         // A click can transiently move foreground before WM_INPUT delivers the
         // matching release. Never discard releases for buttons that we already
@@ -389,13 +498,14 @@ unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
         buttons.usButtonFlags & raw_mouse_button_up_mask()
     };
     push_raw_mouse_buttons(state, button_flags);
-    if owns_pointer && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
+    let native_modal = owns_pointer && !relative_motion && state.native_overlay.snapshot().modal();
+    if owns_pointer && !native_modal && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
         state.captured_input.push(CapturedInput::MouseWheel {
             delta_x: 0,
             delta_y: buttons.usButtonData as i16,
         });
     }
-    if owns_pointer && u32::from(buttons.usButtonFlags) & RI_MOUSE_HWHEEL != 0 {
+    if owns_pointer && !native_modal && u32::from(buttons.usButtonFlags) & RI_MOUSE_HWHEEL != 0 {
         state.captured_input.push(CapturedInput::MouseWheel {
             delta_x: buttons.usButtonData as i16,
             delta_y: 0,
@@ -482,11 +592,11 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::{
-        RawInputState, overlay_exclusions, point_in_exclusions, push_mouse_delta,
-        push_raw_mouse_buttons, release_pressed_buttons,
+        NativeOverlayShared, RawInputState, filter_native_mouse_buttons_at, overlay_exclusions,
+        point_in_exclusions, push_mouse_delta, push_raw_mouse_buttons, release_pressed_buttons,
     };
-    use crate::media::{CapturedInput, CapturedInputQueue};
-    use opennow_streamer_protocol::RenderSurfaceRect;
+    use crate::media::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+    use opennow_streamer_protocol::{NativeOverlay, NativeOverlayItem, RenderSurfaceRect};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
     };
@@ -499,6 +609,8 @@ mod tests {
             relative_motion: false.into(),
             exclusions: Default::default(),
             pressed_buttons: Default::default(),
+            native_buttons: Default::default(),
+            native_overlay: NativeOverlayShared::new(),
             captured_input: Arc::new(CapturedInputQueue::default()),
         }
     }
@@ -603,6 +715,40 @@ mod tests {
                 button: 3,
                 pressed: false,
             })
+        );
+        assert_eq!(state.captured_input.take(), None);
+    }
+
+    #[test]
+    fn raw_modal_left_click_activates_only_the_matching_native_release() {
+        let state = state();
+        state.native_overlay.update_view(NativeOverlay {
+            kind: "menu".to_owned(),
+            input_blocking: true,
+            items: vec![NativeOverlayItem {
+                id: "resume".to_owned(),
+                action: "dismiss-overlay".to_owned(),
+                role: "primary".to_owned(),
+                ..NativeOverlayItem::default()
+            }],
+            ..NativeOverlay::default()
+        });
+        let first = state.native_overlay.snapshot().layout().items[0].rect;
+        let point = Some((first.x + first.width / 2.0, first.y + first.height / 2.0));
+        assert_eq!(
+            filter_native_mouse_buttons_at(&state, RI_MOUSE_LEFT_BUTTON_DOWN as u16, point,),
+            0
+        );
+        assert_eq!(state.captured_input.take(), None);
+        assert_eq!(
+            filter_native_mouse_buttons_at(&state, RI_MOUSE_LEFT_BUTTON_UP as u16, point),
+            0
+        );
+        assert_eq!(
+            state.captured_input.take(),
+            Some(CapturedInput::Shortcut(
+                StreamShortcutAction::DismissOverlay
+            ))
         );
         assert_eq!(state.captured_input.take(), None);
     }

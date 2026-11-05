@@ -367,6 +367,14 @@ pub enum StreamShortcutAction {
     Screenshot,
     ToggleRecording,
     SaveClip,
+    // Native in-stream UI actions use the same application-event path as
+    // keyboard shortcuts; session policy remains in the shell/core.
+    DismissOverlay,
+    ShowStatsExpanded,
+    ConfirmStreamExit,
+    ToggleMicrophone,
+    ToggleConsoleMode,
+    CopyStats,
 }
 
 impl StreamShortcutAction {
@@ -380,13 +388,39 @@ impl StreamShortcutAction {
             Self::Screenshot => "screenshot",
             Self::ToggleRecording => "toggle-recording",
             Self::SaveClip => "save-clip",
+            Self::DismissOverlay => "dismiss-overlay",
+            Self::ShowStatsExpanded => "show-stats-expanded",
+            Self::ConfirmStreamExit => "confirm-stream-exit",
+            Self::ToggleMicrophone => "toggle-microphone",
+            Self::ToggleConsoleMode => "toggle-console-mode",
+            Self::CopyStats => "copy-stats",
         }
+    }
+
+    pub fn from_protocol_name(action: &str) -> Option<Self> {
+        Some(match action.trim() {
+            "toggle-stats" => Self::ToggleStats,
+            "toggle-pointer-lock" => Self::TogglePointerLock,
+            "toggle-fullscreen" => Self::ToggleFullscreen,
+            "stop-stream" => Self::StopStream,
+            "toggle-anti-afk" => Self::ToggleAntiAfk,
+            "screenshot" => Self::Screenshot,
+            "toggle-recording" => Self::ToggleRecording,
+            "save-clip" => Self::SaveClip,
+            "dismiss-overlay" => Self::DismissOverlay,
+            "show-stats-expanded" => Self::ShowStatsExpanded,
+            "confirm-stream-exit" => Self::ConfirmStreamExit,
+            "toggle-microphone" => Self::ToggleMicrophone,
+            "toggle-console-mode" => Self::ToggleConsoleMode,
+            "copy-stats" => Self::CopyStats,
+            _ => return None,
+        })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamShortcutBindings {
-    bindings: [(StreamShortcutAction, Option<ShortcutChord>); 8],
+    bindings: [(StreamShortcutAction, Option<ShortcutChord>); 10],
 }
 
 impl StreamShortcutBindings {
@@ -430,6 +464,14 @@ impl StreamShortcutBindings {
                     read("toggleRecording", "F12"),
                 ),
                 (StreamShortcutAction::SaveClip, read("saveClip", "Ctrl+F12")),
+                (
+                    StreamShortcutAction::ToggleMicrophone,
+                    read("toggleMicrophone", "Ctrl+Shift+M"),
+                ),
+                (
+                    StreamShortcutAction::CopyStats,
+                    read("copyStats", "Shift+F3"),
+                ),
             ],
         }
     }
@@ -887,6 +929,12 @@ pub enum MediaFeedback {
     },
     PointerLockChanged {
         relative_mouse: bool,
+    },
+    NativeOverlayAvailability {
+        available: bool,
+    },
+    FullscreenChanged {
+        fullscreen: bool,
     },
     DecodeTimings(DecodeTimingsReport),
 }
@@ -5161,6 +5209,44 @@ mod tests {
         assert_eq!(
             StreamShortcutBindings::default().action(0x7a, 0x02),
             Some(StreamShortcutAction::Screenshot)
+        );
+        assert_eq!(
+            StreamShortcutBindings::default().action(u16::from(b'M'), 0x03),
+            Some(StreamShortcutAction::ToggleMicrophone)
+        );
+        assert_eq!(
+            StreamShortcutBindings::default().action(0x72, 0x01),
+            Some(StreamShortcutAction::CopyStats)
+        );
+    }
+
+    #[test]
+    fn stream_shortcut_action_names_round_trip_including_native_overlay_actions() {
+        let actions = [
+            StreamShortcutAction::ToggleStats,
+            StreamShortcutAction::TogglePointerLock,
+            StreamShortcutAction::ToggleFullscreen,
+            StreamShortcutAction::StopStream,
+            StreamShortcutAction::ToggleAntiAfk,
+            StreamShortcutAction::Screenshot,
+            StreamShortcutAction::ToggleRecording,
+            StreamShortcutAction::SaveClip,
+            StreamShortcutAction::DismissOverlay,
+            StreamShortcutAction::ShowStatsExpanded,
+            StreamShortcutAction::ConfirmStreamExit,
+            StreamShortcutAction::ToggleMicrophone,
+            StreamShortcutAction::ToggleConsoleMode,
+            StreamShortcutAction::CopyStats,
+        ];
+        for action in actions {
+            assert_eq!(
+                StreamShortcutAction::from_protocol_name(action.protocol_name()),
+                Some(action)
+            );
+        }
+        assert_eq!(
+            StreamShortcutAction::from_protocol_name("not-an-action"),
+            None
         );
     }
 

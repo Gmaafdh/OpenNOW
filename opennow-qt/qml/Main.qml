@@ -94,10 +94,36 @@ ApplicationWindow {
         && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
         && (NativeStreamRuntime.externalWindowActive || window.standaloneShellHidden
             || window.standaloneOverlayPresented)
+    readonly property bool nativeStreamingOverlayEnabled: Qt.platform.os === "windows"
+        && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
+        && ShellStore.nativeOverlayAvailable
+    readonly property bool nativeStreamingOverlaySupported: AppController.overlay === ""
+        || AppController.overlay === "desktop-stream-menu"
+        || AppController.overlay === "desktop-stream-exit-confirm"
+        || AppController.overlay === "guide-session"
+        || ShellStore.isStreamStatsOverlay(AppController.overlay)
+    readonly property bool nativeStreamingOverlayActive: window.standaloneStreamPresentation
+        && window.nativeStreamingOverlayEnabled && window.nativeStreamingOverlaySupported
     readonly property bool standaloneOverlayVisible: window.standaloneStreamPresentation
+        && !window.nativeStreamingOverlayActive
         && window.standaloneOverlayPresented && AppController.overlay !== ""
     readonly property bool standalonePassiveOverlay: window.standaloneOverlayVisible
         && ShellStore.isStreamStatsOverlay(AppController.overlay)
+    property double nativeOverlayNowMs: Date.now()
+    property string nativeControlToast: ""
+    readonly property var nativeStreamOverlayModel: window.nativeStreamingOverlayActive
+        ? desktopStreamOverlay.nativeOverlayModel(AppController.overlay,
+            window.nativeOverlayNowMs, window.nativeControlToast) : ({})
+    onNativeStreamOverlayModelChanged: nativeOverlayPublish.restart()
+    onNativeStreamingOverlayEnabledChanged: {
+        nativeOverlayPublish.stop()
+        window.synchronizeStandaloneShell()
+        window.syncInputOwnership()
+    }
+    onNativeStreamingOverlayActiveChanged: {
+        window.syncInputOwnership()
+        nativeOverlayPublish.restart()
+    }
     property bool streamSurfaceLocked: false
     property bool lockedStreamDesktopSurface: true
     property int visibilityBeforeFullscreen: ApplicationWindow.Windowed
@@ -141,6 +167,7 @@ ApplicationWindow {
     readonly property bool targetDesktopSurface: streamSurfaceLocked
         ? lockedStreamDesktopSurface : onboardingVisible || (desktopRequested && desktopEligibleRoute)
     readonly property bool streamQmlOverlayActive: (activeRoute === "stream" || activeRoute === "inserting")
+        && !window.nativeStreamingOverlayActive
         && ((window.desktopSurfaceActive && AppController.overlay.startsWith("desktop-stream-"))
             || ShellStore.isStreamStatsOverlay(AppController.overlay))
     property bool desktopSurfaceActive: targetDesktopSurface
@@ -270,6 +297,10 @@ ApplicationWindow {
             if (window.activeRoute === "stream")
                 window.toggleFullscreen()
         }
+        function onStreamStatsCopyRequested() {
+            if (window.activeRoute === "stream")
+                desktopStreamOverlay.copyStatsToClipboard()
+        }
         function onConsoleScreenshotRequested() {
             const session = ShellStore.activeSession
             if (!session || !window.consoleStreamReady || window.pendingConsoleScreenshotSession !== "")
@@ -323,14 +354,16 @@ ApplicationWindow {
     }
 
     function syncInputOwnership() {
-        const overlayBlocksGameplay = ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
+        const nativeOverlay = window.nativeStreamingOverlayActive
+        const overlayBlocksGameplay = !nativeOverlay
+            && ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
         const nativeGameplay = window.standaloneStreamPresentation
-            && NativeStreamRuntime.externalWindowActive && !overlayBlocksGameplay
+            && NativeStreamRuntime.externalWindowActive && (nativeOverlay || !overlayBlocksGameplay)
         const shellBackgrounded = !window.active && !nativeGameplay
-        const shellOwnsInput = shellBackgrounded || AppController.route !== "stream"
+        const shellOwnsInput = !nativeOverlay && (shellBackgrounded || AppController.route !== "stream"
             || overlayBlocksGameplay
             || (!nativeGameplay && ((!window.desktopSurfaceActive && !window.consoleStreamReady)
-                || (window.desktopSurfaceActive && !ShellStore.authRestorePending && !ShellStore.signedIn)))
+                || (window.desktopSurfaceActive && !ShellStore.authRestorePending && !ShellStore.signedIn))))
         ControllerInput.inputSuspended = shellBackgrounded
             || (shellOwnsInput && ShellStore.settings.controllerMode === false)
         ControllerInput.shellCaptureEnabled = shellOwnsInput
@@ -646,8 +679,14 @@ ApplicationWindow {
 
     function restorePassiveStreamInput() {
         if (window.activeRoute !== "stream"
-                || ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay)
-                || !routeLoader.item)
+                || ShellStore.streamOverlayBlocksGameplayInput(AppController.overlay))
+            return
+        if (window.nativeStreamingOverlayActive) {
+            NativeStreamRuntime.focusExternalWindow()
+            ShellStore.focusNativeSurface()
+            return
+        }
+        if (!routeLoader.item)
             return
         if (typeof routeLoader.item.resynchronizeStreamInput === "function")
             routeLoader.item.resynchronizeStreamInput()
@@ -655,8 +694,22 @@ ApplicationWindow {
             routeLoader.item.forceActiveFocus()
     }
 
+    function publishNativeOverlay() {
+        if (!window.nativeStreamingOverlayActive)
+            return
+        const descriptor = {
+            visible: true,
+            nativeOverlay: window.nativeStreamOverlayModel
+        }
+        const key = JSON.stringify(descriptor)
+        if (key === window.standaloneSurfaceKey)
+            return
+        window.standaloneSurfaceKey = key
+        ShellStore.updateNativeSurface(descriptor)
+    }
+
     function presentStandaloneOverlay(activate) {
-        if (!window.standaloneOverlayVisible)
+        if (window.nativeStreamingOverlayActive || !window.standaloneOverlayVisible)
             return
         const descriptor = NativeStreamRuntime.presentExternalOverlay(window,
             desktopStreamOverlay.nativeSurfaceOcclusions,
@@ -704,6 +757,15 @@ ApplicationWindow {
             }
             return
         }
+        if (window.nativeStreamingOverlayActive) {
+            // The Qt window stays hidden while a supported native overlay is active.
+            // Native menu/stats/exit UI never activates or reparents this window.
+            window.standaloneOverlayPresented = false
+            window.standalonePresentedOverlay = ""
+            window.standaloneShellHidden = true
+            nativeOverlayPublish.restart()
+            return
+        }
         if (overlay !== "") {
             const activate = !window.standaloneOverlayPresented || window.standaloneShellHidden
                 || window.standalonePresentedOverlay !== overlay
@@ -734,6 +796,38 @@ ApplicationWindow {
         interval: 120
         repeat: false
         onTriggered: window.presentStandaloneOverlay(false)
+    }
+
+    Timer {
+        id: nativeOverlayPublish
+        interval: 16
+        repeat: false
+        onTriggered: window.publishNativeOverlay()
+    }
+
+    Timer {
+        id: nativeOverlayClock
+        interval: 1000
+        repeat: true
+        running: window.nativeStreamingOverlayActive
+        onTriggered: window.nativeOverlayNowMs = Date.now()
+    }
+
+    Timer {
+        id: nativeControlToastTimeout
+        interval: 4000
+        repeat: false
+        onTriggered: window.nativeControlToast = ""
+    }
+
+    Connections {
+        target: ShellStore
+        function onStreamControlMessageChanged() {
+            if (ShellStore.streamControlMessage === "")
+                return
+            window.nativeControlToast = ShellStore.streamControlMessage
+            nativeControlToastTimeout.restart()
+        }
     }
 
     Connections {
@@ -1050,6 +1144,7 @@ ApplicationWindow {
         transformOrigin: Item.TopLeft
         overlay: AppController.overlay
         visible: consoleOverlayHost.present && !window.streamQmlOverlayActive
+            && !window.nativeStreamingOverlayActive
         z: 1000
     }
 
@@ -1105,7 +1200,7 @@ ApplicationWindow {
 
     Item {
         readonly property real consoleScale: Math.min(window.width / 1920, window.height / 1080)
-        visible: consoleSystemWarning.present
+        visible: consoleSystemWarning.present && !window.nativeStreamingOverlayActive
         width: window.width / consoleScale
         height: window.height / consoleScale
         scale: consoleScale

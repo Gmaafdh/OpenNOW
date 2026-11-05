@@ -1010,6 +1010,19 @@ impl MainThreadHost {
                         }
                     }
                     #[cfg(target_os = "windows")]
+                    Ok(OutputEvent::NativeOverlayAvailability(available)) => {
+                        if let Some(feedback) = feedback.as_ref() {
+                            let _ = feedback
+                                .send(MediaFeedback::NativeOverlayAvailability { available });
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    Ok(OutputEvent::FullscreenChanged(fullscreen)) => {
+                        if let Some(feedback) = feedback.as_ref() {
+                            let _ = feedback.send(MediaFeedback::FullscreenChanged { fullscreen });
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
                     Ok(OutputEvent::RequestKeyframe) => {
                         if let Some(feedback) = feedback.as_ref() {
                             let _ = feedback.send(MediaFeedback::RequestKeyframe {

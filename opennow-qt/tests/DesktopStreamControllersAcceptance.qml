@@ -139,6 +139,16 @@ QtObject {
                                 "streamInviteRow", "streamConsoleModeRow", "streamEndSessionRow"])
                 check(need(name).visible, name + " is shown")
             check(need("streamMenuBackToGame").activeFocus, "Back to game starts focused")
+            const nativeModel = need("desktopStreamOverlayHost").nativeOverlayModel(
+                "desktop-stream-menu", Date.now(), "")
+            check(nativeModel.kind === "menu" && nativeModel.inputBlocking
+                && nativeModel.hud.length === 0, "the native menu is modal and suppresses passive HUD items")
+            check(JSON.stringify(nativeModel.items.filter(item => item.enabled && item.action).map(item => item.action))
+                === JSON.stringify(["dismiss-overlay", "toggle-microphone", "toggle-anti-afk",
+                    "show-stats-expanded", "toggle-fullscreen", "toggle-console-mode", "stop-stream"]),
+                "every native menu action has an explicit shell-neutral mapping")
+            check(nativeModel.fontFamily.length > 0 && nativeModel.monoFontFamily.length > 0,
+                "the native renderer receives real shell font families")
             check(input.shellCaptureEnabled, "the open drawer keeps controller input away from the game")
             check(streamAlive(), "opening the drawer keeps the stream and the video item")
             const saved = ShellStore.streamer
@@ -266,6 +276,13 @@ QtObject {
         function() {
             if (AppController.overlay !== "desktop-stream-exit-confirm") return false
             check(streamAlive(), "Ctrl+Shift+Q only asks; the stream keeps running")
+            const nativeExit = need("desktopStreamOverlayHost").nativeOverlayModel(
+                "desktop-stream-exit-confirm", Date.now(), "")
+            check(nativeExit.kind === "exit" && nativeExit.inputBlocking
+                && nativeExit.items.length === 2
+                && nativeExit.items[0].action === "dismiss-overlay"
+                && nativeExit.items[1].action === "confirm-stream-exit",
+                "native exit confirmation preserves separate cancel and confirm actions")
             AppController.showOverlay("desktop-stream-menu")
             return true
         },

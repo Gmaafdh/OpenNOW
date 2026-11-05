@@ -657,6 +657,14 @@ impl Worker {
                 "pointer-lock-toggled",
                 json!({"relativeMouse":relative_mouse,"source":"native"}),
             ),
+            MediaFeedback::NativeOverlayAvailability { available } => self.emit(
+                "native-overlay-state",
+                json!({"available":available,"source":"native"}),
+            ),
+            MediaFeedback::FullscreenChanged { fullscreen } => self.emit(
+                "native-fullscreen-changed",
+                json!({"fullscreen":fullscreen,"source":"native"}),
+            ),
         }
         Ok(())
     }

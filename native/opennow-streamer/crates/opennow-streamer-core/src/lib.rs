@@ -88,7 +88,13 @@ impl EventSender {
     fn scope_lifecycle(&self, mut value: Value) -> Value {
         if !matches!(
             value["type"].as_str(),
-            Some("status" | "error" | "pointer-lock-toggled")
+            Some(
+                "status"
+                    | "error"
+                    | "pointer-lock-toggled"
+                    | "native-overlay-state"
+                    | "native-fullscreen-changed"
+            )
         ) || value.get("startId").is_some()
         {
             return value;
@@ -3093,6 +3099,18 @@ fn forward_nvst_media_feedback<R: NvstSessionResources>(
                 json!({"relativeMouse":relative_mouse, "source":"native"}),
             ));
         }
+        MediaFeedback::NativeOverlayAvailability { available } => {
+            let _ = output.send(event(
+                "native-overlay-state",
+                json!({"available":available, "source":"native"}),
+            ));
+        }
+        MediaFeedback::FullscreenChanged { fullscreen } => {
+            let _ = output.send(event(
+                "native-fullscreen-changed",
+                json!({"fullscreen":fullscreen, "source":"native"}),
+            ));
+        }
         MediaFeedback::DecodeTimings(timings) => {
             state.decode_timings = Some(timings);
             flush_nvst_telemetry(output, resources, state);
@@ -3816,6 +3834,36 @@ mod tests {
         assert_eq!(action["relativeMouse"], true);
         assert_eq!(action["source"], "native");
         assert_eq!(action["startId"], "pointer-start");
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn native_overlay_feedback_reports_scoped_availability_and_fullscreen() {
+        let (sender, receiver) = mpsc::channel();
+        let sender = EventSender::unbounded(sender).for_session("overlay-start");
+        let resources = TestNvstResources::default();
+        let mut state = NvstMediaFeedbackState::new(true);
+        for feedback in [
+            MediaFeedback::NativeOverlayAvailability { available: false },
+            MediaFeedback::FullscreenChanged { fullscreen: true },
+        ] {
+            forward_nvst_media_feedback(
+                &sender,
+                &connected_lifecycle(),
+                7,
+                &resources,
+                feedback,
+                &mut state,
+            );
+        }
+        let availability = receiver.recv().expect("overlay availability");
+        assert_eq!(availability["type"], "native-overlay-state");
+        assert_eq!(availability["available"], false);
+        assert_eq!(availability["startId"], "overlay-start");
+        let fullscreen = receiver.recv().expect("fullscreen state");
+        assert_eq!(fullscreen["type"], "native-fullscreen-changed");
+        assert_eq!(fullscreen["fullscreen"], true);
+        assert_eq!(fullscreen["startId"], "overlay-start");
         assert!(receiver.try_recv().is_err());
     }
 

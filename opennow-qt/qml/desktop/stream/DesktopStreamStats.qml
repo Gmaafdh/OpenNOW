@@ -113,9 +113,10 @@ Item {
         return read(card.field)
     }
     function format(value, decimals) { return numeric(value) === null ? qsTr("N/A") : Number(value).toFixed(decimals || 0) }
-    function elapsedText() {
+    function elapsedText(clockMs) {
         const start = Number(ShellStore.streamStartedAtMs || 0)
-        const total = start > 0 ? Math.floor(Math.max(0, nowMs - start) / 1000) : 0
+        const clock = clockMs === undefined ? nowMs : clockMs
+        const total = start > 0 ? Math.floor(Math.max(0, clock - start) / 1000) : 0
         return Math.floor(total / 3600) + ":" + String(Math.floor(total / 60) % 60).padStart(2, "0") + ":" + String(total % 60).padStart(2, "0")
     }
     readonly property string region: String(session.regionName || session.region || session.serverRegionId
@@ -205,6 +206,36 @@ Item {
     }
     function resetHistory() { history = ({}) }
     function metricValue(card) { return card.textValue !== undefined ? card.textValue : format(card.value, card.decimals) }
+    function nativeViewModel(isExpanded) {
+        const bitrate = cards.filter(card => card.key === "Bitrate")
+        const requestedOpacity = Number(ShellStore.settings.statsOverlayOpacity)
+        const opacity = Number.isFinite(requestedOpacity)
+            ? Math.round(Math.max(40, Math.min(100, requestedOpacity))) : 85
+        const source = (isExpanded ? cards.slice(0, 12) : heroCards.concat(bitrate)).slice(0, 12)
+        const items = source.map((card, index) => ({
+            id: String(card.key || "metric") + "-" + index,
+            action: "",
+            label: String(card.label || ""),
+            value: metricValue(card) + (card.unit ? " " + card.unit : ""),
+            detail: ledgerDetail(card),
+            role: "metric",
+            enabled: false
+        }))
+        return {
+            kind: "stats",
+            title: qsTr("Stream statistics"),
+            subtitle: sessionDescription || healthText,
+            status: healthText,
+            detail: videoText,
+            expanded: isExpanded,
+            inputBlocking: false,
+            panelAction: "toggle-stats",
+            items: items,
+            scale: overlayScale,
+            opacity: opacity,
+            position: position
+        }
+    }
     function sampleHistory() {
         const next = ({})
         for (const card of cards) {

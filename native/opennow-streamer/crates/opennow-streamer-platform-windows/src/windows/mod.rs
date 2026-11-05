@@ -15,6 +15,7 @@ mod compatibility;
 mod decoder;
 mod embedded;
 mod graphics;
+mod native_overlay;
 mod shader;
 mod y410;
 
@@ -547,8 +548,14 @@ impl Worker {
         controls: mpsc::Receiver<Control>,
     ) -> Result<Self, BackendError> {
         let runtime = MediaRuntime::initialize()?;
-        let graphics = Graphics::new(api, None, config.surface, config.video)
-            .map_err(|error| BackendError::Startup(format!("{api:?} presentation: {error}")))?;
+        let graphics = Graphics::new_with_overlay(
+            api,
+            None,
+            config.surface,
+            config.video,
+            Arc::clone(&shared.native_overlay),
+        )
+        .map_err(|error| BackendError::Startup(format!("{api:?} presentation: {error}")))?;
         let decoder = Decoder::new(&graphics, config.video, decoder_mode).map_err(|error| {
             BackendError::Startup(format!(
                 "Media Foundation {} {} decoder: {error}",
@@ -654,6 +661,13 @@ impl Worker {
             }
             if stopping {
                 break;
+            }
+            if let Err(error) = self.graphics.present_native_overlay() {
+                // Overlay UI is optional; a D2D/DWrite failure must not rebuild
+                // a healthy decoder or interrupt the stream. Detach the visual
+                // and let Qt restore its established fallback overlay.
+                video_log!("Native overlay disabled; continuing video with QML fallback: {error}");
+                self.graphics.disable_native_overlay();
             }
             let endpoint_result = self
                 .audio
@@ -882,12 +896,17 @@ impl Worker {
                 .surface
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            match Graphics::new(self.api, None, self.config.surface, self.config.video).and_then(
-                |graphics| {
-                    Decoder::new(&graphics, self.config.video, self.decoder_mode)
-                        .map(|decoder| (graphics, decoder))
-                },
-            ) {
+            match Graphics::new_with_overlay(
+                self.api,
+                None,
+                self.config.surface,
+                self.config.video,
+                Arc::clone(&self.shared.native_overlay),
+            )
+            .and_then(|graphics| {
+                Decoder::new(&graphics, self.config.video, self.decoder_mode)
+                    .map(|decoder| (graphics, decoder))
+            }) {
                 Ok((graphics, decoder)) => {
                     self.graphics = graphics;
                     self.decoder = decoder;

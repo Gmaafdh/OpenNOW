@@ -34,8 +34,10 @@ FocusScope {
         .indexOf(String(live.status || "")) >= 0
     readonly property bool modePending: DesktopTokens.consoleModePending(Window.window)
     readonly property bool modeOn: DesktopTokens.consoleModeOn(Window.window)
-    readonly property bool fullscreen: Window.window
-        && Window.window.visibility === Window.FullScreen
+    readonly property bool fullscreen: NativeStreamRuntime.usesExternalWindow === true
+        && NativeStreamRuntime.usesHostedSurface !== true
+        ? ShellStore.nativeStreamFullscreen
+        : Window.window && Window.window.visibility === Window.FullScreen
     readonly property int outputHeight: Number(profile.height || 0)
     readonly property bool invitesAvailable: Boolean(ShellStore.socialCapabilities && ShellStore.socialCapabilities.invitesAvailable)
     readonly property bool controllerHints: AppController.inputMode === "controller"
@@ -125,15 +127,57 @@ FocusScope {
         if (name === "controllers") controllersPage.focusFirst()
         else controllersRow.forceActiveFocus()
     }
-    function clockText() {
+    function clockText(clockMs) {
         if (ShellStore.streamStartedAtMs <= 0)
             return "—"
-        const elapsed = Math.max(0, nowMs - ShellStore.streamStartedAtMs)
+        const clock = clockMs === undefined ? nowMs : clockMs
+        const elapsed = Math.max(0, clock - ShellStore.streamStartedAtMs)
         const total = Math.floor(elapsed / 1000)
         const hours = Math.floor(total / 3600)
         const minutes = Math.floor((total % 3600) / 60)
         const seconds = total % 60
         return (hours > 0 ? hours + ":" : "") + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0")
+    }
+
+    // Localized, shell-neutral metadata for the native Direct2D presenter.
+    // No QML geometry, item pointers, or window handles cross this boundary.
+    function nativeViewModel(clockMs) {
+        const item = (id, action, label, value, role, enabled, checked, detail) => ({
+            id: id, action: action, label: label, value: value || "", role: role,
+            enabled: enabled !== false, checked: checked, detail: detail || ""
+        })
+        const controllerValue = root.flightVisible
+            ? qsTr("%1 of %2 flight devices forwarded").arg(root.activeFlightCount).arg(root.flightDevices.length)
+            : root.pads.length === 0 ? qsTr("No controller connected")
+            : root.pads.length === 1 ? qsTr("1 connected · dead zones and vibration")
+            : qsTr("%1 connected · dead zones and vibration").arg(root.pads.length)
+        return {
+            kind: "menu",
+            title: String(root.game.title || qsTr("GeForce NOW")),
+            subtitle: qsTr("LIVE · %1").arg(root.clockText(clockMs)),
+            status: [root.streamerStatus, root.fpsText + " FPS", root.resolution, root.bitrateText].join(" · "),
+            detail: [root.transportText, root.codecText, root.backendText].join(" · "),
+            inputBlocking: true,
+            items: [
+                item("resume", "dismiss-overlay", qsTr("Back to game"), "Esc", "primary", true, null, ""),
+                item("microphone", "toggle-microphone", qsTr("Microphone"), ShellStore.microphoneLabel,
+                    "toggle", ShellStore.microphoneCanToggle, ShellStore.microphoneEnabled,
+                    root.shortcut("shortcutToggleMicrophone", "Ctrl+Shift+M")),
+                item("anti-afk", "toggle-anti-afk", qsTr("Anti-AFK"), ShellStore.antiAfkEnabled ? qsTr("On") : qsTr("Off"),
+                    "toggle", true, ShellStore.antiAfkEnabled,
+                    root.shortcut("shortcutToggleAntiAfk", "Ctrl+Shift+K")),
+                item("stats", "show-stats-expanded", qsTr("Stats overlay"), qsTr("Opens over the game"),
+                    "toggle", true, null, root.shortcut("shortcutToggleStats", "Ctrl+N")),
+                item("fullscreen", "toggle-fullscreen", qsTr("Fullscreen"), root.fullscreen ? qsTr("On") : qsTr("Off"),
+                    "toggle", true, root.fullscreen, root.shortcut("shortcutToggleFullscreen", "F11")),
+                item("controllers", "", qsTr("Controllers"), controllerValue, "row", false, null, ""),
+                item("console", "toggle-console-mode", root.modeOn ? qsTr("Switch to desktop mode") : qsTr("Switch to console mode"),
+                    root.modePending ? qsTr("SWITCHING…") : root.modeOn ? qsTr("DESKTOP READY") : qsTr("GAMEPAD READY"),
+                    "row", !root.modePending, null, ""),
+                item("end", "stop-stream", qsTr("End session"), qsTr("Asks first, the stream keeps running"),
+                    "danger", true, null, root.shortcut("shortcutStopStream", "Ctrl+Shift+Q"))
+            ]
+        }
     }
 
     readonly property var mainItems: [backButton, microphoneTile, antiAfkTile, statsTile, fullscreenTile,

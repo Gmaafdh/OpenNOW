@@ -66,6 +66,52 @@ FocusScope {
             ShellStore.accessibilityMessage = summary
     }
 
+    function nativeAccent(value) {
+        return ((Math.round(value.r * 255) << 16)
+            | (Math.round(value.g * 255) << 8)
+            | Math.round(value.b * 255)) >>> 0
+    }
+
+    function nativeOverlayModel(overlayName, clockMs, controlToast) {
+        const name = String(overlayName || "")
+        let model = {kind: "", items: [], hud: [], inputBlocking: false}
+        if (name === "desktop-stream-menu" || name === "guide-session")
+            model = menuView.nativeViewModel(clockMs)
+        else if (statsVisible || name === "desktop-stream-stats" || name === "desktop-stream-stats-expanded"
+                || name === "stream-stats" || name === "stream-stats-expanded")
+            model = statsView.nativeViewModel(name.endsWith("-expanded"))
+        else if (name === "desktop-stream-exit-confirm")
+            model = exitView.nativeViewModel()
+        const modal = model.inputBlocking === true
+        const hud = []
+        if (!modal) {
+            if (statsView.shown("Clock") && ShellStore.streamStartedAtMs > 0)
+                hud.push({id: "session-clock", action: "", label: statsView.elapsedText(clockMs),
+                    value: "", role: "hud-right", enabled: false})
+            const elapsedSeconds = Math.max(0, Math.floor((clockMs - ShellStore.streamStartedAtMs) / 1000))
+            if (ShellStore.antiAfkIndicatorShown(elapsedSeconds))
+                hud.push({id: "anti-afk", action: "", label: qsTr("Anti-AFK") + " · " + qsTr("On"),
+                    value: "", role: "hud-left", enabled: false})
+            if (ShellStore.microphoneEnabled)
+                hud.push({id: "microphone", action: "", label: ShellStore.microphoneLabel,
+                    value: "", role: "hud-left", enabled: false})
+            if (notificationsEnabled)
+                for (const toast of toasts.nativeItems()) hud.push(toast)
+            if (String(controlToast || "") !== "")
+                hud.push({id: "stream-control", action: "", label: String(controlToast),
+                    value: "", role: "toast", enabled: false})
+        }
+        model.hud = hud
+        model.fontFamily = Theme.bodyFont
+        model.monoFontFamily = Theme.monoFont
+        model.accent = nativeAccent(Theme.focus)
+        model.reducedMotion = AppController.reducedMotion
+        if (model.scale === undefined) model.scale = 1
+        if (model.opacity === undefined) model.opacity = name === "desktop-stream-exit-confirm" ? 96 : 92
+        if (model.position === undefined) model.position = ""
+        return model
+    }
+
     DesktopInStreamMenu {
         id: menuView
         anchors.fill: parent

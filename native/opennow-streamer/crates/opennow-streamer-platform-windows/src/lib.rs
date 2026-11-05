@@ -1,5 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod native_overlay;
+
 #[cfg(any(windows, test))]
 mod aperture;
 #[cfg(any(windows, test))]
@@ -338,6 +340,7 @@ struct Shared {
     video_format: Mutex<VideoFormat>,
     audio_format: Mutex<AudioFormat>,
     surface: Mutex<SurfaceTarget>,
+    native_overlay: Arc<native_overlay::NativeOverlayShared>,
     state: AtomicU8,
     paused: std::sync::atomic::AtomicBool,
     events: BoundedQueue<BackendEvent>,
@@ -418,6 +421,22 @@ impl WindowsBackend {
         config: BackendConfig,
         audio_muted: Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<Self, BackendError> {
+        Self::start_for_mode_with_overlay(
+            api,
+            decoder_mode,
+            config,
+            audio_muted,
+            native_overlay::NativeOverlayShared::new(),
+        )
+    }
+
+    pub fn start_for_mode_with_overlay(
+        api: WindowsGraphicsApi,
+        decoder_mode: WindowsDecoderMode,
+        config: BackendConfig,
+        audio_muted: Arc<std::sync::atomic::AtomicBool>,
+        native_overlay: Arc<native_overlay::NativeOverlayShared>,
+    ) -> Result<Self, BackendError> {
         config.validate()?;
         #[cfg(windows)]
         let video = config.video;
@@ -460,6 +479,7 @@ impl WindowsBackend {
                 video_format: Mutex::new(config.video),
                 audio_format: Mutex::new(config.audio),
                 surface: Mutex::new(config.surface),
+                native_overlay,
                 state: AtomicU8::new(LifecycleState::Starting as u8),
                 paused: std::sync::atomic::AtomicBool::new(false),
                 events: BoundedQueue::new(64),
@@ -726,6 +746,7 @@ mod tests {
                 },
                 visible: false,
             })),
+            native_overlay: native_overlay::NativeOverlayShared::new(),
             state: AtomicU8::new(state as u8),
             #[cfg(windows)]
             audio_muted: Arc::new(std::sync::atomic::AtomicBool::new(false)),

@@ -2026,7 +2026,8 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
             "toggleMicrophone":settings["shortcutToggleMicrophone"],
             "screenshot":settings["shortcutScreenshot"],
             "toggleRecording":settings["shortcutToggleRecording"],
-            "saveClip":settings["shortcutSaveClip"]
+            "saveClip":settings["shortcutSaveClip"],
+            "copyStats":"Shift+F3"
         }
     })
 }

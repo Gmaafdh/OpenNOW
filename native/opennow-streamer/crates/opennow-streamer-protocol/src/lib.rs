@@ -117,6 +117,122 @@ pub struct Command {
     pub output_path: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeOverlayItem {
+    /// Stable identity used to retain keyboard/controller focus across telemetry updates.
+    #[serde(default)]
+    pub id: String,
+    /// Shell-neutral action emitted when this item is activated. Empty actions are display-only.
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default)]
+    pub detail: String,
+    /// primary, toggle, row, danger, metric, hud-left, hud-right, or toast.
+    #[serde(default)]
+    pub role: String,
+    #[serde(default = "default_native_overlay_item_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub checked: Option<bool>,
+}
+
+impl Default for NativeOverlayItem {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            action: String::new(),
+            label: String::new(),
+            value: String::new(),
+            detail: String::new(),
+            role: String::new(),
+            enabled: true,
+            checked: None,
+        }
+    }
+}
+
+fn default_native_overlay_item_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeOverlay {
+    /// Empty, menu, stats, or exit. The native presenter never receives QML objects or HWNDs.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub expanded: bool,
+    #[serde(default)]
+    pub input_blocking: bool,
+    #[serde(default)]
+    pub panel_action: String,
+    #[serde(default)]
+    pub items: Vec<NativeOverlayItem>,
+    #[serde(default)]
+    pub hud: Vec<NativeOverlayItem>,
+    #[serde(default = "default_native_overlay_scale")]
+    pub scale: f32,
+    #[serde(default = "default_native_overlay_opacity")]
+    pub opacity: u8,
+    #[serde(default)]
+    pub position: String,
+    #[serde(default)]
+    pub font_family: String,
+    #[serde(default)]
+    pub mono_font_family: String,
+    /// Packed 0x00RRGGBB shell accent. Zero selects the native default.
+    #[serde(default)]
+    pub accent: u32,
+    #[serde(default)]
+    pub reduced_motion: bool,
+}
+
+impl Default for NativeOverlay {
+    fn default() -> Self {
+        Self {
+            kind: String::new(),
+            title: String::new(),
+            subtitle: String::new(),
+            status: String::new(),
+            detail: String::new(),
+            expanded: false,
+            input_blocking: false,
+            panel_action: String::new(),
+            items: Vec::new(),
+            hud: Vec::new(),
+            scale: 1.0,
+            opacity: 88,
+            position: String::new(),
+            font_family: String::new(),
+            mono_font_family: String::new(),
+            accent: 0,
+            reduced_motion: false,
+        }
+    }
+}
+
+fn default_native_overlay_scale() -> f32 {
+    1.0
+}
+
+fn default_native_overlay_opacity() -> u8 {
+    88
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderSurface {
@@ -138,6 +254,10 @@ pub struct RenderSurface {
     /// Blocking shell UI can receive mouse hit-testing without hiding video.
     #[serde(default)]
     pub input_passthrough: bool,
+    /// Optional native in-stream UI rendered by the video process itself.
+    /// This is additive: embedded and older standalone surfaces omit it.
+    #[serde(default)]
+    pub native_overlay: Option<NativeOverlay>,
 }
 
 impl Default for RenderSurface {
@@ -150,6 +270,7 @@ impl Default for RenderSurface {
             screen_rect: None,
             occlusions: Vec::new(),
             input_passthrough: false,
+            native_overlay: None,
         }
     }
 }
@@ -502,6 +623,7 @@ mod tests {
         .expect("legacy surface");
         assert!(legacy.occlusions.is_empty());
         assert!(!legacy.input_passthrough);
+        assert!(legacy.native_overlay.is_none());
 
         let hosted: RenderSurface = serde_json::from_value(serde_json::json!({
             "visible": true,
@@ -515,6 +637,35 @@ mod tests {
         assert_eq!(hosted.occlusions[0].x, 1560);
         assert_eq!(hosted.occlusions[0].width, 320);
         assert!(hosted.input_passthrough);
+    }
+
+    #[test]
+    fn native_overlay_is_typed_local_ui_metadata() {
+        let surface: RenderSurface = serde_json::from_value(serde_json::json!({
+            "visible": true,
+            "nativeOverlay": {
+                "kind": "menu",
+                "title": "Game",
+                "inputBlocking": true,
+                "items": [{
+                    "id": "resume",
+                    "action": "dismiss-overlay",
+                    "label": "Back to game",
+                    "role": "primary"
+                }],
+                "hud": [{"label": "00:12:34", "role": "hud-right", "enabled": false}]
+            }
+        }))
+        .expect("native overlay surface");
+        let overlay = surface.native_overlay.expect("overlay");
+        assert_eq!(overlay.kind, "menu");
+        assert!(overlay.input_blocking);
+        assert_eq!(overlay.scale, 1.0);
+        assert_eq!(overlay.opacity, 88);
+        assert_eq!(overlay.items[0].action, "dismiss-overlay");
+        assert!(overlay.items[0].enabled);
+        assert_eq!(overlay.hud[0].role, "hud-right");
+        assert!(!overlay.hud[0].enabled);
     }
 
     #[test]

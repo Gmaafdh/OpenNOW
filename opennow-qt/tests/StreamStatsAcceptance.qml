@@ -35,6 +35,15 @@ QtObject {
         ShellStore.acceptNativeEvent({type: "telemetry", pingMs: 23, decodeTimeMs: null, latencyMs: null})
         check(ShellStore.streamer.pingMs === 23, "native ping reaches ShellStore")
         checkMetric(stats, "Ping", qsTr("PING"), 23)
+        const nativeCompact = stats.nativeViewModel(false)
+        check(nativeCompact.kind === "stats" && !nativeCompact.inputBlocking
+            && nativeCompact.panelAction === "toggle-stats" && !nativeCompact.expanded,
+            "compact native stats stay passive and retain their panel action")
+        check(nativeCompact.items.length > 0 && nativeCompact.items.every(item => !item.enabled && !item.action),
+            "native metric cards are display-only rather than invisible buttons")
+        const nativeExpanded = stats.nativeViewModel(true)
+        check(nativeExpanded.expanded && nativeExpanded.items.length >= nativeCompact.items.length,
+            "expanded native stats use the same measured cards")
         checkMetric(stats, "Decode", qsTr("DECODE"), null)
         checkMetric(stats, "Latency", qsTr("LATENCY"), null)
         ShellStore.acceptNativeEvent({type: "telemetry", pingMs: 0, decodeTimeMs: 0, latencyMs: 0})

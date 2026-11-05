@@ -948,6 +948,7 @@ pub(crate) struct SdlInputCapture {
     relative_mouse: bool,
     external_relative_motion: bool,
     external_mouse_buttons: bool,
+    native_overlay_modal: bool,
     cursor_state: RemoteCursorState,
     cursors: HashMap<(u8, u8), sdl2::mouse::Cursor>,
     game_controller: Option<sdl2::GameControllerSubsystem>,
@@ -998,6 +999,7 @@ impl SdlInputCapture {
             relative_mouse: false,
             external_relative_motion,
             external_mouse_buttons,
+            native_overlay_modal: false,
             // Do not infer hidden-cursor gameplay before the first server
             // update. GFN sends a distinct predefined cursor ID 0 when the
             // game actually wants locked relative input.
@@ -1271,7 +1273,9 @@ impl SdlInputCapture {
             Event::MouseMotion { xrel, yrel, .. } if self.relative_mouse => {
                 push_mouse_motion(&mut self.captured, xrel, yrel);
             }
-            Event::MouseMotion { x, y, .. } if self.cursor_state != RemoteCursorState::Hidden => {
+            Event::MouseMotion { x, y, .. }
+                if self.cursor_state != RemoteCursorState::Hidden || self.native_overlay_modal =>
+            {
                 let absolute =
                     map_window_point_to_stream_viewport((x, y), stream_size, window_size);
                 self.captured.push(CapturedInput::MouseAbsolute {
@@ -1457,6 +1461,35 @@ impl SdlInputCapture {
             let y = viewport.y() + normalized_cursor_coordinate(position.1, viewport.height());
             sdl.mouse().warp_mouse_in_window(window, x, y);
         }
+    }
+
+    pub(crate) fn set_native_overlay_modal(
+        &mut self,
+        modal: bool,
+        sdl: &sdl2::Sdl,
+        window: &mut sdl2::video::Window,
+    ) -> Vec<CapturedInput> {
+        let first_release = self.captured.len();
+        self.native_overlay_modal = modal;
+        if modal {
+            self.release(sdl, window);
+            // A controller can keep sending state packets while gameplay is
+            // suspended. Publish one neutral state before the native modal
+            // starts consuming those packets locally.
+            for slot in 0_u8..4 {
+                if self.gamepad_states[usize::from(slot)].connected {
+                    self.gamepad_states[usize::from(slot)] = GamepadState {
+                        connected: true,
+                        ..GamepadState::default()
+                    };
+                    self.push_gamepad(slot);
+                }
+            }
+            sdl.mouse().show_cursor(true);
+        } else if self.cursor_state == RemoteCursorState::Hidden {
+            self.enable_relative_mouse(sdl, window);
+        }
+        self.captured.drain(first_release..).collect()
     }
 
     pub(crate) fn release(&mut self, sdl: &sdl2::Sdl, window: &mut sdl2::video::Window) {
@@ -2729,7 +2762,299 @@ pub(crate) enum OutputEvent {
     #[cfg(target_os = "windows")]
     PointerLockChanged(bool),
     #[cfg(target_os = "windows")]
+    NativeOverlayAvailability(bool),
+    #[cfg(target_os = "windows")]
+    FullscreenChanged(bool),
+    #[cfg(target_os = "windows")]
     Fatal(String),
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeOverlayInputRoute {
+    Forward,
+    Consume,
+    Action(StreamShortcutAction),
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, Default)]
+struct NativeOverlayGamepadState {
+    buttons: u16,
+    direction: Option<opennow_streamer_platform_windows::native_overlay::NativeOverlayDirection>,
+    next_repeat: Option<Instant>,
+    release_required: bool,
+}
+
+#[cfg(target_os = "windows")]
+struct NativeOverlayInput {
+    shared: Arc<opennow_streamer_platform_windows::native_overlay::NativeOverlayShared>,
+    pointer: Option<(f32, f32)>,
+    owned_keys: HashSet<u16>,
+    owned_buttons: HashSet<u8>,
+    gamepads: [NativeOverlayGamepadState; 4],
+}
+
+#[cfg(target_os = "windows")]
+impl NativeOverlayInput {
+    fn new(
+        shared: Arc<opennow_streamer_platform_windows::native_overlay::NativeOverlayShared>,
+    ) -> Self {
+        Self {
+            shared,
+            pointer: None,
+            owned_keys: HashSet::new(),
+            owned_buttons: HashSet::new(),
+            gamepads: [NativeOverlayGamepadState::default(); 4],
+        }
+    }
+
+    fn route(
+        &mut self,
+        input: &CapturedInput,
+        stream_size: (u32, u32),
+        window_size: (u32, u32),
+    ) -> NativeOverlayInputRoute {
+        use opennow_streamer_platform_windows::native_overlay::NativeOverlayDirection;
+
+        let snapshot = self.shared.snapshot();
+        let active = !snapshot.view.kind.is_empty();
+        let modal = snapshot.modal();
+        match input {
+            CapturedInput::MouseAbsolute {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let viewport = aspect_fit(
+                    stream_size.0.max(1),
+                    stream_size.1.max(1),
+                    window_size.0.max(1),
+                    window_size.1.max(1),
+                );
+                // MouseAbsolute is expressed inside the aspect-fitted video
+                // viewport. Reconstruct the same physical window point used by
+                // native hit-testing instead of using QML or remote geometry.
+                let _ = (width, height);
+                self.pointer = Some((
+                    (viewport.x() + i32::from(*x)) as f32,
+                    (viewport.y() + i32::from(*y)) as f32,
+                ));
+                if active
+                    && self.shared.pointer_move(
+                        self.pointer.expect("pointer").0,
+                        self.pointer.expect("pointer").1,
+                    )
+                {
+                    NativeOverlayInputRoute::Consume
+                } else {
+                    NativeOverlayInputRoute::Forward
+                }
+            }
+            CapturedInput::MouseButton { button, pressed } => {
+                if *pressed {
+                    // Record the left-button press even when the whole overlay
+                    // is modal. Using `modal || pointer_down(...)` here would
+                    // short-circuit the hit-test and leave pointer_up with no
+                    // action to activate.
+                    let owned = active
+                        && (self.owned_buttons.contains(button)
+                            || if *button == 1 {
+                                self.pointer
+                                    .is_some_and(|(x, y)| self.shared.pointer_down(x, y))
+                                    || modal
+                            } else {
+                                modal
+                            });
+                    if owned {
+                        self.owned_buttons.insert(*button);
+                        return NativeOverlayInputRoute::Consume;
+                    }
+                } else if self.owned_buttons.remove(button) {
+                    if *button == 1 {
+                        if let Some((x, y)) = self.pointer {
+                            if let Some(action) = self.shared.pointer_up(x, y) {
+                                if let Some(action) =
+                                    StreamShortcutAction::from_protocol_name(&action)
+                                {
+                                    return NativeOverlayInputRoute::Action(action);
+                                }
+                            }
+                        }
+                    }
+                    return NativeOverlayInputRoute::Consume;
+                }
+                if modal {
+                    NativeOverlayInputRoute::Consume
+                } else {
+                    NativeOverlayInputRoute::Forward
+                }
+            }
+            CapturedInput::MouseMove { .. } | CapturedInput::MouseWheel { .. } if modal => {
+                NativeOverlayInputRoute::Consume
+            }
+            CapturedInput::Key {
+                virtual_key,
+                modifiers,
+                pressed,
+            } => {
+                if !pressed && self.owned_keys.remove(virtual_key) {
+                    return NativeOverlayInputRoute::Consume;
+                }
+                if !active || !modal {
+                    // Passive statistics never turn ordinary game keys into
+                    // UI navigation or activation. Their explicit configured
+                    // shortcuts arrive as CapturedInput::Shortcut instead.
+                    return NativeOverlayInputRoute::Forward;
+                }
+                let direction = match virtual_key {
+                    0x25 => Some(NativeOverlayDirection::Left),
+                    0x26 => Some(NativeOverlayDirection::Up),
+                    0x27 => Some(NativeOverlayDirection::Right),
+                    0x28 => Some(NativeOverlayDirection::Down),
+                    0x09 if modifiers & 0x01 != 0 => Some(NativeOverlayDirection::Up),
+                    0x09 => Some(NativeOverlayDirection::Down),
+                    _ => None,
+                };
+                if *pressed {
+                    let action = match virtual_key {
+                        0x1b => self.shared.cancel(),
+                        0x0d if snapshot.view.kind == "exit" => {
+                            Some("confirm-stream-exit".to_owned())
+                        }
+                        0x0d | 0x20 => self.shared.activate_focused(),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        self.owned_keys.insert(*virtual_key);
+                        return StreamShortcutAction::from_protocol_name(&action)
+                            .map_or(NativeOverlayInputRoute::Consume, |action| {
+                                NativeOverlayInputRoute::Action(action)
+                            });
+                    }
+                    if let Some(direction) = direction {
+                        if self.shared.move_focus(direction) || modal {
+                            self.owned_keys.insert(*virtual_key);
+                            return NativeOverlayInputRoute::Consume;
+                        }
+                    }
+                }
+                if modal {
+                    self.owned_keys.insert(*virtual_key);
+                    NativeOverlayInputRoute::Consume
+                } else {
+                    NativeOverlayInputRoute::Forward
+                }
+            }
+            CapturedInput::Guide if active => {
+                NativeOverlayInputRoute::Action(StreamShortcutAction::DismissOverlay)
+            }
+            CapturedInput::Shortcut(_)
+            | CapturedInput::Screenshot
+            | CapturedInput::RecordingToggle => NativeOverlayInputRoute::Forward,
+            CapturedInput::Gamepad {
+                controller_id,
+                buttons,
+                left_stick_x,
+                left_stick_y,
+                ..
+            } if usize::from(*controller_id) < self.gamepads.len() => {
+                let slot = usize::from(*controller_id);
+                let previous = self.gamepads[slot];
+                let direction = gamepad_overlay_direction(*buttons, *left_stick_x, *left_stick_y);
+                self.gamepads[slot].buttons = *buttons;
+                self.gamepads[slot].direction = direction;
+                if !modal {
+                    if previous.release_required {
+                        if *buttons == 0 && left_stick_x.abs() < 8_000 && left_stick_y.abs() < 8_000
+                        {
+                            self.gamepads[slot].release_required = false;
+                            self.gamepads[slot].next_repeat = None;
+                            return NativeOverlayInputRoute::Forward;
+                        }
+                        return NativeOverlayInputRoute::Consume;
+                    }
+                    self.gamepads[slot].next_repeat = None;
+                    return NativeOverlayInputRoute::Forward;
+                }
+                self.gamepads[slot].release_required = true;
+                let pressed = *buttons & !previous.buttons;
+                if pressed & 0x1000 != 0 {
+                    if let Some(action) = self.shared.activate_focused() {
+                        if let Some(action) = StreamShortcutAction::from_protocol_name(&action) {
+                            return NativeOverlayInputRoute::Action(action);
+                        }
+                    }
+                } else if pressed & 0x2000 != 0 {
+                    if let Some(action) = self.shared.cancel() {
+                        if let Some(action) = StreamShortcutAction::from_protocol_name(&action) {
+                            return NativeOverlayInputRoute::Action(action);
+                        }
+                    }
+                } else if let Some(direction) = direction {
+                    let now = Instant::now();
+                    let changed = previous.direction != Some(direction);
+                    let due = self.gamepads[slot]
+                        .next_repeat
+                        .is_none_or(|next| now >= next);
+                    if changed || due {
+                        self.shared.move_focus(direction);
+                        self.gamepads[slot].next_repeat = Some(
+                            now + if changed {
+                                std::time::Duration::from_millis(360)
+                            } else {
+                                std::time::Duration::from_millis(120)
+                            },
+                        );
+                    }
+                } else {
+                    self.gamepads[slot].next_repeat = None;
+                }
+                NativeOverlayInputRoute::Consume
+            }
+            _ if modal => NativeOverlayInputRoute::Consume,
+            _ => NativeOverlayInputRoute::Forward,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn gamepad_overlay_direction(
+    buttons: u16,
+    x: i16,
+    y: i16,
+) -> Option<opennow_streamer_platform_windows::native_overlay::NativeOverlayDirection> {
+    use opennow_streamer_platform_windows::native_overlay::NativeOverlayDirection;
+    if buttons & 0x0001 != 0 {
+        return Some(NativeOverlayDirection::Up);
+    }
+    if buttons & 0x0002 != 0 {
+        return Some(NativeOverlayDirection::Down);
+    }
+    if buttons & 0x0004 != 0 {
+        return Some(NativeOverlayDirection::Left);
+    }
+    if buttons & 0x0008 != 0 {
+        return Some(NativeOverlayDirection::Right);
+    }
+    const THRESHOLD: i16 = 18_000;
+    if x.abs() < THRESHOLD && y.abs() < THRESHOLD {
+        return None;
+    }
+    if x.abs() > y.abs() {
+        Some(if x < 0 {
+            NativeOverlayDirection::Left
+        } else {
+            NativeOverlayDirection::Right
+        })
+    } else {
+        Some(if y < 0 {
+            NativeOverlayDirection::Down
+        } else {
+            NativeOverlayDirection::Up
+        })
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -2739,6 +3064,10 @@ struct WindowsExternalSdlSurface {
     event_pump: sdl2::EventPump,
     native_surface: NativeSurface,
     input_capture: SdlInputCapture,
+    native_overlay: Arc<opennow_streamer_platform_windows::native_overlay::NativeOverlayShared>,
+    native_overlay_input: NativeOverlayInput,
+    native_overlay_modal: bool,
+    pending_gameplay_release: Vec<CapturedInput>,
     raw_input: Option<WindowsRawInputController>,
     stream_size: (u32, u32),
     standalone: bool,
@@ -2747,6 +3076,7 @@ struct WindowsExternalSdlSurface {
     session_paused: bool,
     input_suspended: bool,
     reported_relative_mouse: bool,
+    reported_fullscreen: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -2780,8 +3110,14 @@ impl WindowsExternalSdlSurface {
             .event_pump()
             .map_err(|error| format!("external SDL event pump creation failed: {error}"))?;
         let capture_input = native_input_capture_enabled();
+        let native_overlay =
+            opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new();
         let raw_input = if capture_input {
-            match WindowsRawInputController::start(native_surface.window_handle(), captured_input) {
+            match WindowsRawInputController::start(
+                native_surface.window_handle(),
+                captured_input,
+                Arc::clone(&native_overlay),
+            ) {
                 Ok(controller) => {
                     eprintln!("Dedicated Windows Raw Input mouse thread ready");
                     Some(controller)
@@ -2814,6 +3150,10 @@ impl WindowsExternalSdlSurface {
             event_pump,
             native_surface,
             input_capture,
+            native_overlay_input: NativeOverlayInput::new(Arc::clone(&native_overlay)),
+            native_overlay,
+            native_overlay_modal: false,
+            pending_gameplay_release: Vec::new(),
             raw_input,
             stream_size: (stream.width, stream.height),
             standalone: standalone_window_enabled(),
@@ -2822,6 +3162,7 @@ impl WindowsExternalSdlSurface {
             session_paused: false,
             input_suspended: true,
             reported_relative_mouse: false,
+            reported_fullscreen: false,
         })
     }
 
@@ -2896,6 +3237,22 @@ impl WindowsExternalSdlSurface {
         // Qt's transparent owned overlay only contributes occlusion metadata;
         // it must never move, hide, or replace native presentation.
         if self.standalone {
+            self.native_overlay
+                .update_view(surface.native_overlay.clone().unwrap_or_default());
+            let modal = self.native_overlay.snapshot().modal();
+            if modal != self.native_overlay_modal {
+                let released =
+                    self.input_capture
+                        .set_native_overlay_modal(modal, &self.sdl, &mut self.window);
+                self.pending_gameplay_release.extend(released);
+                if modal {
+                    if let Some(raw_input) = self.raw_input.as_ref() {
+                        raw_input.release_buttons();
+                    }
+                }
+                self.native_overlay_modal = modal;
+                self.sync_raw_input();
+            }
             if let Some(raw_input) = self.raw_input.as_ref() {
                 if let Some(rect) = surface.rect.filter(|_| surface.visible) {
                     raw_input.set_overlay_exclusions(rect, &surface.occlusions);
@@ -2954,6 +3311,11 @@ impl WindowsExternalSdlSurface {
             );
             self.input_capture
                 .handle_event(&self.sdl, &mut self.window, self.stream_size, event);
+            if self.native_overlay_modal {
+                self.input_capture
+                    .disable_relative_mouse(&self.sdl, &mut self.window);
+                self.sdl.mouse().show_cursor(true);
+            }
             if focus_lost {
                 if let Some(raw_input) = self.raw_input.as_ref() {
                     raw_input.release_buttons();
@@ -2965,6 +3327,9 @@ impl WindowsExternalSdlSurface {
 
     fn release(&mut self) -> Result<(), String> {
         self.visible = false;
+        self.native_overlay.clear();
+        self.native_overlay.release_pointer();
+        self.native_overlay_modal = false;
         self.sync_input_ownership();
         self.native_surface.hide_checked()
     }
@@ -2981,6 +3346,14 @@ impl WindowsExternalSdlSurface {
         }
         self.reported_relative_mouse = relative;
         Some(relative)
+    }
+
+    fn take_fullscreen_change(&mut self) -> Option<bool> {
+        if self.fullscreen == self.reported_fullscreen {
+            return None;
+        }
+        self.reported_fullscreen = self.fullscreen;
+        Some(self.fullscreen)
     }
 
     fn focus_input(&mut self) -> Result<(), String> {
@@ -3009,8 +3382,18 @@ impl WindowsExternalSdlSurface {
         if !self.standalone {
             return captured;
         }
-        let mut forwarded = Vec::with_capacity(captured.len());
+        let window_size = self.window.size();
+        let mut forwarded = std::mem::take(&mut self.pending_gameplay_release);
+        forwarded.reserve(captured.len());
         for input in captured {
+            let input = match self
+                .native_overlay_input
+                .route(&input, self.stream_size, window_size)
+            {
+                NativeOverlayInputRoute::Forward => input,
+                NativeOverlayInputRoute::Consume => continue,
+                NativeOverlayInputRoute::Action(action) => CapturedInput::Shortcut(action),
+            };
             if matches!(
                 &input,
                 CapturedInput::Shortcut(action) if standalone_owns_shortcut(*action)
@@ -3026,6 +3409,11 @@ impl WindowsExternalSdlSurface {
     fn update_cursor(&mut self, bytes: &[u8]) {
         self.input_capture
             .apply_cursor(&self.sdl, &mut self.window, self.stream_size, bytes);
+        if self.native_overlay_modal {
+            self.input_capture
+                .disable_relative_mouse(&self.sdl, &mut self.window);
+            self.sdl.mouse().show_cursor(true);
+        }
         // SDL changes its process-wide Raw Input registration when relative mode changes.
         // Reclaim it immediately so the first button after a server cursor transition cannot
         // fall into an ownership gap.
@@ -3053,6 +3441,7 @@ pub(crate) struct WindowsOutput {
     bridge: Arc<WindowsBridge>,
     output: Arc<OutputBuffers>,
     external_surface: Option<WindowsExternalSdlSurface>,
+    reported_native_overlay_availability: Option<bool>,
     stopped: bool,
 }
 
@@ -3087,8 +3476,14 @@ impl WindowsOutput {
             Some(surface) => surface.target()?,
             None => hidden_windows_surface(),
         };
+        let native_overlay = external_surface
+            .as_ref()
+            .map(|surface| Arc::clone(&surface.native_overlay))
+            .unwrap_or_else(
+                opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new,
+            );
         let backend = Arc::new(
-            WindowsBackend::start_for_mode(
+            WindowsBackend::start_for_mode_with_overlay(
                 graphics_api,
                 decoder_mode,
                 BackendConfig {
@@ -3140,6 +3535,7 @@ impl WindowsOutput {
                     audio_queue_capacity: 10,
                 },
                 Arc::clone(&output.audio_muted),
+                native_overlay,
             )
             .map_err(|error| error.to_string())?,
         );
@@ -3151,6 +3547,7 @@ impl WindowsOutput {
             bridge,
             output,
             external_surface,
+            reported_native_overlay_availability: None,
             stopped: false,
         })
     }
@@ -3191,6 +3588,23 @@ impl WindowsOutput {
         });
         if let Some(relative_mouse) = pointer_lock_change {
             return Ok(OutputEvent::PointerLockChanged(relative_mouse));
+        }
+        let fullscreen_change = self
+            .external_surface
+            .as_mut()
+            .and_then(WindowsExternalSdlSurface::take_fullscreen_change);
+        if let Some(fullscreen) = fullscreen_change {
+            return Ok(OutputEvent::FullscreenChanged(fullscreen));
+        }
+        let overlay_availability = self
+            .external_surface
+            .as_ref()
+            .map(|surface| surface.native_overlay.presentation_available());
+        if let Some(available) = overlay_availability {
+            if self.reported_native_overlay_availability != Some(available) {
+                self.reported_native_overlay_availability = Some(available);
+                return Ok(OutputEvent::NativeOverlayAvailability(available));
+            }
         }
         let Some(event) = self.backend.try_event() else {
             return Ok(OutputEvent::None);
@@ -3752,6 +4166,134 @@ mod tests {
         assert_eq!(cursor.hotspot_y, 4);
         assert_eq!(cursor.image_base64, image);
         assert_eq!(cursor.scale, 1.5);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_modal_consumes_gameplay_but_preserves_global_shortcuts() {
+        let shared = opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new();
+        shared.update_view(opennow_streamer_protocol::NativeOverlay {
+            kind: "menu".to_owned(),
+            input_blocking: true,
+            items: vec![opennow_streamer_protocol::NativeOverlayItem {
+                id: "resume".to_owned(),
+                action: "dismiss-overlay".to_owned(),
+                role: "primary".to_owned(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let mut input = NativeOverlayInput::new(shared);
+        let sizes = ((1920, 1080), (1280, 720));
+        assert_eq!(
+            input.route(
+                &CapturedInput::Shortcut(StreamShortcutAction::ToggleStats),
+                sizes.0,
+                sizes.1,
+            ),
+            NativeOverlayInputRoute::Forward
+        );
+        assert_eq!(
+            input.route(
+                &CapturedInput::Key {
+                    virtual_key: 0x57,
+                    modifiers: 0,
+                    pressed: true,
+                },
+                sizes.0,
+                sizes.1,
+            ),
+            NativeOverlayInputRoute::Consume
+        );
+        assert_eq!(
+            input.route(
+                &CapturedInput::Key {
+                    virtual_key: 0x1b,
+                    modifiers: 0,
+                    pressed: true,
+                },
+                sizes.0,
+                sizes.1,
+            ),
+            NativeOverlayInputRoute::Action(StreamShortcutAction::DismissOverlay)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_modal_mouse_records_press_and_activates_on_release() {
+        let shared = opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new();
+        shared.update_view(opennow_streamer_protocol::NativeOverlay {
+            kind: "menu".to_owned(),
+            input_blocking: true,
+            items: vec![opennow_streamer_protocol::NativeOverlayItem {
+                id: "resume".to_owned(),
+                action: "dismiss-overlay".to_owned(),
+                role: "primary".to_owned(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let first = shared.snapshot().layout().items[0].rect;
+        let mut input = NativeOverlayInput::new(shared);
+        let point = CapturedInput::MouseAbsolute {
+            x: (first.x + first.width / 2.0) as u16,
+            y: (first.y + first.height / 2.0) as u16,
+            width: 1280,
+            height: 720,
+        };
+        assert_eq!(
+            input.route(&point, (1280, 720), (1280, 720)),
+            NativeOverlayInputRoute::Consume
+        );
+        assert_eq!(
+            input.route(
+                &CapturedInput::MouseButton {
+                    button: 1,
+                    pressed: true,
+                },
+                (1280, 720),
+                (1280, 720),
+            ),
+            NativeOverlayInputRoute::Consume
+        );
+        assert_eq!(
+            input.route(
+                &CapturedInput::MouseButton {
+                    button: 1,
+                    pressed: false,
+                },
+                (1280, 720),
+                (1280, 720),
+            ),
+            NativeOverlayInputRoute::Action(StreamShortcutAction::DismissOverlay)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_passive_stats_do_not_capture_gameplay_keyboard() {
+        let shared = opennow_streamer_platform_windows::native_overlay::NativeOverlayShared::new();
+        shared.update_view(opennow_streamer_protocol::NativeOverlay {
+            kind: "stats".to_owned(),
+            panel_action: "toggle-stats".to_owned(),
+            ..Default::default()
+        });
+        let mut input = NativeOverlayInput::new(shared);
+        for virtual_key in [0x57, 0x0d, 0x20, 0x1b, 0x26] {
+            assert_eq!(
+                input.route(
+                    &CapturedInput::Key {
+                        virtual_key,
+                        modifiers: 0,
+                        pressed: true,
+                    },
+                    (1920, 1080),
+                    (1280, 720),
+                ),
+                NativeOverlayInputRoute::Forward
+            );
+        }
     }
 
     #[test]

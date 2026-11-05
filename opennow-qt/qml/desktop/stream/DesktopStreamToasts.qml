@@ -148,6 +148,22 @@ Column {
         }
     }
 
+    function nativeItems() {
+        const items = []
+        const sources = [antiAfkToast, colorFormatToast, hdrDowngradeToast,
+            bugReportToast, controllerToast, packetLossToast]
+        for (const toast of sources) {
+            if (!toast.visible) continue
+            items.push({
+                id: toast.warning ? "warning-" + toast.objectName : toast.objectName,
+                action: "", label: String(toast.title || ""), value: String(toast.subtitle || ""),
+                detail: toast.batteryPercent >= 0 ? toast.batteryPercent + "%" : "",
+                role: "toast", enabled: false
+            })
+        }
+        return items
+    }
+
     NumberAnimation {
         id: controllerAnimation
         target: root; property: "controllerLifetime"
@@ -186,6 +202,7 @@ Column {
     }
 
     DesktopStreamToast {
+        id: antiAfkToast
         objectName: "streamAntiAfkToast"
         width: root.width
         visible: root.active && root.antiAfkNotice
@@ -198,6 +215,7 @@ Column {
     }
 
     DesktopStreamToast {
+        id: colorFormatToast
         objectName: "streamColorFormatToast"
         width: root.width
         visible: root.active && root.colorNotice && !ShellStore.streamerStopExpected
@@ -212,6 +230,7 @@ Column {
     }
 
     DesktopStreamToast {
+        id: hdrDowngradeToast
         objectName: "streamHdrDowngradeToast"
         width: root.width
         visible: root.active && root.hdrNotice && !ShellStore.streamerStopExpected
@@ -223,6 +242,7 @@ Column {
     }
 
     DesktopStreamToast {
+        id: bugReportToast
         objectName: "streamBugReportToast"
         width: root.width
         visible: root.active && root.bugReportNotice && root.bugReport !== null
@@ -235,6 +255,7 @@ Column {
     }
 
     DesktopStreamToast {
+        id: controllerToast
         objectName: "streamControllerToast"
         width: root.width
         visible: root.active && root.connectionNotificationsEnabled && root.controllerNotice !== null
@@ -253,6 +274,7 @@ Column {
         lifetimeFraction: root.controllerLifetime
     }
     DesktopStreamToast {
+        id: packetLossToast
         objectName: "streamPacketLossToast"
         width: root.width
         visible: root.active && root.connectionNotificationsEnabled && root.lossNotice

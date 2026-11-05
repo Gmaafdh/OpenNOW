@@ -33,6 +33,25 @@ FocusScope {
     signal cancelRequested()
     signal confirmRequested()
 
+    function nativeViewModel() {
+        return {
+            kind: "exit",
+            title: qsTr("End this cloud session?"),
+            subtitle: AppController.route === "inserting"
+                ? qsTr("Your session request will be cancelled and you will leave the queue.")
+                : qsTr("Your game will close on the remote rig. This session cannot be resumed after it ends."),
+            status: qsTr("END SESSION"),
+            detail: "",
+            inputBlocking: true,
+            items: [
+                {id: "keep-playing", action: "dismiss-overlay", label: AppController.route === "inserting"
+                    ? qsTr("Keep waiting") : qsTr("Keep playing"), value: "Esc", role: "primary", enabled: true},
+                {id: "confirm-exit", action: "confirm-stream-exit", label: qsTr("End session"),
+                    value: "Enter", role: "danger", enabled: true}
+            ]
+        }
+    }
+
     Shortcut {
         sequences: ["Return", "Enter"]
         enabled: root.opened

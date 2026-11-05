@@ -826,6 +826,10 @@ QtObject {
     property bool nativeRuntimeReady: false
     readonly property int nativeProtocolVersion: 7
     property var nativeRuntimeCapabilities: ({})
+    // False only when same-HWND native composition is unavailable. QML then
+    // keeps the established overlay fallback instead of hiding all stream UI.
+    property bool nativeOverlayAvailable: true
+    property bool nativeStreamFullscreen: false
     property var audioOutputDevices: []
     property bool audioOutputDevicesBusy: false
     property string audioOutputDevicesError: ""
@@ -881,6 +885,7 @@ QtObject {
         || settingsOwner.settingWrites.webrtcCompatibilityMode !== undefined
 
     signal fullscreenToggleRequested()
+    signal streamStatsCopyRequested()
     signal pointerLockToggleRequested()
     signal nativePointerLockToggled(bool relativeMouse)
     signal streamCaptureAnnounced(string message)
@@ -2941,6 +2946,18 @@ QtObject {
         action = String(action || "")
         if (action === "guide") {
             openSessionGuide()
+        } else if (action === "dismiss-overlay") {
+            AppController.showOverlay("")
+        } else if (action === "show-stats-expanded") {
+            AppController.showOverlay(desktopUiActive
+                ? "desktop-stream-stats-expanded" : "stream-stats-expanded")
+        } else if (action === "confirm-stream-exit") {
+            confirmStreamExit()
+        } else if (action === "toggle-console-mode") {
+            requestConsoleSurface(desktopUiActive)
+            accessibilityMessage = desktopUiActive
+                ? qsTr("Switching to console mode") : qsTr("Switching to computer mode")
+            AppController.showOverlay("")
         } else if (action === "request-exit" || action === "stop-stream") {
             requestStreamExitConfirmation()
         } else if (action === "toggle-anti-afk") {
@@ -2972,6 +2989,8 @@ QtObject {
             saveStreamClip()
         } else if (action === "toggle-microphone") {
             toggleMicrophone()
+        } else if (action === "copy-stats" && isStreamStatsOverlay(AppController.overlay)) {
+            streamStatsCopyRequested()
         }
     }
 
@@ -4123,6 +4142,16 @@ QtObject {
             textInputErrorAnnounced(streamControlMessage)
             return
         }
+        if (type === "native-fullscreen-changed") {
+            if (typeof event.fullscreen === "boolean")
+                nativeStreamFullscreen = event.fullscreen
+            return
+        }
+        if (type === "native-overlay-state") {
+            if (typeof event.available === "boolean")
+                nativeOverlayAvailable = event.available
+            return
+        }
         if (type === "pointer-lock-toggled") {
             if (typeof event.relativeMouse === "boolean")
                 nativePointerLockToggled(event.relativeMouse)
@@ -4290,6 +4319,8 @@ QtObject {
                 return
             root.streamIdleWarning = null
             root.nativeRuntimeReady = false
+            root.nativeOverlayAvailable = true
+            root.nativeStreamFullscreen = false
             root.audioOutputDevices = []
             root.audioOutputDevicesBusy = false
             root.audioOutputDevicesError = ""
