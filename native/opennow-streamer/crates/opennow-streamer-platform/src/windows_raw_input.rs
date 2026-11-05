@@ -8,6 +8,7 @@ use std::thread::{self, JoinHandle};
 
 use opennow_streamer_protocol::RenderSurfaceRect;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
@@ -23,8 +24,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP, RI_MOUSE_HWHEEL, RI_MOUSE_LEFT_BUTTON_DOWN,
     RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP,
     RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL, RegisterClassW,
-    ScreenToClient, SetWindowLongPtrW, TranslateMessage, WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE,
-    WM_NCDESTROY, WNDCLASSW,
+    SetWindowLongPtrW, TranslateMessage, WM_APP, WM_CLOSE, WM_INPUT, WM_NCCREATE, WM_NCDESTROY,
+    WNDCLASSW,
 };
 
 use crate::media::{CapturedInput, CapturedInputQueue, StreamShortcutAction};

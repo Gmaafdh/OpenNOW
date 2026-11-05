@@ -43,7 +43,6 @@ struct NativeOverlayBrushes {
     accent: ID2D1SolidColorBrush,
     danger: ID2D1SolidColorBrush,
     warning: ID2D1SolidColorBrush,
-    dark_text: ID2D1SolidColorBrush,
 }
 
 impl NativeOverlayBrushes {
@@ -56,7 +55,6 @@ impl NativeOverlayBrushes {
             accent: brush(context)?,
             danger: brush(context)?,
             warning: brush(context)?,
-            dark_text: brush(context)?,
         })
     }
 }
