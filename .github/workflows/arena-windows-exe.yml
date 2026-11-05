@@ -323,6 +323,16 @@ jobs:
             echo "::error::The account-picker acceptance did not create account-picker-motion.png"
             exit 1
           fi
+          # Exercise the native menu model with the production Windows QPA.
+          # The generic CTest registration is offscreen and is not sufficient
+          # for this full-app rendering and input acceptance.
+          QT_QPA_FONTDIR="$(cygpath -w "$PWD/opennow-qt/res/fonts")" \
+            "$smoke" \
+            --smoke-test --allow-multiple-instances --desktop --route stream \
+            --smoke-stream-controllers --smoke-width 1440 --smoke-height 900 \
+            --reduced-motion \
+            2>&1 | tee ci-logs/stream-controllers-acceptance.log || status=$?
+          if [[ $status -ne 0 ]]; then exit "$status"; fi
 
       - name: Package portable ZIP
         shell: bash

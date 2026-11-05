@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use ::windows::Win32::Graphics::Direct2D::Common::{
-    D2D_POINT_2F, D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
 use ::windows::Win32::Graphics::Direct2D::{
     D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET,
@@ -27,6 +27,7 @@ use ::windows::Win32::Graphics::Dxgi::{
     IDXGISurface, IDXGISwapChain1,
 };
 use ::windows::core::{IUnknown, Interface, PCWSTR, w};
+use windows_numerics::Vector2;
 
 use crate::native_overlay::{
     NativeOverlayLayout, NativeOverlayRect, NativeOverlayShared, NativeOverlaySnapshot,
@@ -1028,6 +1029,7 @@ fn draw_menu_item(
                 detail_rect,
                 muted,
                 alpha,
+                false,
             );
         } else {
             draw_text(
@@ -1273,9 +1275,11 @@ fn draw_vector_icon(
     if rect.width <= 0.0 || rect.height <= 0.0 {
         return;
     }
-    let point = |x: f32, y: f32| D2D_POINT_2F {
-        x: rect.x + x * rect.width / 24.0,
-        y: rect.y + y * rect.height / 24.0,
+    let point = |x: f32, y: f32| {
+        Vector2::new(
+            rect.x + x * rect.width / 24.0,
+            rect.y + y * rect.height / 24.0,
+        )
     };
     let width = (rect.width / 24.0 * 1.8).max(1.0);
     let line = |x1: f32, y1: f32, x2: f32, y2: f32| unsafe {
