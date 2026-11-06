@@ -158,6 +158,12 @@ QtObject {
                 "the OpenNOW native menu includes the rich live summary and input hints")
             check(nativeModel.fontFamily.length > 0 && nativeModel.monoFontFamily.length > 0,
                 "the native renderer receives real shell font families")
+            const nativeFallback = need("desktopStreamOverlayHost").nativeOverlayModel(
+                "quick-settings", Date.now(), "")
+            check(nativeFallback.kind === "menu" && nativeFallback.inputBlocking
+                && nativeFallback.items.some(item => item.action === "dismiss-overlay")
+                && nativeFallback.items.some(item => item.action === "stop-stream"),
+                "an unmodeled overlay falls back to usable native OpenNOW controls, never a second window")
             check(input.shellCaptureEnabled, "the open drawer keeps controller input away from the game")
             check(streamAlive(), "opening the drawer keeps the stream and the video item")
             const saved = ShellStore.streamer

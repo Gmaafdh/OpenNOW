@@ -381,8 +381,8 @@ private slots:
         QVERIFY(std::abs(float(pixel[0]) - incorrectPqBlend) > 0.015f);
         QVERIFY(encoder.initialize(m_rhi.get(), output.get()));
 
-        // A standalone Qt overlay uses the same HDR10 output pass, but its
-        // transparent pixels must remain transparent to the native game.
+        // The chrome pass must also preserve premultiplied alpha for shell
+        // surfaces; decoded video is never composited by this Qt path.
         cb = nullptr;
         QCOMPARE(m_rhi->beginOffscreenFrame(&cb), QRhi::FrameOpSuccess);
         cb->beginPass(encoder.target(), QColor::fromRgbF(0.25f, 0.5f, 0.75f, 0.5f),
@@ -401,7 +401,7 @@ private slots:
         QVERIFY(std::abs(float(alphaPixel[3]) - 0.5f) < 0.002f);
     }
 
-    void externalOverlayOutputRemainsSdrAcrossShowCycles()
+    void compatibilityShellOutputRemainsSdrAcrossVisibilityCycles()
     {
 #if defined(Q_OS_WIN)
         QQuickWindow window;
@@ -425,7 +425,7 @@ private slots:
             QCoreApplication::processEvents();
         }
 #else
-        QSKIP("Windows external-overlay swapchain policy");
+        QSKIP("Windows compatibility-shell swapchain policy");
 #endif
     }
 

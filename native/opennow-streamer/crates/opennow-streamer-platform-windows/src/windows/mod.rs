@@ -663,10 +663,11 @@ impl Worker {
                 break;
             }
             if let Err(error) = self.graphics.present_native_overlay() {
-                // Overlay UI is optional; a D2D/DWrite failure must not rebuild
-                // a healthy decoder or interrupt the stream. Detach the visual
-                // and let Qt restore its established fallback overlay.
-                video_log!("Native overlay disabled; continuing video with QML fallback: {error}");
+                // Do not rebuild a healthy decoder for a UI failure. Detach the
+                // visual and report availability; the standalone shell stops
+                // this presentation and restores its one window instead of
+                // opening a transparent Qt overlay above the game.
+                video_log!("Native overlay unavailable; reporting presentation failure to the shell: {error}");
                 self.graphics.disable_native_overlay();
             }
             let endpoint_result = self

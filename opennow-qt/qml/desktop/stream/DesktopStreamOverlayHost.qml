@@ -82,6 +82,11 @@ FocusScope {
             model = statsView.nativeViewModel(name.endsWith("-expanded"))
         else if (name === "desktop-stream-exit-confirm")
             model = exitView.nativeViewModel()
+        else if (name !== "")
+            // Never raise a second Qt window for an unmodeled shell overlay.
+            // The previous OpenNOW sidebar remains a safe, fully functional
+            // native fallback with resume, media, cursor and exit controls.
+            model = menuView.nativeViewModel(clockMs)
         const modal = model.inputBlocking === true
         const hud = []
         if (!modal) {

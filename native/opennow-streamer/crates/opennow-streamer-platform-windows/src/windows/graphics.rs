@@ -1113,14 +1113,15 @@ fn create_swap_chain(
     direct_composition: bool,
 ) -> Result<SwapChainResources, String> {
     if direct_composition {
-        match create_composition_swap_chain(device, hwnd, size, format) {
-            Ok(resources) => return Ok(resources),
-            Err(error) => eprintln!(
-                "DirectComposition stream presentation unavailable; using HWND swapchain: {error}"
-            ),
-        }
+        // Standalone OpenNOW controls share this window through a separate
+        // RGBA8 composition visual. Dropping to an HWND-only swapchain would
+        // make that UI unavailable and previously caused a second Qt window.
+        // Fail this presentation instead; the shell restores itself as the
+        // only remaining window and reports the graphics error.
+        create_composition_swap_chain(device, hwnd, size, format)
+    } else {
+        create_hwnd_swap_chain(device, hwnd, size, format)
     }
-    create_hwnd_swap_chain(device, hwnd, size, format)
 }
 
 fn create_composition_swap_chain(

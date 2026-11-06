@@ -10,15 +10,12 @@ ApplicationWindow {
     minimumHeight: 540
     visible: !window.standaloneShellHidden
     visibility: ApplicationWindow.Windowed
-    // Keep one alpha-capable surface format for the entire window lifetime.
-    // Switching QQuickWindow.color between opaque and transparent can replace
-    // the native D3D11 swapchain format between overlay transitions.
-    color: "transparent"
-    background: Rectangle {
-        color: window.standaloneOverlayVisible ? "transparent" : "black"
-    }
-    flags: window.standaloneOverlayVisible
-        ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
+    // Standalone streaming is presented entirely by the native composition
+    // window. This Qt shell is either hidden or restored as the only window;
+    // it never becomes a transparent overlay above decoded video.
+    color: "black"
+    background: Rectangle { color: "black" }
+    flags: Qt.Window
     title: qsTr("OpenNOW")
     WindowTheme {
         targetWindow: window
@@ -86,29 +83,23 @@ ApplicationWindow {
     readonly property string effectiveLaunchMode: launchModeOverridden ? "" : LaunchModeOverride
     property bool streamStatsAutoShown: false
     property bool standaloneShellHidden: false
-    property bool standaloneOverlayPresented: false
-    property string standalonePresentedOverlay: ""
     property string standaloneSurfaceKey: ""
     readonly property bool standaloneStreamPresentation: Qt.platform.os === "windows"
         && window.activeRoute === "stream" && NativeStreamRuntime.running
         && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
-        && (NativeStreamRuntime.externalWindowActive || window.standaloneShellHidden
-            || window.standaloneOverlayPresented)
+        && (NativeStreamRuntime.externalWindowActive || window.standaloneShellHidden)
+    // Availability is a health signal, not a reason to open another window.
+    // If composition fails, enforceSingleWindowPresentation() stops the failed
+    // native presentation and restores this shell with an actionable error.
     readonly property bool nativeStreamingOverlayEnabled: Qt.platform.os === "windows"
         && NativeStreamRuntime.usesExternalWindow && !NativeStreamRuntime.usesHostedSurface
-        && ShellStore.nativeOverlayAvailable
-    readonly property bool nativeStreamingOverlaySupported: AppController.overlay === ""
-        || AppController.overlay === "desktop-stream-menu"
-        || AppController.overlay === "desktop-stream-exit-confirm"
-        || AppController.overlay === "guide-session"
-        || ShellStore.isStreamStatsOverlay(AppController.overlay)
     readonly property bool nativeStreamingOverlayActive: window.standaloneStreamPresentation
-        && window.nativeStreamingOverlayEnabled && window.nativeStreamingOverlaySupported
-    readonly property bool standaloneOverlayVisible: window.standaloneStreamPresentation
-        && !window.nativeStreamingOverlayActive
-        && window.standaloneOverlayPresented && AppController.overlay !== ""
-    readonly property bool standalonePassiveOverlay: window.standaloneOverlayVisible
-        && ShellStore.isStreamStatsOverlay(AppController.overlay)
+        && window.nativeStreamingOverlayEnabled
+    onStandaloneStreamPresentationChanged: {
+        window.synchronizeStandaloneShell()
+        window.syncInputOwnership()
+        window.enforceSingleWindowPresentation()
+    }
     property double nativeOverlayNowMs: Date.now()
     property string nativeControlToast: ""
     readonly property var nativeStreamOverlayModel: window.nativeStreamingOverlayActive
@@ -234,21 +225,14 @@ ApplicationWindow {
             geometrySaveTimer.restart()
         if (activeRoute === "stream")
             fullscreenInputSync.restart()
-        if (standaloneOverlayVisible)
-            standaloneOverlayResync.restart()
     }
     onHeightChanged: {
         if (geometryRestored)
             geometrySaveTimer.restart()
         if (activeRoute === "stream")
             fullscreenInputSync.restart()
-        if (standaloneOverlayVisible)
-            standaloneOverlayResync.restart()
     }
-    onVisibilityChanged: {
-        if (activeRoute === "stream") fullscreenInputSync.restart()
-        if (standaloneOverlayVisible) standaloneOverlayResync.restart()
-    }
+    onVisibilityChanged: if (activeRoute === "stream") fullscreenInputSync.restart()
     onActiveChanged: {
         syncInputOwnership()
         if (!active) {
@@ -482,7 +466,6 @@ ApplicationWindow {
     function toggleFullscreen() {
         if (window.standaloneStreamPresentation) {
             ShellStore.controlStream("toggle-fullscreen")
-            standaloneOverlayResync.restart()
             return
         }
         const enteringFullscreen = window.visibility !== ApplicationWindow.FullScreen
@@ -708,47 +691,27 @@ ApplicationWindow {
         ShellStore.updateNativeSurface(descriptor)
     }
 
-    function presentStandaloneOverlay(activate) {
-        if (window.nativeStreamingOverlayActive || !window.standaloneOverlayVisible)
+    function enforceSingleWindowPresentation() {
+        if (!window.standaloneStreamPresentation || ShellStore.nativeOverlayAvailable
+                || !NativeStreamRuntime.running)
             return
-        const descriptor = NativeStreamRuntime.presentExternalOverlay(window,
-            desktopStreamOverlay.nativeSurfaceOcclusions,
-            window.standalonePassiveOverlay, desktopStreamOverlay.pointerLocked)
-        if (descriptor && descriptor.visible === true) {
-            const key = JSON.stringify(descriptor)
-            if (key !== window.standaloneSurfaceKey) {
-                window.standaloneSurfaceKey = key
-                ShellStore.updateNativeSurface(descriptor)
-            }
-        }
-        if (!activate)
-            return
-        if (window.standalonePassiveOverlay) {
-            NativeStreamRuntime.focusExternalWindow()
-            ShellStore.focusNativeSurface()
-        } else {
-            window.raise()
-            window.requestActivate()
-            if (desktopStreamOverlay.inputBlocking)
-                Qt.callLater(() => desktopStreamOverlay.forceActiveFocus())
-        }
+        const message = qsTr("OpenNOW could not compose its in-stream controls on this graphics device. The native stream was stopped instead of opening a separate overlay window. Update the graphics driver or select another graphics device, then reconnect.")
+        ShellStore.lastError = message
+        ShellStore.streamControlMessage = message
+        ShellStore.stopNativeStreamer("Native DirectComposition overlay unavailable")
     }
 
-    function dismissStandaloneOverlay() {
-        NativeStreamRuntime.dismissExternalOverlay(window)
+    function clearStandaloneNativeOverlay() {
         if (window.standaloneSurfaceKey !== "" && NativeStreamRuntime.running)
             ShellStore.updateNativeSurface({"visible": false})
         window.standaloneSurfaceKey = ""
     }
 
     function synchronizeStandaloneShell() {
-        const overlay = String(AppController.overlay || "")
         if (!window.standaloneStreamPresentation) {
-            const restoreShell = window.standaloneShellHidden || window.standaloneOverlayPresented
-            window.standaloneOverlayPresented = false
-            window.standalonePresentedOverlay = ""
+            const restoreShell = window.standaloneShellHidden
             window.standaloneShellHidden = false
-            window.dismissStandaloneOverlay()
+            window.clearStandaloneNativeOverlay()
             if (restoreShell) {
                 Qt.callLater(() => {
                     window.updateSessionWindowMode()
@@ -757,45 +720,12 @@ ApplicationWindow {
             }
             return
         }
-        if (window.nativeStreamingOverlayActive) {
-            // The Qt window stays hidden while a supported native overlay is active.
-            // Native menu/stats/exit UI never activates or reparents this window.
-            window.standaloneOverlayPresented = false
-            window.standalonePresentedOverlay = ""
-            window.standaloneShellHidden = true
-            nativeOverlayPublish.restart()
-            return
-        }
-        if (overlay !== "") {
-            const activate = !window.standaloneOverlayPresented || window.standaloneShellHidden
-                || window.standalonePresentedOverlay !== overlay
-            window.standaloneOverlayPresented = true
-            window.standalonePresentedOverlay = overlay
-            window.standaloneShellHidden = false
-            Qt.callLater(() => {
-                if (!window.standaloneOverlayVisible || AppController.overlay !== overlay)
-                    return
-                window.presentStandaloneOverlay(activate)
-            })
-            return
-        }
-        if (window.standaloneOverlayPresented || window.standalonePresentedOverlay !== "") {
-            window.standaloneOverlayPresented = false
-            window.standalonePresentedOverlay = ""
-            window.standaloneShellHidden = true
-            window.dismissStandaloneOverlay()
-            NativeStreamRuntime.focusExternalWindow()
-            ShellStore.focusNativeSurface()
-        } else if (NativeStreamRuntime.externalWindowActive) {
-            window.standaloneShellHidden = true
-        }
-    }
-
-    Timer {
-        id: standaloneOverlayResync
-        interval: 120
-        repeat: false
-        onTriggered: window.presentStandaloneOverlay(false)
+        // Every standalone in-stream state stays in the native composition
+        // window. Unsupported native composition is a presentation error, not
+        // a reason to activate, reparent, or position this Qt window.
+        window.standaloneShellHidden = true
+        nativeOverlayPublish.restart()
+        window.enforceSingleWindowPresentation()
     }
 
     Timer {
@@ -828,6 +758,9 @@ ApplicationWindow {
             window.nativeControlToast = ShellStore.streamControlMessage
             nativeControlToastTimeout.restart()
         }
+        function onNativeOverlayAvailableChanged() {
+            window.enforceSingleWindowPresentation()
+        }
     }
 
     Connections {
@@ -835,15 +768,12 @@ ApplicationWindow {
         function onExternalWindowActiveChanged() {
             window.synchronizeStandaloneShell()
             window.syncInputOwnership()
+            window.enforceSingleWindowPresentation()
         }
-        function onRunningChanged() { window.synchronizeStandaloneShell() }
-    }
-
-    Connections {
-        target: desktopStreamOverlay
-        enabled: window.standaloneOverlayVisible
-        function onNativeSurfaceOcclusionsChanged() { standaloneOverlayResync.restart() }
-        function onPointerLockedChanged() { standaloneOverlayResync.restart() }
+        function onRunningChanged() {
+            window.synchronizeStandaloneShell()
+            window.enforceSingleWindowPresentation()
+        }
     }
 
     Component.onCompleted: {
@@ -937,7 +867,7 @@ ApplicationWindow {
     // color so any aspect looks deliberate instead of void-black.
     Rectangle {
         anchors.fill: parent
-        visible: !window.desktopSurfaceActive && !window.standaloneOverlayVisible
+        visible: !window.desktopSurfaceActive
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
         gradient: Gradient {
@@ -961,7 +891,6 @@ ApplicationWindow {
 
     ShellViewport {
         desktopSurfaceActive: window.desktopSurfaceActive
-        visible: !window.standaloneOverlayVisible
         layer.enabled: HdrOutput.chromeRequired && window.activeRoute !== "stream"
         layer.effect: HdrChromeEffect {}
         focus: true

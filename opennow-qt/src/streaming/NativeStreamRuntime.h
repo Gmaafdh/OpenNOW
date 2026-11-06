@@ -5,7 +5,6 @@
 #include "input/GenericHidWire.h"
 
 #include <QByteArray>
-#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QSize>
@@ -149,9 +148,6 @@ public:
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool send(const QJsonObject &command);
     Q_INVOKABLE void focusHostedOverlay(QWindow *window);
-    Q_INVOKABLE QJsonObject presentExternalOverlay(QWindow *window, const QJsonArray &occlusions,
-                                                   bool passive, bool pointerLocked);
-    Q_INVOKABLE void dismissExternalOverlay(QWindow *window);
     Q_INVOKABLE bool focusExternalWindow();
     bool sendBytes(const QByteArray &command);
     Q_INVOKABLE bool shutdown(int timeoutMs = DefaultShutdownTimeoutMs);

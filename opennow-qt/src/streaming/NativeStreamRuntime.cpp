@@ -15,8 +15,6 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QQueue>
-#include <QRegion>
-#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QThread>
@@ -95,12 +93,6 @@ HWND externalStreamWindow(DWORD processId)
     ExternalWindowSearch search{processId};
     EnumWindows(findExternalStreamWindow, reinterpret_cast<LPARAM>(&search));
     return search.stream;
-}
-
-QJsonObject physicalRect(const QRect &rect)
-{
-    return {{u"x"_s, rect.x()}, {u"y"_s, rect.y()},
-            {u"width"_s, rect.width()}, {u"height"_s, rect.height()}};
 }
 #endif
 
@@ -929,102 +921,6 @@ void NativeStreamRuntime::focusHostedOverlay(QWindow *window)
         SetForegroundWindow(handle);
         SetFocus(handle);
     }
-#endif
-}
-
-QJsonObject NativeStreamRuntime::presentExternalOverlay(QWindow *window,
-                                                         const QJsonArray &occlusions,
-                                                         bool passive, bool pointerLocked)
-{
-    if (!d->externalWindow || d->hostedSurface || !window
-            || QThread::currentThread() != thread()) return {};
-#ifdef Q_OS_WIN
-    if (!d->externalProcess || d->externalProcess->state() == QProcess::NotRunning) return {};
-    const HWND stream = externalStreamWindow(static_cast<DWORD>(d->externalProcess->processId()));
-    const HWND overlay = reinterpret_cast<HWND>(window->winId());
-    if (!stream || !overlay) return {};
-    const auto previousDpiContext = SetThreadDpiAwarenessContext(
-        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    if (!previousDpiContext) return {};
-    const auto restoreDpi = qScopeGuard([previousDpiContext] {
-        SetThreadDpiAwarenessContext(previousDpiContext);
-    });
-    RECT streamBounds{};
-    if (!GetWindowRect(stream, &streamBounds)) return {};
-
-    // Match the native presenter itself, not a QML/DPI approximation of it.
-    // Ownership orders the overlay above its game without making it topmost
-    // over other applications. This is not a WS_CHILD/video reparenting path.
-    SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(stream));
-    SetWindowPos(overlay, HWND_TOP, streamBounds.left, streamBounds.top,
-                 streamBounds.right - streamBounds.left, streamBounds.bottom - streamBounds.top,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    const auto extendedStyle = GetWindowLongPtrW(overlay, GWL_EXSTYLE);
-    auto nextStyle = extendedStyle | WS_EX_NOACTIVATE;
-    if (passive && (pointerLocked || occlusions.isEmpty())) nextStyle |= WS_EX_TRANSPARENT;
-    else nextStyle &= ~WS_EX_TRANSPARENT;
-    if (!passive) nextStyle &= ~WS_EX_NOACTIVATE;
-    if (nextStyle != extendedStyle) SetWindowLongPtrW(overlay, GWL_EXSTYLE, nextStyle);
-
-    if (passive && !pointerLocked && !occlusions.isEmpty()) {
-        QRegion hitRegion;
-        for (const auto &value : occlusions) {
-            const auto rect = value.toObject();
-            hitRegion += QRect(rect.value(u"x"_s).toInt(), rect.value(u"y"_s).toInt(),
-                               rect.value(u"width"_s).toInt(), rect.value(u"height"_s).toInt());
-        }
-        window->setMask(hitRegion);
-    } else {
-        window->setMask(QRegion());
-    }
-    // Geometry/occlusion refreshes are passive. QML explicitly requests focus
-    // only on an overlay open/close transition; a statistics update must never
-    // steal foreground from the game or from another application.
-    const qreal scale = window->devicePixelRatio();
-    QJsonArray physicalOcclusions;
-    for (const auto &value : occlusions) {
-        const auto object = value.toObject();
-        const QRectF logical(object.value(u"x"_s).toDouble(), object.value(u"y"_s).toDouble(),
-                             object.value(u"width"_s).toDouble(),
-                             object.value(u"height"_s).toDouble());
-        const auto left = std::floor(logical.left() * scale);
-        const auto top = std::floor(logical.top() * scale);
-        const auto right = std::ceil(logical.right() * scale);
-        const auto bottom = std::ceil(logical.bottom() * scale);
-        const QRect physical(QPoint(qRound(left), qRound(top)),
-                             QPoint(qRound(right) - 1, qRound(bottom) - 1));
-        if (!physical.isEmpty()) physicalOcclusions.append(physicalRect(physical));
-    }
-    const QRect nativeRect(0, 0, streamBounds.right - streamBounds.left,
-                           streamBounds.bottom - streamBounds.top);
-    return {{u"visible"_s, true}, {u"rect"_s, physicalRect(nativeRect)},
-            {u"screenRect"_s, QJsonObject{{u"x"_s, static_cast<int>(streamBounds.left)},
-                                           {u"y"_s, static_cast<int>(streamBounds.top)},
-                                           {u"width"_s, static_cast<int>(streamBounds.right - streamBounds.left)},
-                                           {u"height"_s, static_cast<int>(streamBounds.bottom - streamBounds.top)}}},
-            {u"deviceScaleFactor"_s, 1.0}, {u"inputPassthrough"_s, passive},
-            {u"occlusions"_s, physicalOcclusions}};
-#else
-    Q_UNUSED(occlusions)
-    Q_UNUSED(passive)
-    Q_UNUSED(pointerLocked)
-    return {};
-#endif
-}
-
-void NativeStreamRuntime::dismissExternalOverlay(QWindow *window)
-{
-    if (!d->externalWindow || d->hostedSurface || !window
-            || QThread::currentThread() != thread()) return;
-#ifdef Q_OS_WIN
-    const HWND overlay = reinterpret_cast<HWND>(window->winId());
-    if (!overlay) return;
-    window->setMask(QRegion());
-    SetWindowLongPtrW(overlay, GWLP_HWNDPARENT, 0);
-    const auto style = GetWindowLongPtrW(overlay, GWL_EXSTYLE);
-    SetWindowLongPtrW(overlay, GWL_EXSTYLE, style & ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT));
-#else
-    Q_UNUSED(window)
 #endif
 }
 

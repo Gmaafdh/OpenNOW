@@ -122,8 +122,9 @@ impl NativeOverlayShared {
             .clone();
         snapshot.presentation_available = available;
         if !available {
-            // QML owns the fallback overlay in this state. Never let invisible
-            // native geometry capture game input while presentation is absent.
+            // The shell stops failed standalone presentation rather than
+            // opening another window. Never let invisible native geometry
+            // capture game input while that teardown is being delivered.
             snapshot.view = NativeOverlay::default();
             snapshot.focused = None;
             snapshot.hovered = None;

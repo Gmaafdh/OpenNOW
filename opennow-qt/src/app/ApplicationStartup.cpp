@@ -334,8 +334,8 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
         return EXIT_FAILURE;
     }
     // The compatibility presenter owns native video/HDR independently. Keep
-    // its transparent Qt overlay on one SDR alpha swapchain instead of
-    // reinitializing HDR surfaces across overlay show/hide transitions.
+    // the shell on a stable SDR swapchain across visibility transitions; the
+    // shell is hidden during standalone streaming, never overlaid on it.
     hdrOutput.setSdrOnly(useExternalStreamWindow);
     hdrOutput.attach(rootWindow);
 #if defined(Q_OS_LINUX) && QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
