@@ -4,10 +4,10 @@ use ::windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
 use ::windows::Win32::Graphics::Direct2D::{
-    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET,
-    D2D1_BITMAP_PROPERTIES1, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_DRAW_TEXT_OPTIONS_CLIP,
-    D2D1_ELLIPSE, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_ROUNDED_RECT, D2D1CreateFactory,
-    ID2D1Bitmap1, ID2D1Device, ID2D1DeviceContext, ID2D1Factory1, ID2D1SolidColorBrush,
+    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
+    D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_DRAW_TEXT_OPTIONS_CLIP,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_ROUNDED_RECT, D2D1CreateFactory, ID2D1Bitmap1,
+    ID2D1Device, ID2D1DeviceContext, ID2D1Factory1, ID2D1SolidColorBrush,
 };
 use ::windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use ::windows::Win32::Graphics::DirectComposition::{IDCompositionDevice, IDCompositionVisual};
@@ -27,14 +27,13 @@ use ::windows::Win32::Graphics::Dxgi::{
     IDXGISurface, IDXGISwapChain1,
 };
 use ::windows::core::{IUnknown, Interface, PCWSTR, w};
-use windows_numerics::Vector2;
 
 use crate::native_overlay::{
     NativeOverlayLayout, NativeOverlayRect, NativeOverlayShared, NativeOverlaySnapshot,
 };
 use opennow_streamer_protocol::{NativeOverlay, NativeOverlayItem};
 
-const TRANSITION_DURATION: Duration = Duration::from_millis(300);
+const TRANSITION_DURATION: Duration = Duration::from_millis(180);
 
 struct NativeOverlayBrushes {
     panel: ID2D1SolidColorBrush,
@@ -100,7 +99,6 @@ struct NativeTextFormats {
     title: IDWriteTextFormat,
     body: IDWriteTextFormat,
     body_bold: IDWriteTextFormat,
-    menu_detail: IDWriteTextFormat,
     caption: IDWriteTextFormat,
     mono: IDWriteTextFormat,
     small: IDWriteTextFormat,
@@ -119,11 +117,10 @@ impl NativeTextFormats {
             view.mono_font_family.trim()
         };
         Ok(Self {
-            menu_title: text_format(write, body_family, 20.0 * scale, true)?,
+            menu_title: text_format(write, body_family, 26.0 * scale, true)?,
             title: text_format(write, body_family, 20.0 * scale, true)?,
-            body: text_format(write, body_family, 16.0 * scale, false)?,
-            body_bold: text_format(write, body_family, 16.0 * scale, true)?,
-            menu_detail: text_format(write, body_family, 14.0 * scale, false)?,
+            body: text_format(write, body_family, 15.0 * scale, false)?,
+            body_bold: text_format(write, body_family, 15.0 * scale, true)?,
             caption: text_format(write, body_family, 12.0 * scale, false)?,
             mono: text_format(write, mono_family, 13.0 * scale, false)?,
             small: text_format(write, body_family, 10.0 * scale, false)?,
@@ -396,54 +393,30 @@ impl NativeOverlayRenderer {
             );
         }
         if let Some(panel) = layout.panel {
-            let menu_like = matches!(snapshot.view.kind.as_str(), "menu" | "settings");
-            let panel_opacity = snapshot.view.opacity as f32 / 100.0;
-            if menu_like {
-                // The original shell is a square, full-height #191919 sidebar
-                // with a soft right shadow, not an inset rounded glass card.
-                for band in 0..8 {
-                    let falloff = 1.0 - band as f32 / 8.0;
-                    fill_rect(
-                        &device.context,
-                        &device.brushes.panel,
-                        NativeOverlayRect {
-                            x: panel.x + panel.width + band as f32,
-                            y: panel.y,
-                            width: 1.0,
-                            height: panel.height,
-                        },
-                        color(0.0, 0.0, 0.0, 0.30 * falloff * falloff),
-                        alpha,
-                    );
-                }
-                fill_rect(
-                    &device.context,
-                    &device.brushes.panel,
-                    panel,
-                    color(0.098, 0.098, 0.098, panel_opacity),
-                    alpha,
-                );
+            let panel_opacity = if snapshot.view.kind == "menu" {
+                (snapshot.view.opacity as f32 / 100.0).max(0.96)
             } else {
-                fill_round_rect(
-                    &device.context,
-                    &device.brushes.panel,
-                    panel,
-                    20.0 * layout.scale,
-                    color(0.035, 0.052, 0.068, panel_opacity),
-                    alpha,
-                );
-                stroke_round_rect(
-                    &device.context,
-                    &device.brushes.surface,
-                    panel,
-                    20.0 * layout.scale,
-                    1.0,
-                    color(1.0, 1.0, 1.0, 0.09),
-                    alpha,
-                );
-            }
+                snapshot.view.opacity as f32 / 100.0
+            };
+            fill_round_rect(
+                &device.context,
+                &device.brushes.panel,
+                panel,
+                20.0 * layout.scale,
+                color(0.035, 0.052, 0.068, panel_opacity),
+                alpha,
+            );
+            stroke_round_rect(
+                &device.context,
+                &device.brushes.surface,
+                panel,
+                20.0 * layout.scale,
+                1.0,
+                color(1.0, 1.0, 1.0, 0.09),
+                alpha,
+            );
             match snapshot.view.kind.as_str() {
-                "menu" | "settings" => draw_menu(device, formats, snapshot, &layout, panel, alpha),
+                "menu" => draw_menu(device, formats, snapshot, &layout, panel, alpha),
                 "stats" => draw_stats(device, formats, snapshot, &layout, panel, alpha),
                 "exit" => draw_exit(device, formats, snapshot, &layout, panel, alpha),
                 _ => {}
@@ -514,104 +487,244 @@ fn draw_menu(
     alpha: f32,
 ) {
     let s = layout.scale;
-    let appbar = NativeOverlayRect {
-        x: panel.x,
-        y: panel.y,
-        width: panel.width,
-        height: 56.0 * s,
+    let inset = if layout.compact { 16.0 } else { 20.0 } * s;
+    let text = color(0.94, 0.97, 0.98, 1.0);
+    let muted = color(0.60, 0.68, 0.72, 1.0);
+    let accent = accent(&snapshot.view);
+    let avatar = NativeOverlayRect {
+        x: panel.x + inset,
+        y: panel.y + 16.0 * s,
+        width: 46.0 * s,
+        height: 46.0 * s,
     };
-    fill_rect(
+    fill_round_rect(
         &device.context,
-        &device.brushes.panel,
-        appbar,
-        color(0.224, 0.224, 0.224, 1.0),
+        &device.brushes.accent,
+        avatar,
+        15.0 * s,
+        color(accent.r, accent.g, accent.b, 0.22),
         alpha,
     );
-    let first_action_x = layout
-        .items
-        .iter()
-        .filter(|placement| {
-            snapshot
-                .view
-                .items
-                .get(placement.index)
-                .is_some_and(|item| item.role == "appbar")
-        })
-        .map(|placement| placement.rect.x)
-        .min_by(f32::total_cmp)
-        .unwrap_or(panel.x + panel.width - 16.0 * s);
+    stroke_round_rect(
+        &device.context,
+        &device.brushes.accent,
+        avatar,
+        15.0 * s,
+        1.0 * s,
+        color(accent.r, accent.g, accent.b, 0.48),
+        alpha,
+    );
+    let monogram = snapshot
+        .view
+        .title
+        .trim()
+        .chars()
+        .next()
+        .unwrap_or('G')
+        .to_string();
+    draw_text(
+        &device.context,
+        &formats.title,
+        &device.brushes.text,
+        &monogram,
+        NativeOverlayRect {
+            x: avatar.x + 12.0 * s,
+            y: avatar.y + 9.0 * s,
+            width: 28.0 * s,
+            height: 28.0 * s,
+        },
+        text,
+        alpha,
+        false,
+    );
+    let escape = NativeOverlayRect {
+        x: panel.x + panel.width - inset - 40.0 * s,
+        y: panel.y + 16.0 * s,
+        width: 40.0 * s,
+        height: 24.0 * s,
+    };
+    fill_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        escape,
+        7.0 * s,
+        color(1.0, 1.0, 1.0, 0.055),
+        alpha,
+    );
+    draw_text(
+        &device.context,
+        &formats.small,
+        &device.brushes.muted,
+        "ESC",
+        NativeOverlayRect {
+            x: escape.x + 9.0 * s,
+            y: escape.y + 5.0 * s,
+            width: 26.0 * s,
+            height: 14.0 * s,
+        },
+        muted,
+        alpha,
+        false,
+    );
+    let title_x = panel.x + inset + 60.0 * s;
+    let title_width = (escape.x - title_x - 10.0 * s).max(40.0 * s);
     draw_text(
         &device.context,
         &formats.menu_title,
         &device.brushes.text,
         &snapshot.view.title,
         NativeOverlayRect {
-            x: panel.x + 16.0 * s,
-            y: panel.y + 14.0 * s,
-            width: (first_action_x - panel.x - 40.0 * s).max(0.0),
-            height: 28.0 * s,
+            x: title_x,
+            y: panel.y + 10.0 * s,
+            width: title_width,
+            height: 31.0 * s,
         },
-        color(0.94, 0.94, 0.94, 1.0),
+        text,
         alpha,
         false,
     );
-    draw_items_region(device, formats, snapshot, layout, alpha, Some("appbar"));
+    draw_text(
+        &device.context,
+        &formats.body,
+        &device.brushes.muted,
+        &snapshot.view.subtitle,
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 43.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 19.0 * s,
+        },
+        muted,
+        alpha,
+        false,
+    );
+    draw_text(
+        &device.context,
+        &formats.caption,
+        &device.brushes.accent,
+        &snapshot.view.status,
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 67.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 16.0 * s,
+        },
+        accent,
+        alpha,
+        false,
+    );
+    draw_text(
+        &device.context,
+        &formats.small,
+        &device.brushes.muted,
+        &snapshot.view.detail,
+        NativeOverlayRect {
+            x: title_x,
+            y: panel.y + 88.0 * s,
+            width: (panel.x + panel.width - inset - title_x).max(40.0 * s),
+            height: 14.0 * s,
+        },
+        muted,
+        alpha,
+        false,
+    );
+    draw_menu_summary(device, formats, snapshot, layout, alpha);
+    draw_items(device, formats, snapshot, layout, alpha);
+    if let Some(footer) = layout.footer {
+        draw_text(
+            &device.context,
+            &formats.small,
+            &device.brushes.muted,
+            &snapshot.view.footer,
+            NativeOverlayRect {
+                x: footer.x,
+                y: footer.y + 8.0 * s,
+                width: footer.width,
+                height: (footer.height - 8.0 * s).max(12.0 * s),
+            },
+            color(0.52, 0.60, 0.65, 1.0),
+            alpha,
+            false,
+        );
+    }
+}
 
-    if let Some(content) = layout.content {
-        let clip = d2d_rect(content);
-        unsafe {
-            device
-                .context
-                .PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        }
-        draw_items_region(device, formats, snapshot, layout, alpha, Some("content"));
-        unsafe { device.context.PopAxisAlignedClip() };
-
-        if layout.max_scroll > 0.0 && content.height > 0.0 {
-            let thumb_height = (content.height * content.height
-                / (content.height + layout.max_scroll))
-                .max(24.0 * s)
-                .min(content.height);
-            let travel = (content.height - thumb_height).max(0.0);
-            let thumb_y =
-                content.y + travel * (layout.scroll_offset / layout.max_scroll).clamp(0.0, 1.0);
-            fill_round_rect(
+fn draw_menu_summary(
+    device: &NativeOverlayDevice,
+    formats: &NativeTextFormats,
+    snapshot: &NativeOverlaySnapshot,
+    layout: &NativeOverlayLayout,
+    alpha: f32,
+) {
+    let Some(rect) = layout.summary else {
+        return;
+    };
+    let s = layout.scale;
+    fill_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        rect,
+        14.0 * s,
+        color(1.0, 1.0, 1.0, 0.045),
+        alpha,
+    );
+    stroke_round_rect(
+        &device.context,
+        &device.brushes.surface,
+        rect,
+        14.0 * s,
+        1.0 * s,
+        color(1.0, 1.0, 1.0, 0.055),
+        alpha,
+    );
+    let count = snapshot.view.summary.len().min(3);
+    if count == 0 {
+        return;
+    }
+    let column_width = rect.width / count as f32;
+    for (index, item) in snapshot.view.summary.iter().take(count).enumerate() {
+        let x = rect.x + index as f32 * column_width;
+        if index > 0 {
+            fill_rect(
                 &device.context,
-                &device.brushes.muted,
+                &device.brushes.surface,
                 NativeOverlayRect {
-                    x: content.x + content.width - 3.0 * s,
-                    y: thumb_y,
-                    width: 2.0 * s,
-                    height: thumb_height,
+                    x,
+                    y: rect.y + 14.0 * s,
+                    width: 1.0 * s,
+                    height: (rect.height - 28.0 * s).max(1.0),
                 },
-                s,
-                color(1.0, 1.0, 1.0, 0.30),
+                color(1.0, 1.0, 1.0, 0.065),
                 alpha,
             );
         }
-    }
-
-    if let Some(toast) = layout.footer {
-        fill_round_rect(
+        draw_text(
             &device.context,
-            &device.brushes.panel,
-            toast,
-            6.0 * s,
-            color(0.16, 0.16, 0.16, 0.98),
+            &formats.small,
+            &device.brushes.muted,
+            &item.label,
+            NativeOverlayRect {
+                x: x + 12.0 * s,
+                y: rect.y + 12.0 * s,
+                width: (column_width - 20.0 * s).max(20.0 * s),
+                height: 14.0 * s,
+            },
+            color(0.55, 0.63, 0.68, 1.0),
             alpha,
+            false,
         );
         draw_text(
             &device.context,
-            &formats.menu_detail,
+            &formats.body_bold,
             &device.brushes.text,
-            &snapshot.view.footer,
+            &item.value,
             NativeOverlayRect {
-                x: toast.x + 16.0 * s,
-                y: toast.y + 14.0 * s,
-                width: (toast.width - 32.0 * s).max(0.0),
-                height: 20.0 * s,
+                x: x + 12.0 * s,
+                y: rect.y + (if layout.compact { 37.0 } else { 43.0 }) * s,
+                width: (column_width - 20.0 * s).max(20.0 * s),
+                height: 23.0 * s,
             },
-            color(0.94, 0.94, 0.94, 1.0),
+            color(0.93, 0.96, 0.97, 1.0),
             alpha,
             false,
         );
@@ -711,118 +824,25 @@ fn draw_items(
     layout: &NativeOverlayLayout,
     alpha: f32,
 ) {
-    draw_items_region(device, formats, snapshot, layout, alpha, None);
-}
-
-fn draw_items_region(
-    device: &NativeOverlayDevice,
-    formats: &NativeTextFormats,
-    snapshot: &NativeOverlaySnapshot,
-    layout: &NativeOverlayLayout,
-    alpha: f32,
-    region: Option<&str>,
-) {
     for placement in &layout.items {
         let Some(item) = snapshot.view.items.get(placement.index) else {
             continue;
         };
-        let role = item.role.as_str();
-        let menu_like = matches!(snapshot.view.kind.as_str(), "menu" | "settings");
-        if menu_like {
-            let item_region = if role == "appbar" {
-                "appbar"
-            } else {
-                "content"
-            };
-            if region != Some(item_region) {
-                continue;
-            }
-        } else if region.is_some() {
-            continue;
-        }
-        let focused = snapshot.focused == Some(placement.index);
-        let hovered = snapshot.hovered == Some(placement.index);
+        let focused =
+            snapshot.focused == Some(placement.index) || snapshot.hovered == Some(placement.index);
         let pressed = snapshot.pressed == Some(placement.index);
+        let role = item.role.as_str();
         let accent = accent(&snapshot.view);
+        let delay = if snapshot.view.kind == "menu" {
+            (placement.index as f32 * 0.035).min(0.21)
+        } else {
+            0.0
+        };
+        let item_alpha = ((alpha - delay) / (1.0 - delay)).clamp(0.0, 1.0);
         let mut rect = placement.rect;
-        if menu_like {
-            rect.x += (1.0 - alpha) * 24.0 * layout.scale;
-            match role {
-                "divider" => {
-                    fill_rect(
-                        &device.context,
-                        &device.brushes.muted,
-                        NativeOverlayRect {
-                            x: rect.x + 16.0 * layout.scale,
-                            y: rect.y + 16.0 * layout.scale,
-                            width: (rect.width - 32.0 * layout.scale).max(0.0),
-                            height: layout.scale.max(1.0),
-                        },
-                        color(1.0, 1.0, 1.0, 0.14),
-                        alpha,
-                    );
-                    continue;
-                }
-                "gap" => continue,
-                "appbar" => {
-                    if hovered || pressed {
-                        fill_round_rect(
-                            &device.context,
-                            &device.brushes.surface,
-                            rect,
-                            4.0 * layout.scale,
-                            color(1.0, 1.0, 1.0, if pressed { 0.16 } else { 0.09 }),
-                            alpha,
-                        );
-                    }
-                    if focused && !hovered {
-                        stroke_round_rect(
-                            &device.context,
-                            &device.brushes.accent,
-                            rect,
-                            4.0 * layout.scale,
-                            1.5 * layout.scale,
-                            accent,
-                            alpha,
-                        );
-                    }
-                    let glyph = inset_rect(
-                        rect,
-                        6.0 * layout.scale,
-                        6.0 * layout.scale,
-                        6.0 * layout.scale,
-                        6.0 * layout.scale,
-                    );
-                    draw_vector_icon(device, &item.id, glyph, color(0.94, 0.94, 0.94, 1.0), alpha);
-                    continue;
-                }
-                _ => {}
-            }
-            if hovered || pressed {
-                fill_rect(
-                    &device.context,
-                    &device.brushes.surface,
-                    rect,
-                    color(1.0, 1.0, 1.0, if pressed { 0.13 } else { 0.075 }),
-                    alpha,
-                );
-            }
-            if focused && !hovered && item.enabled {
-                stroke_rect(
-                    &device.context,
-                    &device.brushes.accent,
-                    rect,
-                    1.5 * layout.scale,
-                    accent,
-                    alpha,
-                );
-            }
-            draw_menu_item(device, formats, snapshot, item, rect, alpha, layout.scale);
-            continue;
+        if snapshot.view.kind == "menu" {
+            rect.y += (1.0 - item_alpha) * 10.0 * layout.scale;
         }
-
-        let focused = focused || hovered;
-        let item_alpha = alpha;
         let mut fill = match role {
             "primary" => accent,
             "danger" => color(0.30, 0.08, 0.09, 0.70),
@@ -924,199 +944,6 @@ fn draw_items_region(
                 item_alpha,
             );
         }
-    }
-}
-
-fn draw_menu_item(
-    device: &NativeOverlayDevice,
-    formats: &NativeTextFormats,
-    snapshot: &NativeOverlaySnapshot,
-    item: &NativeOverlayItem,
-    rect: NativeOverlayRect,
-    alpha: f32,
-    scale: f32,
-) {
-    let s = scale;
-    let role = item.role.as_str();
-    let text = if item.enabled {
-        color(0.94, 0.94, 0.94, 1.0)
-    } else {
-        color(0.94, 0.94, 0.94, 0.38)
-    };
-    let muted = if item.enabled {
-        color(0.70, 0.70, 0.70, 1.0)
-    } else {
-        color(0.70, 0.70, 0.70, 0.38)
-    };
-    let setting = role == "setting";
-    let icon_box = NativeOverlayRect {
-        x: rect.x + 16.0 * s,
-        y: if setting {
-            rect.y + 10.0 * s
-        } else {
-            rect.y + (rect.height - 36.0 * s) / 2.0
-        },
-        width: 36.0 * s,
-        height: 36.0 * s,
-    };
-    let icon_name = if item.id == "record" && item.checked == Some(true) {
-        "record-active"
-    } else {
-        item.id.as_str()
-    };
-    draw_vector_icon(
-        device,
-        icon_name,
-        inset_rect(icon_box, 6.0 * s, 6.0 * s, 6.0 * s, 6.0 * s),
-        text,
-        alpha,
-    );
-
-    let has_switch = matches!(role, "toggle" | "setting") && item.checked.is_some();
-    let has_trailing_icon = matches!(role, "chevron" | "save" | "record");
-    let value_width = if item.value.trim().is_empty() {
-        0.0
-    } else {
-        ((item.value.chars().count() as f32 * 8.0 + 20.0).clamp(64.0, 140.0)) * s
-    };
-    let trailing_base = if has_switch {
-        68.0 * s
-    } else if has_trailing_icon {
-        52.0 * s
-    } else {
-        16.0 * s
-    };
-    let trailing_width = trailing_base + value_width;
-    let text_x = rect.x + 68.0 * s;
-    let text_width = (rect.x + rect.width - trailing_width - text_x).max(0.0);
-    let title_y = if setting || !item.detail.trim().is_empty() || !item.value.trim().is_empty() {
-        14.0
-    } else {
-        12.0
-    } * s;
-    draw_text(
-        &device.context,
-        &formats.body,
-        &device.brushes.text,
-        &item.label,
-        NativeOverlayRect {
-            x: text_x,
-            y: rect.y + title_y,
-            width: text_width,
-            height: 24.0 * s,
-        },
-        text,
-        alpha,
-        false,
-    );
-    if !item.detail.trim().is_empty() {
-        let detail_rect = NativeOverlayRect {
-            x: text_x,
-            y: rect.y + if setting { 46.0 * s } else { 38.0 * s },
-            width: if setting {
-                (rect.x + rect.width - 16.0 * s - text_x).max(0.0)
-            } else {
-                text_width
-            },
-            height: if setting { 66.0 * s } else { 20.0 * s },
-        };
-        if setting {
-            draw_wrapped_text(
-                &device.context,
-                &formats.menu_detail,
-                &device.brushes.muted,
-                &item.detail,
-                detail_rect,
-                muted,
-                alpha,
-                false,
-            );
-        } else {
-            draw_text(
-                &device.context,
-                &formats.menu_detail,
-                &device.brushes.muted,
-                &item.detail,
-                detail_rect,
-                muted,
-                alpha,
-                false,
-            );
-        }
-    }
-    if !item.value.trim().is_empty() {
-        draw_text(
-            &device.context,
-            &formats.menu_detail,
-            &device.brushes.muted,
-            &item.value,
-            NativeOverlayRect {
-                x: rect.x + rect.width - trailing_base - value_width,
-                y: rect.y + (rect.height - 20.0 * s) / 2.0,
-                width: value_width,
-                height: 20.0 * s,
-            },
-            muted,
-            alpha,
-            true,
-        );
-    }
-    if has_switch {
-        let checked = item.checked == Some(true);
-        let track = NativeOverlayRect {
-            x: rect.x + rect.width - 52.0 * s,
-            y: if setting {
-                rect.y + 18.0 * s
-            } else {
-                rect.y + (rect.height - 20.0 * s) / 2.0
-            },
-            width: 36.0 * s,
-            height: 20.0 * s,
-        };
-        fill_round_rect(
-            &device.context,
-            if checked {
-                &device.brushes.accent
-            } else {
-                &device.brushes.muted
-            },
-            track,
-            10.0 * s,
-            if checked {
-                accent(&snapshot.view)
-            } else {
-                color(0.42, 0.42, 0.42, 1.0)
-            },
-            alpha,
-        );
-        fill_round_rect(
-            &device.context,
-            &device.brushes.text,
-            NativeOverlayRect {
-                x: track.x + if checked { 18.0 } else { 2.0 } * s,
-                y: track.y + 2.0 * s,
-                width: 16.0 * s,
-                height: 16.0 * s,
-            },
-            8.0 * s,
-            color(0.96, 0.96, 0.96, 1.0),
-            alpha,
-        );
-    }
-    if has_trailing_icon {
-        let glyph = NativeOverlayRect {
-            x: rect.x + rect.width - 40.0 * s,
-            y: rect.y + (rect.height - 24.0 * s) / 2.0,
-            width: 24.0 * s,
-            height: 24.0 * s,
-        };
-        let trailing_icon = match role {
-            "save" => "save",
-            "record" if item.checked == Some(true) => "stop",
-            "record" => "play",
-            _ => "chevron",
-        };
-        draw_vector_icon(device, trailing_icon, glyph, muted, alpha);
     }
 }
 
@@ -1262,202 +1089,6 @@ fn draw_item_text(
             alpha,
             true,
         );
-    }
-}
-
-fn draw_vector_icon(
-    device: &NativeOverlayDevice,
-    name: &str,
-    rect: NativeOverlayRect,
-    ink: D2D1_COLOR_F,
-    alpha: f32,
-) {
-    if rect.width <= 0.0 || rect.height <= 0.0 {
-        return;
-    }
-    let point = |x: f32, y: f32| {
-        Vector2::new(
-            rect.x + x * rect.width / 24.0,
-            rect.y + y * rect.height / 24.0,
-        )
-    };
-    let width = (rect.width / 24.0 * 1.8).max(1.0);
-    let line = |x1: f32, y1: f32, x2: f32, y2: f32| unsafe {
-        paint(&device.brushes.text, ink, alpha);
-        device.context.DrawLine(
-            point(x1, y1),
-            point(x2, y2),
-            &device.brushes.text,
-            width,
-            None,
-        );
-    };
-    let polyline = |points: &[(f32, f32)]| {
-        for segment in points.windows(2) {
-            line(segment[0].0, segment[0].1, segment[1].0, segment[1].1);
-        }
-    };
-    let box_rect = |x: f32, y: f32, w: f32, h: f32| NativeOverlayRect {
-        x: rect.x + x * rect.width / 24.0,
-        y: rect.y + y * rect.height / 24.0,
-        width: w * rect.width / 24.0,
-        height: h * rect.height / 24.0,
-    };
-    let stroke_box = |x: f32, y: f32, w: f32, h: f32| unsafe {
-        paint(&device.brushes.text, ink, alpha);
-        device.context.DrawRectangle(
-            &d2d_rect(box_rect(x, y, w, h)),
-            &device.brushes.text,
-            width,
-            None,
-        );
-    };
-    let ellipse = |cx: f32, cy: f32, radius: f32, fill: bool| {
-        let ellipse = D2D1_ELLIPSE {
-            point: point(cx, cy),
-            radiusX: radius * rect.width / 24.0,
-            radiusY: radius * rect.height / 24.0,
-        };
-        unsafe {
-            paint(&device.brushes.text, ink, alpha);
-            if fill {
-                device.context.FillEllipse(&ellipse, &device.brushes.text);
-            } else {
-                device
-                    .context
-                    .DrawEllipse(&ellipse, &device.brushes.text, width, None);
-            }
-        }
-    };
-    match name {
-        "close" => {
-            line(6.0, 6.0, 18.0, 18.0);
-            line(18.0, 6.0, 6.0, 18.0);
-        }
-        "settings" => {
-            for spoke in 0..8 {
-                let angle = spoke as f32 * std::f32::consts::PI / 4.0;
-                let (sin, cos) = angle.sin_cos();
-                line(
-                    12.0 + 7.0 * cos,
-                    12.0 + 7.0 * sin,
-                    12.0 + 10.0 * cos,
-                    12.0 + 10.0 * sin,
-                );
-            }
-            ellipse(12.0, 12.0, 6.0, false);
-            ellipse(12.0, 12.0, 2.0, false);
-        }
-        "back" => {
-            line(20.0, 12.0, 4.0, 12.0);
-            polyline(&[(10.0, 6.0), (4.0, 12.0), (10.0, 18.0)]);
-        }
-        "gallery" => {
-            stroke_box(3.0, 4.0, 18.0, 16.0);
-            ellipse(8.0, 9.0, 1.5, false);
-            polyline(&[
-                (5.0, 17.0),
-                (10.0, 12.0),
-                (13.0, 15.0),
-                (16.0, 11.0),
-                (20.0, 17.0),
-            ]);
-        }
-        "record" | "record-active" => {
-            ellipse(12.0, 12.0, 8.0, false);
-            if name == "record-active" {
-                ellipse(12.0, 12.0, 4.0, true);
-            }
-        }
-        "replay-save" | "replay" => {
-            polyline(&[(5.0, 4.0), (5.0, 10.0), (11.0, 10.0)]);
-            polyline(&[
-                (5.0, 10.0),
-                (8.0, 6.0),
-                (13.0, 5.0),
-                (18.0, 8.0),
-                (19.0, 13.0),
-                (16.0, 18.0),
-                (11.0, 19.0),
-                (7.0, 17.0),
-                (5.0, 14.0),
-            ]);
-        }
-        "screenshot" => {
-            stroke_box(3.0, 7.0, 18.0, 13.0);
-            polyline(&[(7.0, 7.0), (9.0, 4.0), (15.0, 4.0), (17.0, 7.0)]);
-            ellipse(12.0, 13.0, 4.0, false);
-        }
-        "microphone" => {
-            stroke_round_rect(
-                &device.context,
-                &device.brushes.text,
-                box_rect(9.0, 2.0, 6.0, 12.0),
-                3.0 * rect.width / 24.0,
-                width,
-                ink,
-                alpha,
-            );
-            polyline(&[
-                (5.0, 11.0),
-                (5.0, 14.0),
-                (7.0, 18.0),
-                (12.0, 19.0),
-                (17.0, 18.0),
-                (19.0, 14.0),
-                (19.0, 11.0),
-            ]);
-            line(12.0, 19.0, 12.0, 22.0);
-            line(8.0, 22.0, 16.0, 22.0);
-        }
-        "statistics" | "stats" => {
-            for (x, y, h) in [(4.0, 13.0, 7.0), (10.0, 8.0, 12.0), (16.0, 4.0, 16.0)] {
-                fill_rect(
-                    &device.context,
-                    &device.brushes.text,
-                    box_rect(x, y, 3.0, h),
-                    ink,
-                    alpha,
-                );
-            }
-        }
-        "quit" => {
-            polyline(&[
-                (8.0, 5.0),
-                (5.0, 8.0),
-                (4.0, 13.0),
-                (6.0, 18.0),
-                (10.0, 20.0),
-                (15.0, 19.0),
-                (19.0, 15.0),
-                (19.0, 10.0),
-                (16.0, 5.0),
-            ]);
-            line(12.0, 2.0, 12.0, 11.0);
-        }
-        "clipboard" => {
-            stroke_round_rect(
-                &device.context,
-                &device.brushes.text,
-                box_rect(5.0, 5.0, 14.0, 17.0),
-                2.0 * rect.width / 24.0,
-                width,
-                ink,
-                alpha,
-            );
-            stroke_box(9.0, 2.0, 6.0, 5.0);
-            line(8.0, 12.0, 16.0, 12.0);
-            line(8.0, 16.0, 16.0, 16.0);
-        }
-        "play" => polyline(&[(9.0, 6.0), (18.0, 12.0), (9.0, 18.0), (9.0, 6.0)]),
-        "stop" => stroke_box(7.0, 7.0, 10.0, 10.0),
-        "chevron" => polyline(&[(9.0, 6.0), (15.0, 12.0), (9.0, 18.0)]),
-        "save" => {
-            line(12.0, 3.0, 12.0, 15.0);
-            polyline(&[(7.0, 10.0), (12.0, 15.0), (17.0, 10.0)]);
-            polyline(&[(4.0, 15.0), (4.0, 20.0), (20.0, 20.0), (20.0, 15.0)]);
-        }
-        _ => {}
     }
 }
 
@@ -1693,20 +1324,6 @@ fn fill_round_rect(
     unsafe {
         paint(brush, fill, alpha);
         context.FillRoundedRectangle(&rounded, brush);
-    }
-}
-
-fn stroke_rect(
-    context: &ID2D1DeviceContext,
-    brush: &ID2D1SolidColorBrush,
-    rect: NativeOverlayRect,
-    width: f32,
-    stroke: D2D1_COLOR_F,
-    alpha: f32,
-) {
-    unsafe {
-        paint(brush, stroke, alpha);
-        context.DrawRectangle(&d2d_rect(rect), brush, width, None);
     }
 }
 

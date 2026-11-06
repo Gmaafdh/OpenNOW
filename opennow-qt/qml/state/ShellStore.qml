@@ -829,13 +829,7 @@ QtObject {
     // False only when same-HWND native composition is unavailable. QML then
     // keeps the established overlay fallback instead of hiding all stream UI.
     property bool nativeOverlayAvailable: true
-    property string nativeStreamMenuPage: "main"
     property bool nativeStreamFullscreen: false
-    property Timer nativeStreamScreenshotTimer: Timer {
-        interval: 180
-        repeat: false
-        onTriggered: root.captureStreamScreenshot()
-    }
     property var audioOutputDevices: []
     property bool audioOutputDevicesBusy: false
     property string audioOutputDevicesError: ""
@@ -2830,7 +2824,6 @@ QtObject {
     function openSessionGuide() {
         if (!canOpenSessionGuide())
             return false
-        nativeStreamMenuPage = "main"
         return AppController.showOverlay(desktopUiActive ? "desktop-stream-menu" : "guide-session")
     }
 
@@ -2954,19 +2947,7 @@ QtObject {
         if (action === "guide") {
             openSessionGuide()
         } else if (action === "dismiss-overlay") {
-            nativeStreamMenuPage = "main"
             AppController.showOverlay("")
-        } else if (action === "open-stream-settings") {
-            nativeStreamMenuPage = "system"
-            accessibilityMessage = qsTr("System settings")
-        } else if (action === "stream-menu-back") {
-            nativeStreamMenuPage = "main"
-            accessibilityMessage = qsTr("GeForce NOW menu")
-        } else if (action === "open-capture-folder") {
-            const path = String(mediaRootPath || "")
-            const opened = path !== "" && AppController.openLocalPath(path, false)
-            streamControlMessage = opened ? qsTr("Capture folder opened") : qsTr("Capture folder unavailable")
-            accessibilityMessage = streamControlMessage
         } else if (action === "show-stats-expanded") {
             AppController.showOverlay(desktopUiActive
                 ? "desktop-stream-stats-expanded" : "stream-stats-expanded")
@@ -3025,13 +3006,7 @@ QtObject {
             else
                 pointerLockToggleRequested()
         } else if (action === "screenshot") {
-            if (AppController.overlay === "desktop-stream-menu") {
-                nativeStreamMenuPage = "main"
-                AppController.showOverlay("")
-                nativeStreamScreenshotTimer.restart()
-            } else {
-                captureStreamScreenshot()
-            }
+            captureStreamScreenshot()
         } else if (action === "toggle-recording") {
             toggleStreamRecording()
         } else if (action === "save-clip") {

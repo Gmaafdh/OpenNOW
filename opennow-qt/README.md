@@ -638,9 +638,9 @@ five minutes away. Repeat with each option disabled independently.
 
 Settings → Controls → **Clipboard paste** enables local-to-stream plain-text paste
 with Ctrl+V (Command+V on macOS). The console Controls page exposes the same persisted
-`clipboardPaste` preference. Matching the reference GFN client, it is enabled by
-default on supported desktop platforms and can be disabled persistently. It only
-reads the clipboard on an explicit paste shortcut while the stream has input capture. Blocking overlays
+`clipboardPaste` preference. It is enabled by default on supported desktop platforms
+and can be disabled persistently. It only reads the clipboard on an explicit paste
+shortcut while the stream has input capture. Blocking overlays
 and focus loss prevent paste; custom stream shortcuts take priority.
 
 Paste uses native NVST Unicode text packets, preserving UTF-8 characters and line

@@ -3078,11 +3078,9 @@ impl NativeOverlayInput {
                     NativeOverlayInputRoute::Forward
                 }
             }
-            CapturedInput::MouseWheel { delta_y, .. } if modal => {
-                self.shared.scroll_wheel(*delta_y);
+            CapturedInput::MouseMove { .. } | CapturedInput::MouseWheel { .. } if modal => {
                 NativeOverlayInputRoute::Consume
             }
-            CapturedInput::MouseMove { .. } if modal => NativeOverlayInputRoute::Consume,
             CapturedInput::Key {
                 virtual_key,
                 modifiers,
@@ -3113,14 +3111,6 @@ impl NativeOverlayInput {
                             Some("confirm-stream-exit".to_owned())
                         }
                         0x0d | 0x20 => self.shared.activate_focused(),
-                        0x21 => {
-                            self.shared.scroll_wheel(360);
-                            None
-                        }
-                        0x22 => {
-                            self.shared.scroll_wheel(-360);
-                            None
-                        }
                         _ => None,
                     };
                     if let Some(action) = action {

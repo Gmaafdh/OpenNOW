@@ -497,17 +497,11 @@ unsafe fn process_raw_input(state: &RawInputState, handle: HRAWINPUT) {
     };
     push_raw_mouse_buttons(state, button_flags);
     let native_modal = owns_pointer && !relative_motion && state.native_overlay.snapshot().modal();
-    if owns_pointer && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
-        if native_modal {
-            state
-                .native_overlay
-                .scroll_wheel(buttons.usButtonData as i16);
-        } else {
-            state.captured_input.push(CapturedInput::MouseWheel {
-                delta_x: 0,
-                delta_y: buttons.usButtonData as i16,
-            });
-        }
+    if owns_pointer && !native_modal && u32::from(buttons.usButtonFlags) & RI_MOUSE_WHEEL != 0 {
+        state.captured_input.push(CapturedInput::MouseWheel {
+            delta_x: 0,
+            delta_y: buttons.usButtonData as i16,
+        });
     }
     if owns_pointer && !native_modal && u32::from(buttons.usButtonFlags) & RI_MOUSE_HWHEEL != 0 {
         state.captured_input.push(CapturedInput::MouseWheel {

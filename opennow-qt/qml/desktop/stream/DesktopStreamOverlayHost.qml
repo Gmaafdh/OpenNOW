@@ -76,7 +76,7 @@ FocusScope {
         const name = String(overlayName || "")
         let model = {kind: "", items: [], hud: [], inputBlocking: false}
         if (name === "desktop-stream-menu" || name === "guide-session")
-            model = menuView.nativeViewModel(clockMs, controlToast)
+            model = menuView.nativeViewModel(clockMs)
         else if (statsVisible || name === "desktop-stream-stats" || name === "desktop-stream-stats-expanded"
                 || name === "stream-stats" || name === "stream-stats-expanded")
             model = statsView.nativeViewModel(name.endsWith("-expanded"))
