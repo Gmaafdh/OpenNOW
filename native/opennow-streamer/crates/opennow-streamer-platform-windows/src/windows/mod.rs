@@ -667,7 +667,9 @@ impl Worker {
                 // visual and report availability; the standalone shell stops
                 // this presentation and restores its one window instead of
                 // opening a transparent Qt overlay above the game.
-                video_log!("Native overlay unavailable; reporting presentation failure to the shell: {error}");
+                video_log!(
+                    "Native overlay unavailable; reporting presentation failure to the shell: {error}"
+                );
                 self.graphics.disable_native_overlay();
             }
             let endpoint_result = self
