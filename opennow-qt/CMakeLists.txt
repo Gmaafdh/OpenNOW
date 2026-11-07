@@ -26,7 +26,7 @@ if(MINGW)
     set(CMAKE_AUTOMOC_COMPILER_PREDEFINES OFF)
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Gui Network Multimedia Test ShaderTools WebEngineQuick)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Gui Network Multimedia Test ShaderTools)
 if(APPLE)
     find_package(Qt6 ${Qt6_VERSION} EXACT REQUIRED COMPONENTS Svg)
 endif()
@@ -93,7 +93,6 @@ target_link_libraries(opennow-qt PRIVATE
     Qt6::QuickPrivate
     Qt6::Network
     Qt6::Multimedia
-    Qt6::WebEngineQuick
     SDL3::SDL3
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
