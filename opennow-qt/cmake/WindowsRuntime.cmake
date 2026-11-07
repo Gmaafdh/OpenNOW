@@ -9,9 +9,9 @@ if(WIN32)
     set(OPENNOW_WINDEPLOYQT_ARGS
         --no-translations
         --compiler-runtime
-        -webengine
         --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml")
-    set(OPENNOW_QT_DEPLOY_TOOL_ARGS DEPLOY_TOOL_OPTIONS -webengine)
+    # Let windeployqt discover WebEngine through the QML imports. Qt 6.8's
+    # tool does not accept a dedicated -webengine option.
     # A narrow test build may never link OpenNOW, so its POST_BUILD deployment
     # cannot be the owner of the shared compiler runtime.
     if(MINGW)
