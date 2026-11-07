@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt.labs.settings
+import QtCore
 import OpenNOW
 
 Item {
@@ -32,6 +32,7 @@ Item {
 
     Settings {
         id: progressSettings
+        fileName: StandardPaths.writableLocation(StandardPaths.AppLocalDataLocation) + "/while-you-wait.ini"
         category: "WhileYouWait"
         property string progressJson: "{}"
     }

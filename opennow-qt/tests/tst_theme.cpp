@@ -1,3 +1,4 @@
+#include <QCoreApplication>
 #include <QFontDatabase>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -35,6 +36,9 @@ class ThemeTestSetup final : public QObject
 public slots:
     void applicationAvailable()
     {
+        QCoreApplication::setOrganizationName(QStringLiteral("OpenCloudGaming"));
+        QCoreApplication::setOrganizationDomain(QStringLiteral("opennow.app"));
+        QCoreApplication::setApplicationName(QStringLiteral("OpenNOW Theme Tests"));
         const auto source = QStringLiteral(OPENNOW_QML_SOURCE_DIR);
         QFontDatabase::addApplicationFont(source + "/../res/fonts/Nunito-Variable.ttf");
         QFontDatabase::addApplicationFont(source + "/../res/fonts/IBMPlexMono-Medium.ttf");
