@@ -14,7 +14,7 @@ FocusScope {
     readonly property real reveal: Math.max(0, Math.min(1, (width - DesktopTokens.railCollapsedWidth) / (DesktopTokens.railWidth - DesktopTokens.railCollapsedWidth)))
     readonly property bool consoleModeOn: DesktopTokens.consoleModeOn(Window.window)
     readonly property bool consoleModePending: DesktopTokens.consoleModePending(Window.window)
-    readonly property bool friendsAvailable: SocialClient.authenticated
+    readonly property bool friendsAvailable: Boolean(ShellStore.socialCapabilities && ShellStore.socialCapabilities.friendsAvailable)
     signal routeRequested(string route)
     signal consoleModeRequested()
     signal collapseRequested(bool collapsed)

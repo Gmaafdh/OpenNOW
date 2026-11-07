@@ -18,7 +18,6 @@
 #include "app/SingleInstance.h"
 #include "streaming/StreamVideoItem.h"
 #include "media/ThumbnailGenerator.h"
-#include "social/SocialClient.h"
 #include "media/ProfileImageStore.h"
 
 #include <QGuiApplication>
@@ -166,7 +165,6 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     Localization localization;
     application.installTranslator(&localization);
     CoreClient coreClient;
-    SocialClient socialClient;
     const auto coreProgram = AcceptanceSession::coreProgram(arguments);
     GraphicsDeviceSelection graphicsDevices(GraphicsDeviceSelection::detectAdapters(),
 #ifdef Q_OS_WIN
@@ -311,7 +309,6 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
     engine.rootContext()->setContextProperty(u"ProfileImages"_s, &profileImageStore);
     engine.rootContext()->setContextProperty(u"I18n"_s, &localization);
     engine.rootContext()->setContextProperty(u"CoreClient"_s, &coreClient);
-    engine.rootContext()->setContextProperty(u"SocialClient"_s, &socialClient);
     engine.rootContext()->setContextProperty(u"GraphicsDevices"_s, &graphicsDevices);
     engine.rootContext()->setContextProperty(u"HdrOutput"_s, &hdrOutput);
     engine.rootContext()->setContextProperty(u"MacAwdl"_s, &macAwdl);

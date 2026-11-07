@@ -40,7 +40,7 @@ FocusScope {
                 Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 8; height: 8; radius: 4; color: Theme.violet }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("OPENNOW SOCIAL")
+                    text: qsTr("COMING SOON")
                     color: Theme.lightMode ? Qt.darker(Theme.violet, 1.6) : Theme.violet
                     font.family: Theme.monoFont
                     font.pixelSize: 14
@@ -56,7 +56,7 @@ FocusScope {
                 id: heroTitle
                 y: -13
                 width: parent.width
-                text: qsTr("Remote friends use desktop mode")
+                text: qsTr("Friends are on the way")
                 wrapMode: Text.WordWrap
                 color: Theme.label
                 font.family: Theme.displayFont
@@ -76,7 +76,8 @@ FocusScope {
                 id: heroBody
                 y: 1
                 width: parent.width
-                text: qsTr("OpenNOW friend codes, chat, presence and play history are in the desktop Friends page and require a shared self-hosted HTTPS service. NVIDIA account search and NVIDIA friend invites are not available here.")
+                text: root.capabilities.reason
+                    || qsTr("NVIDIA doesn't offer a supported friends service for GeForce NOW yet. When it does, presence and invites will live here.")
                 wrapMode: Text.WordWrap
                 color: Theme.textMuted
                 font.family: Theme.bodyFont
