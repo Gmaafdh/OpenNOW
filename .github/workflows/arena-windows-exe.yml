@@ -98,9 +98,9 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtmultimedia qtshadertools
+          modules: qtmultimedia qtshadertools qtwebengine
           cache: true
-          cache-key-prefix: arena-windows-exe-qt
+          cache-key-prefix: arena-windows-exe-qt-webengine
 
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@v2

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <meta name="theme-color" content="#090814" />
+    <title>Void Vanguard — 100 missions beyond the light</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="hangar" id="hangar">
+      <header class="topbar">
+        <a class="brand" href="#home"
+          ><span class="brand-mark">✦</span><span>VOID <b>VANGUARD</b></span></a
+        >
+        <div class="save-indicator">
+          <i></i><span id="save-label">FLIGHT LOG READY</span>
+        </div>
+        <div class="credit-pill">
+          ✧ <b id="credits">0</b><small>SHARDS</small>
+        </div>
+        <button class="icon-button" id="audio-toggle" aria-label="Toggle sound">
+          ◖))
+        </button>
+      </header>
+      <section class="view home-view" id="home-view">
+        <div class="home-copy">
+          <p class="eyebrow">THE FRONTIER IS STILL OPEN</p>
+          <h1>One pilot.<br /><em>One hundred chances.</em></h1>
+          <p class="intro">
+            An arcade starfighter campaign about clean dodges, clever upgrades,
+            and finding your way home one sector at a time.
+          </p>
+          <div class="home-buttons">
+            <button class="primary" id="continue-button">
+              LAUNCH MISSION <span>↗</span></button
+            ><button class="secondary" id="campaign-button">CAMPAIGN MAP</button
+            ><button class="secondary" id="hangar-button">
+              HANGAR & LOADOUT
+            </button>
+          </div>
+          <div class="campaign-meter">
+            <div class="meter-heading">
+              <span>CAMPAIGN CLEARANCE</span
+              ><b id="campaign-progress">0 / 100</b>
+            </div>
+            <div class="meter-track"><i id="campaign-fill"></i></div>
+            <p>
+              <span id="sector-caption">SECTOR 01 · LANTERN REACH</span
+              ><span id="pilot-rank">CADET</span>
+            </p>
+          </div>
+          <div class="medals-row">
+            <div><b id="medal-stars">0</b><small>STARS</small></div>
+            <div><b id="medal-bosses">0</b><small>BOSSES</small></div>
+            <div><b id="medal-highscore">0</b><small>BEST SCORE</small></div>
+          </div>
+        </div>
+        <div class="ship-showcase" aria-label="A hand-drawn starfighter">
+          <canvas id="showcase-canvas"></canvas>
+          <div class="showcase-orbit orbit-a"></div>
+          <div class="showcase-orbit orbit-b"></div>
+          <div class="ship-caption">
+            <span>NX-01</span><b>WAYFARER</b
+            ><small>LIGHT INTERCEPTOR · MK I</small>
+          </div>
+          <div class="showcase-stat stat-speed">
+            <b>08</b><small>AGILITY</small>
+          </div>
+          <div class="showcase-stat stat-shield">
+            <b>04</b><small>SHIELD</small>
+          </div>
+        </div>
+        <div class="mission-brief">
+          <div>
+            <p class="eyebrow">YOUR NEXT DISTRESS SIGNAL</p>
+            <h2 id="next-mission-title">THE FIRST BEACON</h2>
+            <p id="next-mission-copy">
+              Find the damaged relay and bring its signal home.
+            </p>
+          </div>
+          <div class="mission-badges">
+            <span id="next-mission-sector">SECTOR 01</span
+            ><span>EST. 02:30</span>
+          </div>
+        </div>
+      </section>
+      <section class="view flight-view hidden" id="flight-view">
+        <div class="flight-head">
+          <button class="back" id="flight-home">← HANGAR</button>
+          <div class="mission-title">
+            <small id="flight-sector">SECTOR 01 · LANTERN REACH</small
+            ><b id="flight-title">THE FIRST BEACON</b>
+          </div>
+          <div class="flight-tools">
+            <span id="flight-level">MISSION 01 / 100</span
+            ><button
+              class="icon-button"
+              id="pause-button"
+              aria-label="Pause flight"
+            >
+              Ⅱ
+            </button>
+          </div>
+        </div>
+        <div class="flight-hud">
+          <div class="hull-readout">
+            <span>HULL</span>
+            <div id="hull-pips"></div>
+            <small id="hull-number">03 / 03</small>
+          </div>
+          <div class="objective-readout">
+            <span>MISSION OBJECTIVE</span
+            ><b id="objective-text">CLEAR THE HOSTILES</b>
+            <div class="objective-track"><i id="objective-fill"></i></div>
+          </div>
+          <div class="score-readout">
+            <span>SCORE</span><b id="score-number">000000</b
+            ><small id="combo-number">COMBO × 1</small>
+          </div>
+        </div>
+        <div class="flight-stage" id="flight-stage">
+          <canvas
+            id="flight-canvas"
+            aria-label="Void Vanguard spaceflight"
+          ></canvas>
+          <div class="stage-vignette"></div>
+          <div class="boss-bar hidden" id="boss-bar">
+            <div>
+              <span id="boss-name">DREADNOUGHT</span
+              ><b id="boss-hp-label">100%</b>
+            </div>
+            <i><em id="boss-hp-fill"></em></i>
+          </div>
+          <div class="stage-message" id="stage-message">
+            <small id="message-kicker">MISSION 01 · FIRST FLIGHT</small
+            ><b id="message-title">READY, WAYFARER?</b>
+            <p id="message-copy">
+              Move with WASD or arrows. Hold Space to fire.
+            </p>
+            <button class="primary small" id="message-action">
+              BEGIN FLIGHT
+            </button>
+          </div>
+          <div class="mobile-controls">
+            <div class="dpad">
+              <button data-control="up">▲</button
+              ><button data-control="left">◀</button
+              ><button data-control="down">▼</button
+              ><button data-control="right">▶</button>
+            </div>
+            <div class="fire-pad">
+              <button data-control="special">✦</button
+              ><button data-control="fire">FIRE</button>
+            </div>
+          </div>
+          <div class="pickup-flash" id="pickup-flash"></div>
+        </div>
+        <div class="flight-footer">
+          <div>
+            <span class="shield-icon">◈</span
+            ><span id="shield-label">SHIELD STABLE</span>
+          </div>
+          <p>WASD / ARROWS MOVE · SPACE FIRE · SHIFT DASH · X SPECIAL</p>
+          <button class="tool" id="special-button">
+            SPECIAL <kbd>X</kbd><b id="special-count">1</b>
+          </button>
+        </div>
+      </section>
+      <section class="view map-view hidden" id="map-view">
+        <div class="map-heading">
+          <button class="back" id="map-home">← HANGAR</button>
+          <div>
+            <p class="eyebrow">FRONTIER NAVIGATION</p>
+            <h2>Choose your next horizon.</h2>
+          </div>
+          <button class="primary small" id="map-launch">
+            RESUME FLIGHT ↗
+          </button>
+        </div>
+        <div class="sector-tabs" id="sector-tabs"></div>
+        <div class="level-grid" id="level-grid"></div>
+        <div class="map-legend">
+          <span><i class="legend-done"></i> CLEARED</span
+          ><span><i class="legend-now"></i> AVAILABLE</span
+          ><span><i class="legend-lock"></i> SIGNAL LOCKED</span
+          ><span class="map-tip"
+            >Boss missions wait at levels 10, 20, 30 … 100.</span
+          >
+        </div>
+      </section>
+      <section class="view hangar-view hidden" id="loadout-view">
+        <div class="loadout-heading">
+          <button class="back" id="loadout-home">← HANGAR</button>
+          <div>
+            <p class="eyebrow">MAKE THE SHIP YOURS</p>
+            <h2>Every bolt has a purpose.</h2>
+          </div>
+          <span class="credit-pill"
+            >✧ <b id="loadout-credits">0</b><small>SHARDS</small></span
+          >
+        </div>
+        <div class="loadout-layout">
+          <article class="ship-bay">
+            <canvas id="bay-canvas"></canvas>
+            <div class="ship-nameplate">
+              <small id="bay-class">LIGHT INTERCEPTOR · MK I</small>
+              <h3 id="bay-name">WAYFARER</h3>
+              <p id="bay-desc">
+                A forgiving all-rounder built for the long way home.
+              </p>
+            </div>
+            <div class="ship-switch">
+              <button id="ship-prev" aria-label="Previous ship">←</button
+              ><span id="ship-count">01 / 03</span
+              ><button id="ship-next" aria-label="Next ship">→</button>
+            </div>
+          </article>
+          <article class="upgrade-bay">
+            <div class="upgrade-heading">
+              <span>FIELD MODIFICATIONS</span
+              ><small>PERMANENT · SAVES WITH YOUR PILOT</small>
+            </div>
+            <div class="upgrade-list" id="upgrade-list"></div>
+            <div class="ship-unlocks" id="ship-unlocks"></div>
+          </article>
+        </div>
+      </section>
+      <section
+        class="modal hidden"
+        id="pause-modal"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="modal-card">
+          <button class="close-modal" data-close="pause-modal">×</button>
+          <p class="eyebrow">FLIGHT PAUSED</p>
+          <h2>Take a breath, pilot.</h2>
+          <p>Your mission checkpoint is safe. The stars will wait.</p>
+          <button class="primary" id="resume-flight">RESUME MISSION</button
+          ><button class="secondary" id="quit-flight">RETURN TO HANGAR</button>
+        </div>
+      </section>
+      <section
+        class="modal hidden"
+        id="result-modal"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="modal-card result-card">
+          <p class="eyebrow" id="result-kicker">MISSION COMPLETE</p>
+          <div class="result-emblem" id="result-emblem">✦</div>
+          <h2 id="result-title">THE BEACON IS HOME.</h2>
+          <p id="result-copy">A quiet signal, carried a long way.</p>
+          <div class="result-summary" id="result-summary"></div>
+          <div class="star-awards" id="star-awards"></div>
+          <button class="primary" id="result-next">NEXT MISSION ↗</button
+          ><button class="secondary" id="result-hangar">BACK TO HANGAR</button>
+        </div>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>

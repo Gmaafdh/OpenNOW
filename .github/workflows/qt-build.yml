@@ -254,9 +254,9 @@ jobs:
           host: ${{ matrix.qt-host }}
           target: desktop
           arch: ${{ matrix.qt-arch }}
-          modules: qtmultimedia qtshadertools ${{ runner.os == 'Linux' && 'qtwaylandcompositor' || '' }}
+          modules: qtmultimedia qtshadertools qtwebengine ${{ runner.os == 'Linux' && 'qtwaylandcompositor' || '' }}
           cache: true
-          cache-key-prefix: qt-target-${{ matrix.label }}
+          cache-key-prefix: qt-target-webengine-${{ matrix.label }}
 
       - name: Install Linux media dependencies
         if: runner.os == 'Linux'

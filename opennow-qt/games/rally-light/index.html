@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <meta name="theme-color" content="#07111d" />
+    <title>Rallylight — Neon Pong League</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="cabinet" id="cabinet">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="Rallylight home"
+          ><span class="brand-mark">◎</span
+          ><span>RALLY<span class="brand-light">LIGHT</span></span></a
+        >
+        <div class="save-chip">
+          <span class="save-dot"></span><span id="save-status">SAVE READY</span>
+        </div>
+        <button
+          class="icon-button"
+          id="sound-toggle"
+          aria-label="Toggle sound"
+          title="Sound: on"
+        >
+          ◖))
+        </button>
+      </header>
+      <section
+        class="screen screen-home"
+        id="home-screen"
+        aria-labelledby="home-title"
+      >
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="eyebrow-line"></span> THE LITTLE BIG LEAGUE
+          </p>
+          <h1 id="home-title">One ball.<br /><em>One more rally.</em></h1>
+          <p class="lede">
+            The familiar table-tennis duel, remixed into a luminous arcade
+            sport. Read the angle, build your streak, and take the tiny trophy
+            home.
+          </p>
+          <div class="hero-actions">
+            <button class="primary-button" id="play-button">
+              PLAY THE NEXT MATCH <span>↗</span></button
+            ><button class="quiet-button" id="training-button">
+              PRACTICE SERVE
+            </button>
+          </div>
+          <div class="home-stats">
+            <div><b id="stat-rank">ROOKIE</b><small>LEAGUE RANK</small></div>
+            <div><b id="stat-wins">0</b><small>MATCH WINS</small></div>
+            <div><b id="stat-best">0</b><small>BEST STREAK</small></div>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+          <div class="orbit orbit-three"></div>
+          <div class="court-lines"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="hero-paddle paddle-left"></div>
+          <div class="hero-paddle paddle-right"></div>
+          <div class="hero-ball"></div>
+          <span class="hero-label label-top">SPIN IS A LANGUAGE</span
+          ><span class="hero-label label-bottom">SPEAK FLUENTLY</span>
+        </div>
+        <section class="league-strip">
+          <div class="strip-heading">
+            <span>YOUR SEASON</span
+            ><span id="season-caption">CIRCUIT 01 · FIRST LIGHT</span>
+          </div>
+          <div class="league-track" id="league-track"></div>
+          <button class="text-link" id="league-button">
+            VIEW LEAGUE MAP <span>→</span>
+          </button>
+        </section>
+      </section>
+      <section
+        class="screen screen-play hidden"
+        id="play-screen"
+        aria-label="Rallylight match"
+      >
+        <div class="match-head">
+          <button class="back-button" id="home-button">← HOME</button>
+          <div class="match-title">
+            <span id="match-cup">FIRST LIGHT CUP</span
+            ><strong id="match-rival">VS. THE WALL</strong>
+          </div>
+          <div class="match-actions">
+            <span id="match-round">MATCH 01 / 08</span
+            ><button
+              class="icon-button"
+              id="pause-button"
+              aria-label="Pause match"
+            >
+              Ⅱ
+            </button>
+          </div>
+        </div>
+        <div class="score-row">
+          <div class="player-score">
+            <span class="score-name"
+              >YOU <i class="serve-indicator" id="player-serve"></i></span
+            ><strong id="score-player">0</strong>
+          </div>
+          <div class="score-divider">
+            <span>BEST OF</span><b id="score-target">5</b
+            ><small id="set-score">SETS 0 — 0</small>
+          </div>
+          <div class="player-score rival-score">
+            <span class="score-name" id="rival-name"
+              >THE WALL <i class="serve-indicator" id="rival-serve"></i></span
+            ><strong id="score-rival">0</strong>
+          </div>
+        </div>
+        <div class="court-frame" id="court-frame">
+          <canvas id="court" aria-label="Pong court"></canvas>
+          <div class="court-overlay" id="court-overlay">
+            <div class="overlay-card">
+              <span class="overlay-kicker" id="overlay-kicker">READY?</span
+              ><strong id="overlay-title">SERVE WHEN YOU'RE READY</strong>
+              <p id="overlay-copy">
+                Move with W/S or ↑/↓. Hold a direction as the ball arrives to
+                add spin.
+              </p>
+              <button class="primary-button small" id="overlay-action">
+                SERVE <span>↗</span>
+              </button>
+            </div>
+          </div>
+          <div class="combo-badge" id="combo-badge">RALLY × 0</div>
+          <div class="power-callout" id="power-callout"></div>
+          <div class="touch-controls">
+            <button data-move="up" aria-label="Move up">▲</button
+            ><button data-move="down" aria-label="Move down">▼</button>
+          </div>
+        </div>
+        <div class="match-footer">
+          <div class="footer-tip">
+            <span class="tip-icon">✦</span
+            ><span id="tip-text"
+              >A clean return beats a hard return. Watch the ball.</span
+            >
+          </div>
+          <div class="footer-tools">
+            <button class="tool-button" id="focus-button">
+              FOCUS <kbd>F</kbd><span id="focus-count">2</span></button
+            ><button class="tool-button" id="power-button">
+              POWER SERVE <kbd>SPACE</kbd><span id="power-count">1</span>
+            </button>
+          </div>
+        </div>
+      </section>
+      <section
+        class="screen screen-map hidden"
+        id="map-screen"
+        aria-label="League map"
+      >
+        <div class="map-head">
+          <button class="back-button" id="map-home-button">← HOME</button>
+          <div>
+            <p class="eyebrow">YOUR JOURNEY</p>
+            <h2>Light up the league.</h2>
+          </div>
+          <div class="currency-pill">
+            ✧ <b id="map-credits">0</b> <span>SHARDS</span>
+          </div>
+        </div>
+        <div class="map-body">
+          <nav class="cup-nav" id="cup-nav"></nav>
+          <article class="cup-detail" id="cup-detail"></article>
+        </div>
+      </section>
+      <section
+        class="modal hidden"
+        id="result-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="result-title"
+      >
+        <div class="modal-card">
+          <button
+            class="modal-close"
+            data-close="result-modal"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <p class="eyebrow" id="result-kicker">MATCH COMPLETE</p>
+          <h2 id="result-title">A BEAUTIFUL RALLY.</h2>
+          <p id="result-copy">The crowd felt that one.</p>
+          <div class="reward-row" id="reward-row"></div>
+          <div class="modal-actions">
+            <button class="primary-button" id="next-button">
+              NEXT MATCH <span>↗</span></button
+            ><button class="quiet-button" id="result-home">
+              BACK TO LEAGUE
+            </button>
+          </div>
+        </div>
+      </section>
+      <section
+        class="modal hidden"
+        id="pause-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pause-title"
+      >
+        <div class="modal-card compact-modal">
+          <button
+            class="modal-close"
+            data-close="pause-modal"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <p class="eyebrow">TIME OUT</p>
+          <h2 id="pause-title">CATCH YOUR BREATH.</h2>
+          <p>The crowd can wait. Your rally is safe.</p>
+          <div class="modal-actions">
+            <button class="primary-button" id="resume-button">
+              RESUME MATCH</button
+            ><button class="quiet-button" id="pause-home">
+              FORFEIT TO HOME
+            </button>
+          </div>
+        </div>
+      </section>
+      <section
+        class="modal hidden"
+        id="practice-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="practice-title"
+      >
+        <div class="modal-card compact-modal">
+          <button
+            class="modal-close"
+            data-close="practice-modal"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <p class="eyebrow">THE QUIET COURT</p>
+          <h2 id="practice-title">NO SCORE. ALL FEEL.</h2>
+          <p>
+            Practice returns and spin without risking a match. Three clean
+            rallies unlock a bonus shard.
+          </p>
+          <div class="practice-progress">
+            <span id="practice-count">0</span><span> / 3 CLEAN RALLIES</span>
+          </div>
+          <div class="modal-actions">
+            <button class="primary-button" id="practice-start">
+              ENTER PRACTICE
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>

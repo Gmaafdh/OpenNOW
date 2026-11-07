@@ -763,7 +763,26 @@
       "seedHome": "A %1 seed found its home.",
       "harvestLine": "Harvest gathered · %1 pollen, %2 seeds returned."
     },
-    "allGames": "All games"
+    "allGames": "All games",
+    "arcade": {
+      "rallyTitle": "Rallylight",
+      "rallyDescription": "Pong, rebuilt as a glowing, skill-first arcade league.",
+      "rallyMood": "ARCADE · VERSUS",
+      "rallyBadge": "LEARN IN SECONDS",
+      "fighterTitle": "Void Vanguard",
+      "fighterDescription": "Pilot a detailed starfighter through a 100-mission campaign.",
+      "fighterMood": "SPACEFIGHTER · 100 LEVELS",
+      "fighterBadge": "BOSSES · SHIPS · UPGRADES",
+      "driftTitle": "Neon Drift",
+      "driftDescription": "Thread midnight traffic, tune your ride, chase clean laps.",
+      "driftMood": "RACING · TIME TRIAL",
+      "driftBadge": "GHOSTS · GARAGE · ROUTES",
+      "mossTitle": "Mosslight",
+      "mossDescription": "A thoughtful match-and-grow puzzle with a world to restore.",
+      "mossMood": "PUZZLE · COZY CAMPAIGN",
+      "mossBadge": "COMBOS · COLLECTIONS",
+      "autosave": "LOCAL AUTOSAVE · PICK UP ANYTIME"
+    }
   },
   "sessionLaunch": {
     "ending": "ENDING SESSION",

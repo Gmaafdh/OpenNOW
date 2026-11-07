@@ -3,7 +3,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtCore
 import OpenNOW
 
 Item {
@@ -12,14 +11,14 @@ Item {
     property bool active: false
     property bool open: false
     property string gameId: ""
-    property var saves: ({})
     signal closeRequested()
 
     readonly property bool showing: active && open
     readonly property var games: [
-        { id: "dash", title: qsTr("Comet Courier"), subtitle: qsTr("A tiny starship. A very long way home."), mark: "✦", accent: "#7CE7FF", mood: qsTr("ARCADE · SKILL") },
-        { id: "path", title: qsTr("Prism Path"), subtitle: qsTr("Bend light through a quiet little cosmos."), mark: "◇", accent: "#C8A7FF", mood: qsTr("PUZZLE · LOGIC") },
-        { id: "garden", title: qsTr("Pocket Garden"), subtitle: qsTr("Grow a moonlit orchard, even while away."), mark: "✿", accent: "#9BE7A2", mood: qsTr("IDLE · COZY") }
+        { id: "rally-light", title: qsTr("Rallylight"), subtitle: qsTr("Pong, rebuilt as a glowing, skill-first arcade league."), mark: "◉", accent: "#6BE7FF", mood: qsTr("ARCADE · VERSUS"), badge: qsTr("LEARN IN SECONDS") },
+        { id: "void-vanguard", title: qsTr("Void Vanguard"), subtitle: qsTr("Pilot a detailed starfighter through a 100-mission campaign."), mark: "✦", accent: "#FF826E", mood: qsTr("SPACEFIGHTER · 100 LEVELS"), badge: qsTr("BOSSES · SHIPS · UPGRADES") },
+        { id: "neon-drift", title: qsTr("Neon Drift"), subtitle: qsTr("Thread midnight traffic, tune your ride, chase clean laps."), mark: "⌁", accent: "#F6C75E", mood: qsTr("RACING · TIME TRIAL") , badge: qsTr("GHOSTS · GARAGE · ROUTES") },
+        { id: "mosslight", title: qsTr("Mosslight"), subtitle: qsTr("A thoughtful match-and-grow puzzle with a world to restore."), mark: "❋", accent: "#9FE3A1", mood: qsTr("PUZZLE · COZY CAMPAIGN"), badge: qsTr("COMBOS · COLLECTIONS") }
     ]
     focus: showing
     Keys.priority: Keys.BeforeItem
@@ -28,28 +27,6 @@ Item {
             root.closeRequested()
             event.accepted = true
         }
-    }
-
-    Settings {
-        id: progressSettings
-        category: "WhileYouWait"
-        property string progressJson: "{}"
-    }
-
-    function loadSaves() {
-        try {
-            const parsed = JSON.parse(progressSettings.progressJson || "{}")
-            root.saves = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : ({})
-        } catch (error) {
-            root.saves = ({})
-        }
-    }
-
-    function saveGame(id, value) {
-        const updated = Object.assign({}, root.saves)
-        updated[id] = Object.assign({}, updated[id] || ({}), value, { savedAt: Date.now() })
-        root.saves = updated
-        progressSettings.progressJson = JSON.stringify(updated)
     }
 
     function chooseGame(id) {
@@ -67,13 +44,8 @@ Item {
     }
 
     function savedSummary(id) {
-        const saved = root.saves[id] || ({})
-        if (id === "dash")
-            return Number(saved.best || 0) > 0 ? qsTr("BEST FLIGHT  %1 SECTORS").arg(saved.best)
-                : qsTr("A first flight is waiting")
-        if (id === "path")
-            return qsTr("SIGNALS  %1  ·  RECORD %2").arg(Number(saved.circuitsSolved || 0)).arg(Number(saved.bestLevel || 1))
-        return qsTr("HARVESTS  %1  ·  GARDEN %2").arg(Number(saved.harvests || 0)).arg(Number(saved.gardenLevel || 1))
+        const game = root.games.find(item => item.id === id)
+        return game ? game.badge : ""
     }
 
     onActiveChanged: {
@@ -86,7 +58,6 @@ Item {
             root.forceActiveFocus()
         }
     }
-    Component.onCompleted: loadSaves()
 
     Rectangle {
         anchors.fill: parent
@@ -135,7 +106,7 @@ Item {
                     }
                     Text {
                         visible: root.gameId !== ""
-                        text: qsTr("SAVES LIVE ON THIS DEVICE")
+                        text: qsTr("LOCAL AUTOSAVE · PICK UP ANYTIME")
                         color: "#8798AA"
                         font.family: Theme.monoFont
                         font.pixelSize: 9
@@ -180,8 +151,8 @@ Item {
                                 id: gameCard
                                 required property var modelData
                                 objectName: "whileYouWaitGame-" + modelData.id
-                                width: Math.min(310, Math.max(224, (parent.width - 30) / 3))
-                                height: Math.min(262, Math.max(210, parent.height - 4))
+                                width: Math.min(460, Math.max(310, (parent.width - 18) / 2))
+                                height: Math.min(262, Math.max(210, (parent.height - 16) / 2))
                                 onClicked: root.chooseGame(modelData.id)
                                 Accessible.name: modelData.title + ". " + modelData.subtitle
                                 contentItem: Column {
@@ -248,9 +219,7 @@ Item {
                     Layout.fillHeight: true
                     active: root.showing && root.gameId !== ""
                     visible: active
-                    sourceComponent: root.gameId === "dash" ? cometComponent
-                        : root.gameId === "path" ? prismComponent
-                        : root.gameId === "garden" ? gardenComponent : undefined
+                    sourceComponent: root.gameId !== "" ? htmlArcadeComponent : undefined
                 }
 
                 RowLayout {
@@ -274,27 +243,10 @@ Item {
     }
 
     Component {
-        id: cometComponent
-        DesktopCometCourier {
-            active: root.showing && root.gameId === "dash"
-            progress: root.saves.dash || ({})
-            onSaveRequested: value => root.saveGame("dash", value)
-        }
-    }
-    Component {
-        id: prismComponent
-        DesktopPrismPath {
-            active: root.showing && root.gameId === "path"
-            progress: root.saves.path || ({})
-            onSaveRequested: value => root.saveGame("path", value)
-        }
-    }
-    Component {
-        id: gardenComponent
-        DesktopPocketGarden {
-            active: root.showing && root.gameId === "garden"
-            progress: root.saves.garden || ({})
-            onSaveRequested: value => root.saveGame("garden", value)
+        id: htmlArcadeComponent
+        DesktopHtmlArcadeGame {
+            gameId: root.gameId
+            active: root.showing && root.gameId !== ""
         }
     }
 }

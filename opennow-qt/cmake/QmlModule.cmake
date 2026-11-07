@@ -220,6 +220,25 @@ set(OPENNOW_KEYBOARD_ICON_FILES
     res/input-prompts/keyboard_z.svg
 )
 
+set(OPENNOW_ARCADE_GAME_FILES
+    games/rally-light/index.html
+    games/rally-light/style.css
+    games/rally-light/game.js
+    games/void-vanguard/index.html
+    games/void-vanguard/style.css
+    games/void-vanguard/game.js
+    games/neon-drift/index.html
+    games/neon-drift/style.css
+    games/neon-drift/game.js
+    games/mosslight/index.html
+    games/mosslight/style.css
+    games/mosslight/game.js
+)
+foreach(OPENNOW_ARCADE_GAME_FILE IN LISTS OPENNOW_ARCADE_GAME_FILES)
+    set_source_files_properties("${OPENNOW_ARCADE_GAME_FILE}" PROPERTIES
+        QT_RESOURCE_ALIAS "${OPENNOW_ARCADE_GAME_FILE}")
+endforeach()
+
 qt_add_qml_module(opennow-qt
     URI OpenNOW
     VERSION 1.0
@@ -364,9 +383,7 @@ qt_add_qml_module(opennow-qt
         qml/desktop/stream/DesktopQueueExperience.qml
         qml/desktop/stream/DesktopSessionStarting.qml
         qml/desktop/stream/DesktopWhileYouWait.qml
-        qml/desktop/stream/DesktopCometCourier.qml
-        qml/desktop/stream/DesktopPrismPath.qml
-        qml/desktop/stream/DesktopPocketGarden.qml
+        qml/desktop/stream/DesktopHtmlArcadeGame.qml
         qml/desktop/stream/DesktopStreamControllersPage.qml
         qml/desktop/stream/DesktopStreamDrawerButton.qml
         qml/desktop/stream/DesktopStreamExitConfirm.qml
@@ -527,4 +544,5 @@ qt_add_qml_module(opennow-qt
         res/icons/desktop-mic-off.svg
         res/icons/desktop-play-stroke.svg
         res/icons/desktop-play-stroke-on-light.svg
+        ${OPENNOW_ARCADE_GAME_FILES}
 )
