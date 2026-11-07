@@ -122,7 +122,7 @@ GlassPanel {
                 Text {
                     id: comingSoon
                     anchors.centerIn: parent
-                    text: qsTr("COMING SOON")
+                    text: qsTr("OPENNOW SOCIAL IN FRIENDS")
                     color: Theme.mint
                     font.family: Theme.bodyFont
                     font.pixelSize: 11
@@ -162,6 +162,17 @@ GlassPanel {
                     font.pixelSize: 14
                     lineHeight: 1.2
                 }
+            }
+        }
+
+        GlassButton {
+            width: parent.width
+            text: qsTr("Open OpenNOW Friends, chat & activity")
+            glyph: "✉"
+            primary: true
+            onClicked: {
+                AppController.showOverlay("")
+                AppController.navigate("friends")
             }
         }
 

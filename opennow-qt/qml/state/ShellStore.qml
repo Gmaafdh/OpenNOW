@@ -7,6 +7,10 @@ import "reporting"
 
 QtObject {
     id: root
+    Connections {
+        target: SocialClient
+        function onAuthenticatedChanged() { root.syncSocialActivity() }
+    }
     signal backgroundStreamReminderRequested()
     property ConnectionHealthState connectionHealth: ConnectionHealthState {
         active: root.activeSession !== null && root.streamerStatus === "streaming"
@@ -225,6 +229,7 @@ QtObject {
         }
     }
     property alias catalogGames: catalogOwner.catalogGames
+    onCatalogGamesChanged: syncSocialActivity()
     readonly property var gameCollections: catalogOwner.gameCollections
     property alias activeCollectionId: catalogOwner.activeCollectionId
     readonly property var activeCollection: catalogOwner.activeCollection
@@ -397,6 +402,8 @@ QtObject {
     property string pinTargetName: qsTr("Profile")
     property string pinMessage: ""
     property var activeSession: null
+    onStreamerStatusChanged: syncSocialActivity()
+    onStreamerStopExpectedChanged: syncSocialActivity()
     property var streamIdleWarning: null
     property string colorFormatSessionId: ""
     property string pendingRequestedColorQuality: ""
@@ -411,6 +418,7 @@ QtObject {
     property string sessionReportDropId: ""
     property var streamDropCounts: ({})
     onActiveSessionChanged: {
+        syncSocialActivity()
         noteSessionProgress(activeSession)
         if (!activeSession)
             antiAfkEnabled = false
@@ -1085,6 +1093,23 @@ QtObject {
                 || remoteSessionsRequestId !== "")
             return
         remoteSessionDiscoveryRequestId = CoreClient.request("session.remote.list", {}, 30000)
+    }
+
+    function syncSocialActivity() {
+        if (!SocialClient.authenticated)
+            return
+        const session = activeSession
+        if (!session || streamerStatus !== "streaming" || streamerStopExpected) {
+            SocialClient.setActivity("", "")
+            return
+        }
+        const appId = String(session.appId || "")
+        const title = sessionGameTitle(session)
+        if (appId === "" || title === "") {
+            SocialClient.setActivity("", "")
+            return
+        }
+        SocialClient.setActivity(appId, title)
     }
 
     function sessionGameTitle(session) {
