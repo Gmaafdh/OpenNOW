@@ -98,7 +98,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtmultimedia qtshadertools qtwebchannel qtwebengine
+          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel qtwebengine
           cache: true
           cache-key-prefix: arena-windows-exe-qt
 

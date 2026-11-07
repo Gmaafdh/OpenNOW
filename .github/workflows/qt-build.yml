@@ -254,7 +254,7 @@ jobs:
           host: ${{ matrix.qt-host }}
           target: desktop
           arch: ${{ matrix.qt-arch }}
-          modules: qtmultimedia qtshadertools qtwebchannel qtwebengine ${{ runner.os == 'Linux' && 'qtwaylandcompositor' || '' }}
+          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel qtwebengine ${{ runner.os == 'Linux' && 'qtwaylandcompositor' || '' }}
           cache: true
           cache-key-prefix: qt-target-${{ matrix.label }}
 
