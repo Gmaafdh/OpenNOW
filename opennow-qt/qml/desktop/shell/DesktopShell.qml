@@ -77,52 +77,29 @@ FocusScope {
 
         Rectangle {
             id: header
-            objectName: "desktopHeaderSurface"
-            x: DesktopTokens.px(12)
-            y: DesktopTokens.px(8)
-            width: parent.width - 2 * x
-            height: root.headerHeight - DesktopTokens.px(16)
-            radius: Theme.radius(18)
-            color: DesktopTokens.surface
-            border.width: 1
-            border.color: DesktopTokens.seam
+            width: parent.width; height: root.headerHeight
             readonly property real availableWidth: Math.max(0, width - DesktopTokens.px(48))
-
-            Rectangle {
-                x: DesktopTokens.px(16)
-                anchors.verticalCenter: parent.verticalCenter
-                width: DesktopTokens.px(3)
-                height: DesktopTokens.px(30)
-                radius: width / 2
-                color: DesktopTokens.focus
-                opacity: Theme.glow(0.72)
-            }
-            Rectangle {
-                x: DesktopTokens.px(20)
-                anchors.verticalCenter: parent.verticalCenter
-                width: DesktopTokens.px(1)
-                height: DesktopTokens.px(28)
-                color: DesktopTokens.seam
-            }
+            color: DesktopTokens.topBar
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: DesktopTokens.seam }
             Item {
                 id: heading
                 objectName: "desktopHeaderHeading"
-                x: DesktopTokens.px(34); anchors.verticalCenter: parent.verticalCenter
+                x: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(0, (search.visible ? search.x : activeSessionButton.visible ? activeSessionButton.x : parent.width - DesktopTokens.px(14)) - x - DesktopTokens.px(10))
-                height: headerTitle.implicitHeight + headerSubtitle.implicitHeight + DesktopTokens.px(2)
+                height: headerTitle.implicitHeight
                 Text {
                     id: headerTitle
                     width: Math.min(implicitWidth, parent.width)
                     text: root.title; elide: Text.ElideRight
                     color: DesktopTokens.text; font.family: DesktopTokens.displayFont
-                    font.pixelSize: DesktopTokens.px(root.settingsPage ? 20 : 22)
-                    font.weight: Font.Black; font.letterSpacing: -0.35
+                    font.pixelSize: root.settingsPage ? DesktopTokens.px(22) : DesktopTokens.titleSize
+                    font.weight: Font.Black; font.letterSpacing: -0.4
                 }
                 Text {
-                    id: headerSubtitle
-                    y: headerTitle.implicitHeight + DesktopTokens.px(2)
-                    width: parent.width
-                    visible: text !== "" && width >= DesktopTokens.px(90)
+                    x: headerTitle.width + DesktopTokens.px(10)
+                    width: Math.max(0, parent.width - x)
+                    visible: width >= DesktopTokens.px(90)
+                    anchors.baseline: headerTitle.baseline
                     text: root.subtitle; elide: Text.ElideRight
                     color: DesktopTokens.textMuted; font.family: DesktopTokens.monoFont
                     font.pixelSize: DesktopTokens.captionSize; font.weight: Font.DemiBold; font.letterSpacing: 0.45
@@ -144,13 +121,7 @@ FocusScope {
                 font.family: DesktopTokens.bodyFont; font.pixelSize: DesktopTokens.bodySize; font.weight: Font.DemiBold
                 text: root.searchText
                 selectByMouse: true
-                background: Rectangle {
-                    radius: Theme.radius(14)
-                    color: DesktopTokens.raisedStrong
-                    border.width: 1
-                    border.color: DesktopTokens.seam
-                    FocusFrame { focused: search.activeFocus; frameRadius: Theme.radius(14) }
-                }
+                background: Rectangle { radius: DesktopTokens.px(10); color: Theme.lightMode ? DesktopTokens.raised : "#59000000"; border.width: 1; border.color: DesktopTokens.seam }
                 onTextChanged: root.searchText = text
                 DesktopGlyph { x: DesktopTokens.px(11); anchors.verticalCenter: parent.verticalCenter; width: DesktopTokens.px(14); height: DesktopTokens.px(14); icon: "desktop-search.svg" }
                 KeyboardGlyph { anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(8); anchors.verticalCenter: parent.verticalCenter; shortcut: "/"; keySize: DesktopTokens.px(20); ink: DesktopTokens.textBody }
@@ -202,23 +173,13 @@ FocusScope {
 
         Rectangle {
             id: footer
-            x: DesktopTokens.px(12)
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: DesktopTokens.px(8)
-            width: parent.width - 2 * x
-            height: root.footerHeight - DesktopTokens.px(8)
-            radius: Theme.radius(18)
-            color: DesktopTokens.surface
-            border.width: 1
-            border.color: DesktopTokens.seam
+            width: parent.width
+            height: root.footerHeight
+            color: DesktopTokens.statusBar
             clip: true
             readonly property bool compactHints: true
-            Rectangle {
-                x: DesktopTokens.px(16)
-                width: parent.width - 2 * x
-                height: 1
-                color: DesktopTokens.seamSoft
-            }
+            Rectangle { width: parent.width; height: 1; color: DesktopTokens.seam }
             Row { id: shortcutHints; x: DesktopTokens.px(24); anchors.verticalCenter: parent.verticalCenter; spacing: DesktopTokens.px(footer.compactHints ? 8 : 16)
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Arrows"); shortcut: "Arrows"; label: qsTr("Move") }
                 DesktopKeyHint { compact: footer.compactHints; keyText: qsTr("Enter"); shortcut: "Enter"; label: qsTr("Play") }

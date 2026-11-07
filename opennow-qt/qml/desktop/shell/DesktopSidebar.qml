@@ -62,23 +62,13 @@ FocusScope {
     }
 
     Rectangle {
-        objectName: "desktopSidebarSurface"
-        x: DesktopTokens.px(8)
-        y: DesktopTokens.px(12)
-        width: Math.max(0, parent.width - 2 * x)
-        height: Math.max(0, parent.height - 2 * y)
-        radius: Theme.radius(22)
-        color: DesktopTokens.rail
-        border.width: 1
-        border.color: root.overlayOpen ? DesktopTokens.seam : DesktopTokens.seamSoft
+        anchors.fill: parent
+        color: DesktopTokens.shell
         Rectangle {
-            x: DesktopTokens.px(12)
-            y: DesktopTokens.px(12)
-            width: Math.max(0, parent.width - 2 * x)
-            height: 1
-            radius: 1
-            color: DesktopTokens.seam
-            opacity: root.overlayOpen ? 1 : 0.55
+            anchors.right: parent.right
+            width: 1
+            height: parent.height
+            color: root.overlayOpen ? "#29FFFFFF" : DesktopTokens.seamSoft
         }
     }
 
@@ -147,9 +137,9 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.right: parent.right
                 radius: 9
-                color: collapseHover.hovered || collapseButton.activeFocus ? DesktopTokens.raisedStrong : DesktopTokens.raised
+                color: collapseHover.hovered || collapseButton.activeFocus ? "#17FFFFFF" : "#0FFFFFFF"
                 border.width: 1
-                border.color: DesktopTokens.seam
+                border.color: "#17FFFFFF"
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Collapse sidebar")
                 Accessible.onPressAction: {
@@ -182,9 +172,9 @@ FocusScope {
                 height: 28
                 x: 2
                 radius: 9
-                color: expandHover.hovered || expandButton.activeFocus ? DesktopTokens.raisedStrong : DesktopTokens.raised
+                color: expandHover.hovered || expandButton.activeFocus ? "#17FFFFFF" : "#0FFFFFFF"
                 border.width: 1
-                border.color: DesktopTokens.seam
+                border.color: "#17FFFFFF"
                 Accessible.role: Accessible.Button
                 Accessible.name: root.overlayOpen ? qsTr("Collapse sidebar") : qsTr("Expand sidebar")
                 Accessible.onPressAction: {
@@ -236,26 +226,11 @@ FocusScope {
                     readonly property bool selected: root.routeSelected(modelData.route)
                     Accessible.name: modelData.name
                     background: Rectangle {
-                        radius: Theme.radius(12)
+                        radius: 10
                         color: navButton.selected ? DesktopTokens.raisedStrong
                             : (navButton.hovered || navButton.activeFocus ? DesktopTokens.raised : "transparent")
-                        border.width: navButton.selected ? 1 : 0
-                        border.color: Qt.rgba(DesktopTokens.focus.r, DesktopTokens.focus.g,
-                            DesktopTokens.focus.b, Theme.lightMode ? 0.24 : 0.18)
                     }
                     contentItem: Item {
-                        Rectangle {
-                            x: DesktopTokens.px(4)
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: DesktopTokens.px(3)
-                            height: DesktopTokens.px(20)
-                            radius: width / 2
-                            color: DesktopTokens.focus
-                            opacity: navButton.selected && root.compact ? 1 : 0
-                            Behavior on opacity {
-                                NumberAnimation { duration: DesktopTokens.quickDuration }
-                            }
-                        }
                         DesktopGlyph {
                             objectName: "sidebarIcon-" + navButton.modelData.route
                             x: 13
@@ -465,7 +440,7 @@ FocusScope {
                 Behavior on opacity { NumberAnimation { duration: DesktopTokens.quickDuration } }
                 background: Rectangle {
                     radius: 11
-                    color: consoleModeButton.hovered || consoleModeButton.activeFocus ? DesktopTokens.raised : "transparent"
+                    color: consoleModeButton.hovered || consoleModeButton.activeFocus ? "#0CFFFFFF" : "transparent"
                 }
                 contentItem: Item {
                     DesktopGlyph {
@@ -564,7 +539,7 @@ FocusScope {
                     ? qsTr("Signed in as %1").arg(ShellStore.authSession.user.displayName) : ""
                 background: Rectangle {
                     radius: 11
-                    color: profileButton.hovered || profileButton.activeFocus ? DesktopTokens.raised : "transparent"
+                    color: profileButton.hovered || profileButton.activeFocus ? "#0CFFFFFF" : "transparent"
                 }
                 contentItem: Item {
                     DesktopAccountTile {

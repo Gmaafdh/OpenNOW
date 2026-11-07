@@ -202,11 +202,6 @@ QtObject {
         const heading = namedChild(shell, "desktopHeaderHeading")
         const searchField = namedChild(shell, "desktopHeaderSearch")
         const resumeButton = namedChild(shell, "desktopHeaderResume")
-        const headerSurface = namedChild(shell, "desktopHeaderSurface")
-        const desktopRailSurface = namedChild(namedChild(shell, "desktopSidebar"), "desktopSidebarSurface")
-        check(headerSurface && headerSurface.radius > 0 && headerSurface.border.width === 1
-            && desktopRailSurface && desktopRailSurface.radius > 0 && desktopRailSurface.border.width === 1,
-            "computer mode uses the theme-driven glass frame and floating console-inspired navigation rail")
         check(resumeButton.visible && heading.x + heading.width <= searchField.x
             && searchField.x + searchField.width <= resumeButton.x
             && resumeButton.x + resumeButton.width <= resumeButton.parent.width,
