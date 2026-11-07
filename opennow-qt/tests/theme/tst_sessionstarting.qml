@@ -218,6 +218,11 @@ TestCase {
         verify(webGame)
         compare(webGame.gameId, "void-vanguard")
         compare(webGame.gameUrl.toString(), "qrc:/qt/qml/OpenNOW/games/void-vanguard/index.html")
+        tryVerify(() => webGame.pageLoaded, 15000,
+                  "The packaged HTML game document must load successfully in WebEngine")
+        tryVerify(() => webGame.contentReady, 5000,
+                  "The loaded game document must expose visible game UI text")
+        compare(webGame.loadError, "", "The game page must not report a WebEngine load error")
         compare(queue.queuePosition, 21, "The queue should keep its own state while a game is open")
 
         overlay.showPicker()
