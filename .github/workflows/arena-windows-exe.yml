@@ -46,6 +46,7 @@ jobs:
           npm run locales:check 2>&1 | tee ci-logs/locales-check.log
           node --test scripts/check-translations.test.mjs scripts/check-keyboard-layouts.test.mjs \
             2>&1 | tee ci-logs/node-tests.log
+          npm --prefix services/social-backend test 2>&1 | tee ci-logs/social-backend.log
       - name: Publish source check failures
         if: failure()
         shell: bash
