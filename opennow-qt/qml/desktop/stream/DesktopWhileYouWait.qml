@@ -32,7 +32,6 @@ Item {
 
     Settings {
         id: progressSettings
-        fileName: StandardPaths.writableLocation(StandardPaths.AppLocalDataLocation) + "/while-you-wait.ini"
         category: "WhileYouWait"
         property string progressJson: "{}"
     }
