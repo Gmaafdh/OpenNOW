@@ -14,6 +14,7 @@ FocusScope {
 
     signal cancelRequested()
     signal retryRequested()
+    property bool whileYouWaitOpen: false
 
     readonly property var game: ShellStore.selectedGame || ({})
     readonly property var session: ShellStore.activeSession || ({})
@@ -162,6 +163,14 @@ FocusScope {
         onCancelRequested: root.cancelRequested()
         onRefreshRequested: ShellStore.reconnectSessionProgress()
         onRequeueRequested: ShellStore.requeueSession()
+        onWhileYouWaitRequested: root.whileYouWaitOpen = true
+    }
+
+    DesktopWhileYouWait {
+        anchors.fill: parent
+        active: root.queueVisible
+        open: root.whileYouWaitOpen
+        onCloseRequested: root.whileYouWaitOpen = false
     }
 
     Column {

@@ -191,6 +191,68 @@ TestCase {
         ShellStore.activeSession = {queuePosition: 21}
     }
 
+    function test_whileYouWaitGamesSaveAndYieldToConnection() {
+        const queue = descendants(screen).find(item => item.objectName === "desktopQueueExperience")
+        const action = descendants(screen).find(item => item.objectName === "desktopQueueWhileYouWait")
+        const overlay = descendants(screen).find(item => item.objectName === "desktopWhileYouWait")
+        verify(queue && action && overlay)
+        compare(overlay.showing, false)
+        mouseClick(action)
+        tryCompare(overlay, "showing", true)
+        compare(overlay.games.length, 3)
+        compare(AppController.route, "inserting")
+        compare(queue.queuePosition, 21)
+
+        const pathChoice = descendants(overlay).find(item => item.objectName === "whileYouWaitGame-path")
+        verify(pathChoice)
+        mouseClick(pathChoice)
+        compare(overlay.gameId, "path")
+        const loader = descendants(overlay).find(item => item.objectName === "whileYouWaitGameLoader")
+        verify(loader)
+        tryCompare(loader, "status", Loader.Ready)
+        const prism = descendants(overlay).find(item => item.objectName === "prismPathGame")
+        verify(prism && prism.mirrors.length >= 5)
+        const mirror = prism.mirrors.find(item => item.essential)
+        verify(mirror)
+        const before = mirror.slash
+        prism.toggleMirror(mirror.cell)
+        compare(prism.mirrors.find(item => item.cell === mirror.cell).slash, !before)
+        compare(overlay.saves.path.mirrors.find(item => item.cell === mirror.cell).slash, !before)
+        overlay.loadSaves()
+        const savedMirror = overlay.saves.path.mirrors.find(item => item.cell === mirror.cell)
+        compare(savedMirror.slash, !before)
+
+        overlay.showPicker()
+        const cometChoice = descendants(overlay).find(item => item.objectName === "whileYouWaitGame-dash")
+        verify(cometChoice)
+        mouseClick(cometChoice)
+        tryCompare(loader, "status", Loader.Ready)
+        const comet = descendants(overlay).find(item => item.objectName === "cometCourierGame")
+        verify(comet)
+        comet.startRun()
+        comet.step()
+        comet.step()
+        comet.step()
+        verify(overlay.saves.dash.currentRun.ticks >= 3)
+
+        overlay.showPicker()
+        const gardenChoice = descendants(overlay).find(item => item.objectName === "whileYouWaitGame-garden")
+        verify(gardenChoice)
+        mouseClick(gardenChoice)
+        tryCompare(loader, "status", Loader.Ready)
+        const garden = descendants(overlay).find(item => item.objectName === "pocketGardenGame")
+        verify(garden && garden.plots.length >= 3)
+        garden.persist()
+        verify(overlay.saves.garden.plots.length >= 3)
+        compare(queue.queuePosition, 21, "The queue should keep its own state while a game is open")
+
+        AppController.route = "stream"
+        tryCompare(overlay, "showing", false)
+        tryCompare(screen, "queueVisible", false)
+        compare(overlay.open, false)
+        AppController.route = "inserting"
+    }
+
     function test_failureAndReconnect() {
         ShellStore.settings = {themePack: "nocturne", appTheme: "light"}
         ShellStore.streamState = "failed"

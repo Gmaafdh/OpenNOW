@@ -363,6 +363,10 @@ qt_add_qml_module(opennow-qt
         qml/desktop/stream/DesktopInStreamMenu.qml
         qml/desktop/stream/DesktopQueueExperience.qml
         qml/desktop/stream/DesktopSessionStarting.qml
+        qml/desktop/stream/DesktopWhileYouWait.qml
+        qml/desktop/stream/DesktopCometCourier.qml
+        qml/desktop/stream/DesktopPrismPath.qml
+        qml/desktop/stream/DesktopPocketGarden.qml
         qml/desktop/stream/DesktopStreamControllersPage.qml
         qml/desktop/stream/DesktopStreamDrawerButton.qml
         qml/desktop/stream/DesktopStreamExitConfirm.qml
