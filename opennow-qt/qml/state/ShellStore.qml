@@ -7,7 +7,7 @@ import "reporting"
 
 QtObject {
     id: root
-    Connections {
+    property Connections socialClientSignals: Connections {
         target: SocialClient
         function onAuthenticatedChanged() { root.syncSocialActivity() }
     }
