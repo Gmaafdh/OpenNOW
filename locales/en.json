@@ -630,6 +630,7 @@
     "resume": "Pick up where you left off",
     "close": "Back to queue",
     "closeDescription": "Close mini-games and return to the queue",
+    "loadError": "This mini-game could not be loaded: %1",
     "saveLocal": "Progress saves on this device",
     "dash": {
       "title": "Comet Courier",
