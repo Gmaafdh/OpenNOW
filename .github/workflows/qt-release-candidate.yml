@@ -127,7 +127,7 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           modules: qtmultimedia qtshadertools qtwaylandcompositor qtwebengine
           cache: true
-          cache-key-prefix: qt-target-webengine-linux-${{ matrix.arch }}
+          cache-key-prefix: qt-target-linux-${{ matrix.arch }}
 
       - name: Install native build dependencies
         shell: bash
@@ -391,7 +391,7 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           modules: qtmultimedia qtshadertools qtwebengine
           cache: true
-          cache-key-prefix: qt-target-webengine-windows-${{ matrix.arch }}
+          cache-key-prefix: qt-target-windows-${{ matrix.arch }}
 
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
@@ -599,7 +599,7 @@ jobs:
           arch: clang_64
           modules: qtmultimedia qtshadertools qtwebengine
           cache: true
-          cache-key-prefix: qt-target-webengine-macos-arm64
+          cache-key-prefix: qt-target-macos-arm64
 
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
