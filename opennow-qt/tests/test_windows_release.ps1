@@ -38,10 +38,20 @@ try {
         Set-Content "$deployment/$name" "signed $name"
         Copy-Item "$deployment/$name" $package
     }
+    $webEngineAssets = @("QtWebEngineProcess.exe", "icudtl.dat", "qtwebengine_resources.pak")
+    foreach ($name in $webEngineAssets) {
+        Set-Content "$deployment/$name" "Qt WebEngine runtime $name"
+        Copy-Item "$deployment/$name" $package
+    }
     Assert-OpenNowSignedPackage -Root "$root/package" -SignedRoot $deployment
     $verifiedBeforeUnsigned = $script:Verified.Count
     Assert-OpenNowPackagePayload -Root "$root/package" -DeploymentRoot $deployment
     if ($script:Verified.Count -ne $verifiedBeforeUnsigned) { throw "Unsigned validation invoked signtool" }
+    foreach ($name in $webEngineAssets) {
+        Remove-Item "$package/$name"
+        Assert-Fails { Assert-OpenNowPackagePayload -Root "$root/package" -DeploymentRoot $deployment } "missing $name"
+        Copy-Item "$deployment/$name" $package
+    }
     $script:HelperDependency = "Qt6Core.dll"
     Assert-Fails { Assert-OpenNowPackagePayload -Root "$root/package" -DeploymentRoot $deployment } "without non-system DLLs: qt6core.dll"
     $script:HelperDependency = "KERNEL32.dll"
@@ -89,6 +99,11 @@ add_executable(opennow-qt IMPORTED)
 set_target_properties(opennow-qt PROPERTIES IMPORTED_LOCATION "$deployPath/OpenNOW.exe")
 include("$module")
 install(PROGRAMS "$deployPath/OpenNOW.exe" DESTINATION bin)
+install(FILES
+    "$deployPath/QtWebEngineProcess.exe"
+    "$deployPath/icudtl.dat"
+    "$deployPath/qtwebengine_resources.pak"
+    DESTINATION bin)
 set(CPACK_PACKAGE_NAME PackageContract)
 set(CPACK_PACKAGE_VERSION 1.0.0)
 set(CPACK_GENERATOR ZIP)

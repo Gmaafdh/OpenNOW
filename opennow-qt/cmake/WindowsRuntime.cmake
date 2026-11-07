@@ -9,7 +9,9 @@ if(WIN32)
     set(OPENNOW_WINDEPLOYQT_ARGS
         --no-translations
         --compiler-runtime
+        --webengine
         --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    set(OPENNOW_QT_DEPLOY_TOOL_ARGS DEPLOY_TOOL_OPTIONS --webengine)
     # A narrow test build may never link OpenNOW, so its POST_BUILD deployment
     # cannot be the owner of the shared compiler runtime.
     if(MINGW)
@@ -41,8 +43,7 @@ if(WIN32)
             REQUIRED)
         list(PREPEND OPENNOW_WINDEPLOYQT_ARGS
             --qtpaths "${OPENNOW_TARGET_QTPATHS_EXECUTABLE}")
-        set(OPENNOW_QT_DEPLOY_TOOL_ARGS
-            DEPLOY_TOOL_OPTIONS
+        list(APPEND OPENNOW_QT_DEPLOY_TOOL_ARGS
             --qtpaths "${OPENNOW_TARGET_QTPATHS_EXECUTABLE}")
     else()
         find_program(WINDEPLOYQT_EXECUTABLE NAMES windeployqt

@@ -90,11 +90,25 @@ function Assert-OpenNowSignedPackage {
     }
 }
 
+function Assert-OpenNowWebEngineRuntime {
+    param([Parameter(Mandatory)][string]$Root)
+
+    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File)
+    foreach ($name in @("QtWebEngineProcess.exe", "icudtl.dat", "qtwebengine_resources.pak")) {
+        if (-not ($files | Where-Object Name -EQ $name)) {
+            throw "Qt WebEngine runtime is incomplete: missing $name under $Root"
+        }
+    }
+}
+
 function Assert-OpenNowPackagePayload {
     param(
         [Parameter(Mandatory)][string]$Root,
         [Parameter(Mandatory)][string]$DeploymentRoot
     )
+
+    Assert-OpenNowWebEngineRuntime -Root $DeploymentRoot
+    Assert-OpenNowWebEngineRuntime -Root $Root
 
     $deployment = @{}
     foreach ($file in Get-OpenNowReleaseBinaries -Root $DeploymentRoot) {
