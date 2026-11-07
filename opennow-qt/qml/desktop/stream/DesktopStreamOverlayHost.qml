@@ -100,6 +100,13 @@ FocusScope {
             if (ShellStore.microphoneEnabled)
                 hud.push({id: "microphone", action: "", label: ShellStore.microphoneLabel,
                     value: "", role: "hud-left", enabled: false})
+            if (ShellStore.streamRecordingActive) {
+                const totalSeconds = Math.max(0, Math.floor(ShellStore.streamRecordingElapsedMs / 1000))
+                const elapsed = String(Math.floor(totalSeconds / 60)).padStart(2, "0")
+                    + ":" + String(totalSeconds % 60).padStart(2, "0")
+                hud.push({id: "stream-recording", action: "", label: qsTr("RECORDING") + " · " + elapsed,
+                    value: "", role: "hud-left", enabled: false})
+            }
             if (notificationsEnabled)
                 for (const toast of toasts.nativeItems()) hud.push(toast)
             if (String(controlToast || "") !== "")

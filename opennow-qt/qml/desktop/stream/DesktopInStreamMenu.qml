@@ -151,6 +151,11 @@ FocusScope {
             : root.pads.length === 0 ? qsTr("No controller connected")
             : root.pads.length === 1 ? qsTr("1 connected · dead zones and vibration")
             : qsTr("%1 connected · dead zones and vibration").arg(root.pads.length)
+        const recordingSeconds = Math.max(0, Math.floor(ShellStore.streamRecordingElapsedMs / 1000))
+        const recordingElapsed = String(Math.floor(recordingSeconds / 60)).padStart(2, "0")
+            + ":" + String(recordingSeconds % 60).padStart(2, "0")
+        const recordingActive = ShellStore.streamRecordingActive === true
+        const recordingAvailable = recordingActive || String(root.live.status || "") === "streaming"
         return {
             kind: "menu",
             title: String(root.game.title || qsTr("GeForce NOW")),
@@ -177,6 +182,10 @@ FocusScope {
                     root.shortcut("shortcutToggleAntiAfk", "Ctrl+Shift+K")),
                 item("stats", "show-stats-expanded", qsTr("Stats overlay"), qsTr("Opens over the game"),
                     "toggle", true, null, root.shortcut("shortcutToggleStats", "Ctrl+N")),
+                item("recording", "toggle-recording",
+                    recordingActive ? qsTr("Stop recording") : qsTr("Start recording"),
+                    recordingActive ? recordingElapsed : "", "toggle", recordingAvailable,
+                    recordingActive, root.shortcut("shortcutToggleRecording", "F12")),
                 item("fullscreen", "toggle-fullscreen", qsTr("Fullscreen"), root.fullscreen ? qsTr("On") : qsTr("Off"),
                     "toggle", true, root.fullscreen, root.shortcut("shortcutToggleFullscreen", "F11")),
                 item("clipboard", "toggle-clipboard-paste", qsTr("Clipboard paste"),

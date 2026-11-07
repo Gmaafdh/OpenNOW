@@ -149,15 +149,36 @@ QtObject {
                 && nativeModel.hud.length === 0, "the native menu is modal and suppresses passive HUD items")
             const expectedNativeActions = ["dismiss-overlay"]
             if (ShellStore.microphoneCanToggle) expectedNativeActions.push("toggle-microphone")
-            expectedNativeActions.push("toggle-anti-afk", "show-stats-expanded", "toggle-fullscreen",
-                "toggle-clipboard-paste", "show-cursor", "toggle-console-mode", "stop-stream")
+            expectedNativeActions.push("toggle-anti-afk", "show-stats-expanded", "toggle-recording",
+                "toggle-fullscreen", "toggle-clipboard-paste", "show-cursor", "toggle-console-mode", "stop-stream")
             check(JSON.stringify(nativeModel.items.filter(item => item.enabled && item.action).map(item => item.action))
                 === JSON.stringify(expectedNativeActions),
                 "every available OpenNOW native menu action has an explicit shell-neutral mapping")
+            const recordingItem = nativeModel.items.find(item => item.id === "recording")
+            check(recordingItem && recordingItem.action === "toggle-recording" && recordingItem.enabled
+                && recordingItem.label === qsTr("Start recording") && recordingItem.detail === "F12",
+                "the in-game native sidebar exposes the stream recorder and its F12 shortcut")
             check(nativeModel.summary.length === 3 && nativeModel.footer.length > 0,
                 "the OpenNOW native menu includes the rich live summary and input hints")
             check(nativeModel.fontFamily.length > 0 && nativeModel.monoFontFamily.length > 0,
                 "the native renderer receives real shell font families")
+            const wasRecording = ShellStore.streamRecordingActive
+            const elapsedBeforeRecordingCheck = ShellStore.streamRecordingElapsedMs
+            ShellStore.streamRecordingActive = true
+            ShellStore.streamRecordingElapsedMs = 62000
+            const recordingMenu = need("desktopStreamOverlayHost").nativeOverlayModel(
+                "desktop-stream-menu", Date.now(), "")
+            const activeRecordingItem = recordingMenu.items.find(item => item.id === "recording")
+            check(activeRecordingItem && activeRecordingItem.checked
+                && activeRecordingItem.label === qsTr("Stop recording")
+                && activeRecordingItem.value === "01:02",
+                "the native sidebar exposes an elapsed stop-recording action while capture is active")
+            const recordingHud = need("desktopStreamOverlayHost").nativeOverlayModel("", Date.now(), "")
+            check(recordingHud.hud.some(item => item.id === "stream-recording"
+                && item.label.indexOf(qsTr("RECORDING")) === 0),
+                "the native game surface shows an elapsed in-game recording indicator")
+            ShellStore.streamRecordingActive = wasRecording
+            ShellStore.streamRecordingElapsedMs = elapsedBeforeRecordingCheck
             const nativeFallback = need("desktopStreamOverlayHost").nativeOverlayModel(
                 "quick-settings", Date.now(), "")
             check(nativeFallback.kind === "menu" && nativeFallback.inputBlocking
