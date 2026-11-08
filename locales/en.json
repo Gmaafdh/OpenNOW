@@ -631,6 +631,13 @@
     "close": "Back to queue",
     "closeDescription": "Close mini-games and return to the queue",
     "loadError": "This mini-game could not be loaded: %1",
+    "canvasWaiting": "Waiting for the game canvas",
+    "canvasStatus": "Canvas %1×%2 · %3 rendered samples",
+    "canvasFrameMissing": "Canvas did not report a frame",
+    "gameInterfaceLoaded": "Game interface loaded",
+    "rendererStopped": "Game renderer stopped (code %1)",
+    "scriptError": "Game script error at line %1: %2",
+    "renderingFailed": "Mini-game rendering failed: %1",
     "saveLocal": "Progress saves on this device",
     "dash": {
       "title": "Comet Courier",
