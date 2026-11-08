@@ -223,6 +223,10 @@ TestCase {
         tryVerify(() => webGame.contentReady, 5000,
                   "The loaded game document must expose visible game UI text")
         compare(webGame.loadError, "", "The game page must not report a WebEngine load error")
+        tryVerify(() => webGame.canvasReady, 10000,
+                  "Void Vanguard must paint its ship into the WebEngine canvas: " + webGame.canvasStatus)
+        verify(webGame.canvasStatus.indexOf("rendered samples") >= 0,
+               "Void Vanguard canvas should contain painted game pixels")
         compare(queue.queuePosition, 21, "The queue should keep its own state while a game is open")
 
         overlay.showPicker()
@@ -232,6 +236,18 @@ TestCase {
         tryCompare(loader, "status", Loader.Ready)
         compare(overlay.gameId, "rally-light")
         compare(queue.queuePosition, 21, "Opening another local game must not alter queue progress")
+
+        overlay.showPicker()
+        const driftChoice = descendants(overlay).find(item => item.objectName === "whileYouWaitGame-neon-drift")
+        verify(driftChoice)
+        mouseClick(driftChoice)
+        tryCompare(loader, "status", Loader.Ready)
+        compare(overlay.gameId, "neon-drift")
+        tryVerify(() => webGame.canvasReady, 10000,
+                  "Neon Drift must paint the garage car into its WebEngine canvas: " + webGame.canvasStatus)
+        verify(webGame.canvasStatus.indexOf("rendered samples") >= 0,
+               "Neon Drift canvas should contain painted game pixels")
+        compare(queue.queuePosition, 21, "Opening Neon Drift must not alter queue progress")
 
         AppController.route = "stream"
         tryCompare(overlay, "showing", false)
