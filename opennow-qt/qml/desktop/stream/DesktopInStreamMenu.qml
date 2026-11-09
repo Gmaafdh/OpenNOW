@@ -79,6 +79,13 @@ FocusScope {
         return String(value === undefined || value === null ? fallback : value)
     }
     readonly property string fpsText: root.liveText(root.liveValue(root.firstAvailable(live.framesPerSecond, live.fps)), "", qsTr("Measuring"))
+    readonly property var pingValue: root.liveNumber(root.liveValue(root.firstAvailable(live.pingMs, live.latencyMs)))
+    readonly property string pingText: pingValue === null ? qsTr("Measuring") : Math.round(pingValue) + " ms"
+    // Traffic-light connection health, shared by the hero pill and the card.
+    readonly property color connectionColor: pingValue === null ? DesktopTokens.textMuted
+        : pingValue < 35 ? DesktopTokens.mint : pingValue < 70 ? DesktopTokens.amber : DesktopTokens.danger
+    readonly property string connectionLabel: pingValue === null ? qsTr("Measuring")
+        : pingValue < 35 ? qsTr("Excellent") : pingValue < 70 ? qsTr("Good") : qsTr("Needs work")
     readonly property string bitrateText: root.liveText(root.liveValue(root.firstAvailable(live.bitrateMbps, live.receiveBitrateMbps)), " Mb", qsTr("Measuring"))
     readonly property string codecText: String(root.liveValue(live.codec) || profile.codec
         || ShellStore.runtimeStreamProfile.codec || ShellStore.settings.codec || qsTr("Automatic")).toUpperCase()
@@ -168,6 +175,7 @@ FocusScope {
             inputBlocking: true,
             summary: [
                 item("fps", "", qsTr("FPS"), root.fpsText + " FPS", "metric", false, null, ""),
+                item("ping", "", qsTr("PING"), root.pingText, "metric", false, null, ""),
                 item("output", "", qsTr("OUTPUT"), root.resolution + " · " + root.codecText,
                     "metric", false, null, ""),
                 item("bitrate", "", qsTr("BITRATE"), root.bitrateText, "metric", false, null, "")
@@ -471,32 +479,94 @@ FocusScope {
                     spacing: 14
 
                     Item {
+                        objectName: "streamMenuHero"
                         width: parent.width
-                        height: 52
+                        height: 132
                         RoundedArtwork {
-                            width: 48; height: 48
-                            artwork: String(root.game.imageUrl || root.game.heroImageUrl || "")
-                            cornerRadius: 10
-                            scrimStart: 1
+                            anchors.fill: parent
+                            artwork: String(root.game.heroImageUrl || root.game.imageUrl || "")
+                            fallbackArtwork: String(root.game.imageUrl || "")
+                            cornerRadius: 16
+                            scrimStart: 0.35
+                            cinematicFit: true
                             fallbackColor: "#1A2030"
                         }
+                        // Bottom-up scrim so the title stays readable over key art.
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 16
+                            gradient: Gradient {
+                                GradientStop { position: 0; color: "#0004060A" }
+                                GradientStop { position: 0.45; color: "#5904060A" }
+                                GradientStop { position: 1; color: "#E604060A" }
+                            }
+                        }
+                        Rectangle {
+                            anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                            width: 3
+                            color: root.connectionColor
+                        }
+                        Row {
+                            x: 16; y: 14
+                            spacing: 7
+                            Rectangle {
+                                width: livePillText.implicitWidth + 16; height: 20; radius: 10
+                                color: "#CCB91C1C"
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    Rectangle {
+                                        width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
+                                        color: "white"
+                                        SequentialAnimation on opacity {
+                                            running: root.visible && !AppController.reducedMotion
+                                            loops: Animation.Infinite
+                                            NumberAnimation { to: 0.35; duration: 700 }
+                                            NumberAnimation { to: 1; duration: 700 }
+                                        }
+                                    }
+                                    Text {
+                                        id: livePillText
+                                        text: qsTr("LIVE")
+                                        color: "white"
+                                        font.family: DesktopTokens.monoFont
+                                        font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: sessionPillText.implicitWidth + 16; height: 20; radius: 10
+                                color: "#6604060A"
+                                border.width: 1; border.color: "#33FFFFFF"
+                                Text {
+                                    id: sessionPillText
+                                    anchors.centerIn: parent
+                                    text: root.clockText()
+                                    color: DesktopTokens.textHigh
+                                    font.family: DesktopTokens.monoFont
+                                    font.pixelSize: 8; font.weight: Font.Bold; font.letterSpacing: 1
+                                }
+                            }
+                        }
                         Text {
-                            x: 62; y: 2
-                            width: parent.width - x - closeChip.width - 12
+                            x: 16
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: 30
+                            width: parent.width - x - closeChip.width - 16
                             text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: DesktopTokens.text
+                            color: "white"
                             font.family: DesktopTokens.displayFont
-                            font.pixelSize: 20
+                            font.pixelSize: 24
                             font.weight: Font.Black
                             elide: Text.ElideRight
                         }
                         Row {
-                            x: 62; y: 32
+                            x: 16
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: 12
                             spacing: 7
-                            Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter; color: DesktopTokens.green }
+                            Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter; color: root.connectionColor }
                             Text {
-                                text: qsTr("LIVE · %1").arg(root.clockText())
-                                color: DesktopTokens.textMuted
+                                text: root.connectionLabel + " · " + root.pingText + " · " + root.resolution + " · " + root.codecText
+                                color: "#D9FFFFFF"
                                 font.family: DesktopTokens.monoFont
                                 font.pixelSize: 10
                                 font.weight: Font.Bold
@@ -505,11 +575,11 @@ FocusScope {
                         }
                         Item {
                             id: closeChip
-                            anchors.right: parent.right
-                            y: 4
+                            anchors.right: parent.right; anchors.rightMargin: 12
+                            y: 12
                             width: closeGlyph.visible ? closeGlyph.implicitWidth : closePad.width
                             height: 22
-                            KeyboardGlyph { id: closeGlyph; visible: !root.controllerHints; shortcut: "Esc"; keySize: 20; ink: DesktopTokens.textMuted }
+                            KeyboardGlyph { id: closeGlyph; visible: !root.controllerHints; shortcut: "Esc"; keySize: 20; ink: "#D9FFFFFF" }
                             ControllerGlyph { id: closePad; visible: root.controllerHints; glyph: "B"; label: ""; glyphSize: 20; spacing: 0 }
                             TapHandler { onTapped: root.runAction("resume") }
                         }
@@ -555,6 +625,7 @@ FocusScope {
                                 model: {
                                     const metrics = [
                                         { label: "FPS", value: root.fpsText },
+                                        { label: qsTr("PING"), value: root.pingText, tint: root.connectionColor },
                                         { label: qsTr("OUTPUT"), value: root.resolution },
                                         { label: qsTr("BITRATE"), value: root.bitrateText }
                                     ]

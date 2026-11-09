@@ -327,11 +327,12 @@ NativeStreamRuntime::NativeStreamRuntime(Api api, QObject *parent,
     d->windowsAdapterLuid = windowsAdapterLuid;
     d->externalWindow = useExternalWindow;
 #ifdef Q_OS_WIN
-    // A separate SDL window is the reliable Windows presentation path. Keep
-    // decode/presentation in the sidecar, but do not reparent its HWND into
-    // Qt: cross-process DPI and focus ownership can leave a small, input-
-    // inaccessible child surface. The hosted implementation remains available
-    // to the protocol, while Windows sessions use the independent path.
+    // Windows sessions present embedded in the Qt window by default (the
+    // constructor's useExternalWindow is opt-in via
+    // OPENNOW_FORCE_EXTERNAL_STREAM_WINDOW for debugging). If that sidecar
+    // path is ever used, do not reparent its HWND into Qt: cross-process DPI
+    // and focus ownership can leave a small, input-inaccessible child
+    // surface, so it stays an independent window rather than a hosted one.
     d->hostedSurface = false;
 #endif
     if (d->externalWindow) {

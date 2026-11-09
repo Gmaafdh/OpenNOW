@@ -189,9 +189,17 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
 #endif
 #ifdef OPENNOW_EMBEDDED_STREAMER
 #ifdef Q_OS_WIN
-    // Qt's WARP compositor must not determine the game's decode/presentation
-    // adapter. Only this compatibility case uses the packaged native window.
-    const bool useExternalStreamWindow = graphicsDevices.usesCompatibilityRenderer();
+    // One window, like the original GeForce NOW client: the stream is decoded
+    // and presented by the embedded in-process streamer inside this Qt window
+    // (StreamVideoItem), and the shell draws its menus/sidebar over the same
+    // surface. This also covers DX10-class hardware: Qt composites on WARP
+    // while the embedded streamer uses its validated WARP H.264 path on that
+    // same WARP LUID (see docs/qt-acceptance.md, "DirectX 10-class Windows
+    // compatibility"), so compatibility hardware must NOT be forced into the
+    // separate native stream window either. The standalone sidecar presenter
+    // remains available as an explicit debugging escape hatch only.
+    const bool useExternalStreamWindow =
+        qEnvironmentVariableIsSet("OPENNOW_FORCE_EXTERNAL_STREAM_WINDOW");
 #else
     const bool useExternalStreamWindow = false;
 #endif

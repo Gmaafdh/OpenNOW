@@ -2708,7 +2708,8 @@ private slots:
             "src/streaming/rendering/NativeStreamRenderCallback.cpp"));
         const auto shell = source(QStringLiteral("qml/state/ShellStore.qml"));
         QVERIFY(startup.contains(QStringLiteral(
-            "useExternalStreamWindow = graphicsDevices.usesCompatibilityRenderer()")));
+            "useExternalStreamWindow =\n"
+            "        qEnvironmentVariableIsSet(\"OPENNOW_FORCE_EXTERNAL_STREAM_WINDOW\")")));
         QVERIFY(runtime.contains(QStringLiteral("OPENNOW_NATIVE_STANDALONE_WINDOW")));
         QVERIFY(runtime.contains(QStringLiteral("OPENNOW_NATIVE_INPUT_OWNER")));
         QVERIFY(runtime.contains(QStringLiteral("!d->externalWindow\n"
