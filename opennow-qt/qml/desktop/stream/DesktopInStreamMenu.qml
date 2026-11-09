@@ -175,7 +175,6 @@ FocusScope {
             inputBlocking: true,
             summary: [
                 item("fps", "", qsTr("FPS"), root.fpsText + " FPS", "metric", false, null, ""),
-                item("ping", "", qsTr("PING"), root.pingText, "metric", false, null, ""),
                 item("output", "", qsTr("OUTPUT"), root.resolution + " · " + root.codecText,
                     "metric", false, null, ""),
                 item("bitrate", "", qsTr("BITRATE"), root.bitrateText, "metric", false, null, "")
