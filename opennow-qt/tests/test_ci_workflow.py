@@ -299,7 +299,7 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2025"],
+            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
@@ -312,12 +312,17 @@ class CIWorkflowTest(unittest.TestCase):
         # The harness publishes exactly one thing: the rolling arena-fast
         # pre-release that the in-app update button installs from. It must not
         # touch any other release, and only the Windows job may write.
-        self.assertEqual(workflow.count("      contents: write"), 1)
+        self.assertEqual(workflow.count("      contents: write"), 2)
         self.assertIn("    permissions:\n      contents: write\n", workflow)
         for release_command in re.findall(r"gh release \w+ (\S+)", workflow):
             with self.subTest(release=release_command):
                 self.assertEqual(release_command, "arena-fast")
         self.assertIn("gh release upload arena-fast $zip $manifest", workflow)
+        self.assertIn("run-id: 42347482232", workflow)
+        self.assertIn("actions/download-artifact@v4", workflow)
+        self.assertIn("Restore existing Windows nightly 146.1 (no rebuild)", workflow)
+        self.assertIn("if: github.run_number <= 146", workflow)
+        self.assertIn("No build was run.", workflow)
         self.assertNotIn("--latest", workflow)
         self.assertIn("--prerelease", workflow)
         self.assertIn("-p opennow-streamer-platform-windows -p opennow-streamer-protocol", workflow)

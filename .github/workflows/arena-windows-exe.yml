@@ -56,7 +56,7 @@ jobs:
     needs: contracts
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || (github.ref == 'refs/heads/arena/a9a90719-opennow' && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[restore-windows-146.1]')))
     runs-on: windows-2025
     timeout-minutes: 180
     env:
@@ -417,6 +417,7 @@ jobs:
           compression-level: 0
 
       - name: Publish the fast update channel
+        if: github.run_number <= 146
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -476,3 +477,72 @@ jobs:
           path: ci-logs/
           if-no-files-found: ignore
           retention-days: 14
+
+  restore-windows-146:
+    name: Restore existing Windows nightly 146.1 (no rebuild)
+    if: ${{ github.ref == 'refs/heads/arena/a9a90719-opennow' && github.event_name == 'push' && contains(github.event.head_commit.message, '[restore-windows-146.1]') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the already-built 146.1 package
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenNOW-Windows-x64-dx10
+          repository: ${{ github.repository }}
+          run-id: 42347482232
+          github-token: ${{ github.token }}
+          path: old-windows-146
+
+      - name: Verify and restore the 146.1 update channel without building
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package_dir=old-windows-146
+          python3 - "$package_dir" <<'PYTHON'
+          import hashlib, json, pathlib, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          version = "1.0.3-nightly.146.1"
+          zips = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64.zip"))
+          setups = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"))
+          if len(zips) != 1 or len(setups) != 1:
+              raise SystemExit("The archived artifact is not the expected 146.1 Windows package")
+          info = (root / "BUILD-INFO.txt").read_text(encoding="utf-8-sig")
+          if f"Version: {version}" not in info or "Source commit: b3d3c72948bc3732532041cb33edafb7b7497889" not in info:
+              raise SystemExit("BUILD-INFO does not identify the approved 146.1 build")
+          sums = (root / "SHA256SUMS").read_text(encoding="utf-8-sig").splitlines()
+          for line in sums:
+              expected, name = line.split(maxsplit=1)
+              name = name.lstrip("* ")
+              matches = list(root.glob(name))
+              if len(matches) != 1 or hashlib.sha256(matches[0].read_bytes()).hexdigest() != expected.lower():
+                  raise SystemExit(f"Checksum verification failed for {name}")
+          with zipfile.ZipFile(zips[0]) as archive:
+              if not any(name.replace("\\", "/").endswith("/bin/OpenNOW.exe") or name == "bin/OpenNOW.exe" for name in archive.namelist()):
+                  raise SystemExit("The portable archive does not contain bin/OpenNOW.exe")
+          digest = hashlib.sha256(zips[0].read_bytes()).hexdigest()
+          manifest = {
+              "schemaVersion": 1, "version": version, "asset": zips[0].name,
+              "size": zips[0].stat().st_size, "sha256": digest, "signature": ""
+          }
+          (root / (zips[0].name + ".manifest.json")).write_text(
+              json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8"
+          )
+          PYTHON
+          zip=$(find "$package_dir" -maxdepth 1 -name 'OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip' -print -quit)
+          manifest="$zip.manifest.json"
+          gh release view arena-fast --repo "$GITHUB_REPOSITORY" >/dev/null
+          while IFS= read -r id; do
+            [ -z "$id" ] || gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          done < <(gh api "repos/$GITHUB_REPOSITORY/releases/tags/arena-fast" --jq '.assets[].id')
+          gh release upload arena-fast "$zip" "$manifest" \
+            "$package_dir/BUILD-INFO.txt" "$package_dir/SHA256SUMS" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Restored 1.0.3-nightly.146.1 from its existing Actions artifact. No build was run." >> "$GITHUB_STEP_SUMMARY"
