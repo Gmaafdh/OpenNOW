@@ -10,6 +10,15 @@ def qml(path: str) -> str:
     return (QT_ROOT / "qml" / path).read_text(encoding="utf-8")
 
 
+def function_body(source: str, name: str) -> str:
+    """Return one top-level QML/JS function body from a document."""
+    pattern = r"    function " + re.escape(name) + r"\([^\n]*\) \{.*?\n    \}"
+    match = re.search(pattern, source, re.DOTALL)
+    if match is None:
+        raise AssertionError("function %s was not found" % name)
+    return match.group(0)
+
+
 class DesktopVisualRefinementContracts(unittest.TestCase):
     def test_hero_has_no_slide_zoom_and_uses_cinematic_fit(self) -> None:
         hero = qml("desktop/library/DesktopLibraryHero.qml")
@@ -23,9 +32,15 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         home = qml("desktop/home/DesktopHomeScreen.qml")
         self.assertIn("function setSelection(zone, index, revealSelection)", home)
         self.assertIn("if (revealSelection === true)", home)
-        self.assertNotIn("contentFlick.contentY = 0", home)
-        pointed = re.findall(r"onPointed:\s*root\.setSelection\(([^\n]+)\)", home)
-        self.assertEqual(len(pointed), 3)
+        # Selecting a card must never yank the page back to the top. Only the
+        # dedicated scroll-to-top control may reset the scroll position.
+        for name in ("setSelection", "ensureSelectionVisible", "moveHorizontal",
+                     "moveVertical", "activateSelection"):
+            self.assertNotIn("contentY = 0", function_body(home, name), name)
+        self.assertIn("contentFlick.contentY = 0", function_body(home, "scrollToTop"))
+        pointed = re.findall(r"(?m)^\s*onPointed:\s*(?:index\s*=>\s*)?root\.setSelection\(([^\n]+)\)", home)
+        # One call per pointer-hoverable zone: the dock plus four rails.
+        self.assertEqual(len(pointed), 5)
         self.assertTrue(all("true" not in call for call in pointed))
         self.assertIn("root.focusIndex + delta)), true)", home)
         self.assertIn("root.setSelection(nextZone, nextIndex, true)", home)
