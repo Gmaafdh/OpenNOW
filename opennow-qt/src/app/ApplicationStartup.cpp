@@ -36,7 +36,6 @@
 #include <QSGRendererInterface>
 #include <QFileOpenEvent>
 #include <QProcess>
-#include <QtWebEngineQuick/qtwebenginequickglobal.h>
 
 #include <cstdlib>
 
@@ -109,9 +108,6 @@ static int runApplicationSession(int argc, char *argv[], QString &restartExecuta
         QSurfaceFormat::setDefaultFormat(presentationFormat);
     }
 
-    // Initialize WebEngine before QGuiApplication so Chromium is ready before
-    // the QML engine creates any WebEngineView.
-    QtWebEngineQuick::initialize();
     QGuiApplication application(argc, argv);
     qInfo("Stream presentation: swapInterval=%d (%s)",
           QSurfaceFormat::defaultFormat().swapInterval(),

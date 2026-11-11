@@ -125,7 +125,7 @@ jobs:
           host: ${{ matrix.qt_host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qtmultimedia qtshadertools qtwaylandcompositor qtpositioning qtwebchannel qtwebengine
+          modules: qtmultimedia qtshadertools qtwaylandcompositor qtpositioning qtwebchannel
           cache: true
           cache-key-prefix: qt-target-linux-${{ matrix.arch }}
 
@@ -389,7 +389,7 @@ jobs:
           host: windows
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel qtwebengine
+          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel
           cache: true
           cache-key-prefix: qt-target-windows-${{ matrix.arch }}
 
@@ -597,7 +597,7 @@ jobs:
           host: mac
           target: desktop
           arch: clang_64
-          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel qtwebengine
+          modules: qtmultimedia qtshadertools qtpositioning qtwebchannel
           cache: true
           cache-key-prefix: qt-target-macos-arm64
 
