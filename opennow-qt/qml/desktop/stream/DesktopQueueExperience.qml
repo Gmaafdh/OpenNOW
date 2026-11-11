@@ -66,6 +66,39 @@ FocusScope {
         return Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, alpha)
     }
 
+    // ───────────────────────── ambience palette ─────────────────────────
+    //
+    // The backdrop is lit by two hues instead of one: the pack's media accent as
+    // the key light and a hue-rotated companion as the fill, pooled over a deep
+    // field taken from the pack's own mid tone. Every hue is derived from Theme
+    // tokens, so all twenty-odd packs and all accent overrides produce their own
+    // pairing rather than a fixed duotone.
+
+    // Key light. Contrast-audited by Theme against the media surface, so it is
+    // also the only hue used for copy and structural chrome.
+    readonly property color glowKey: Theme.mediaAccent
+    // Fill light: the key hue rotated ~32° towards its cooler neighbour and
+    // lifted, so blooms have a chromatic edge instead of one flat tint.
+    readonly property color glowCompanion: {
+        const hsl = Theme.hslFromColor(Theme.mediaAccent)
+        return Theme.colorFromHsl(hsl.h + 0.09, Math.min(1, hsl.s * 1.06), Math.max(0.52, hsl.l))
+    }
+    // Deep field: the pack mid tone, saturate- and lightness-lifted so it reads
+    // as coloured light behind the page rather than as mud.
+    readonly property color glowField: {
+        const hsl = Theme.hslFromColor(Theme.atmosphere)
+        return Theme.colorFromHsl(hsl.h - 0.03, Math.min(1, Math.max(0.42, hsl.s)), Math.max(0.40, hsl.l))
+    }
+    // Neutral chrome that still belongs to the palette (the dotted orbit).
+    readonly property color orbitInk: Theme.mixColors("#FFFFFF", glowCompanion, 55)
+
+    // Ambient light only, scaled by the Ambient glow setting. Never use this for
+    // text, borders or the progress arc: those go through accentA() so the page
+    // stays readable with the glow turned all the way down.
+    function glowA(tint, alpha) {
+        return Qt.rgba(tint.r, tint.g, tint.b, Theme.glow(alpha))
+    }
+
     function restoreFocus() {
         if (root.artworkViewerOpen)
             closeArtworkButton.forceActiveFocus()
@@ -284,11 +317,15 @@ FocusScope {
         }
     }
 
-    // Soft radial light used for ambience.
+    // Soft radial light used for ambience. `strength` is an ambient alpha, so it
+    // is scaled by Settings → Appearance → Ambient glow through Theme.glow():
+    // at the minimum setting every bloom fades out and the page keeps only its
+    // structural chrome, at the maximum it opens up well past the authored value.
     component GlowBlob: Shape {
         id: blob
         property color tint: "white"
         property real strength: 0.3
+        readonly property real lit: Theme.glow(blob.strength)
         ShapePath {
             strokeColor: "transparent"
             strokeWidth: -1
@@ -298,8 +335,8 @@ FocusScope {
                 centerRadius: Math.min(blob.width, blob.height) / 2
                 focalX: centerX
                 focalY: centerY
-                GradientStop { position: 0.0; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.strength) }
-                GradientStop { position: 0.55; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.strength * 0.35) }
+                GradientStop { position: 0.0; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.lit) }
+                GradientStop { position: 0.55; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.lit * 0.35) }
                 GradientStop { position: 1.0; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, 0) }
             }
             startX: 0; startY: 0
@@ -310,14 +347,20 @@ FocusScope {
         }
     }
 
+    // Smoked glass. A white veil over a colourful backdrop washes the copy out,
+    // so the panel darkens toward the media surface instead, keeps one
+    // accent-tinted edge, and leaks its highlight from the side the key light
+    // comes from. Edge and highlight are structural, not ambient: they are not
+    // glow scaled, so the panel still reads with Ambient glow at zero.
     component GlassPanel: Rectangle {
         id: glass
         radius: 28
         border.width: 1
-        border.color: "#2AFFFFFF"
+        border.color: root.accentA(0.24)
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#20FFFFFF" }
-            GradientStop { position: 1.0; color: "#08FFFFFF" }
+            GradientStop { position: 0.0; color: "#38080C16" }
+            GradientStop { position: 0.55; color: "#2B070A12" }
+            GradientStop { position: 1.0; color: "#1E060910" }
         }
         Rectangle {
             anchors.top: parent.top
@@ -326,7 +369,12 @@ FocusScope {
             anchors.leftMargin: glass.radius
             anchors.rightMargin: glass.radius
             height: 1
-            color: "#40FFFFFF"
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "#0DFFFFFF" }
+                GradientStop { position: 0.68; color: "#4DFFFFFF" }
+                GradientStop { position: 1.0; color: "#00FFFFFF" }
+            }
         }
     }
 
@@ -422,9 +470,9 @@ FocusScope {
         property int maxLines: 2
         implicitHeight: Math.max(68, tileColumn.implicitHeight + 26)
         radius: 18
-        color: "#10FFFFFF"
+        color: "#1F070B13"
         border.width: 1
-        border.color: "#1CFFFFFF"
+        border.color: Qt.rgba(tile.tint.r, tile.tint.g, tile.tint.b, 0.22)
         Column {
             id: tileColumn
             x: 16
@@ -588,59 +636,106 @@ FocusScope {
         id: backdrop
         anchors.fill: parent
 
-        Rectangle { anchors.fill: parent; color: "#06080E" }
+        // The media contrast surface. tst_sessionstarting audits the queue copy
+        // against exactly this colour, so it stays the floor of the whole page.
+        Rectangle { anchors.fill: parent; color: "#04060A" }
+
+        // Deep field: the pack mid tone pools in from the top and the companion
+        // hue from the bottom, leaving the middle on the floor colour. Both
+        // stops are ambient, so they scale with the Ambient glow setting.
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: root.glowA(root.glowField, 0.38) }
+                GradientStop { position: 0.40; color: "#0004060A" }
+                GradientStop { position: 0.70; color: "#0004060A" }
+                GradientStop { position: 1.0; color: root.glowA(root.glowCompanion, 0.28) }
+            }
+        }
 
         // Artwork, downsampled hard and stretched => colour wash of the game's palette.
+        // 36 samples instead of 48: the fields get bigger and softer, which reads
+        // as painted light rather than as a scaled-up thumbnail.
         Image {
             anchors.centerIn: parent
             width: parent.width * 1.3
             height: parent.height * 1.3
             source: coverArtwork.resolvedUrl
             fillMode: Image.PreserveAspectCrop
-            sourceSize: Qt.size(48, 48)
+            sourceSize: Qt.size(36, 36)
             smooth: true
             asynchronous: true
-            opacity: status === Image.Ready ? 0.55 : 0
+            opacity: status === Image.Ready ? 0.7 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.duration(900) } }
             transform: Translate { x: (root.drift - 0.5) * 70; y: (0.5 - root.drift) * 30 }
         }
 
+        // Legibility scrim: open at the extremes so the field and the blooms
+        // still read, near-opaque across the band where the copy sits. The 4.5:1
+        // contrast audit assumes this much cover over the artwork wash.
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: "#B0060810" }
-                GradientStop { position: 0.55; color: "#D9060810" }
-                GradientStop { position: 1.0; color: "#F5060810" }
+                GradientStop { position: 0.0; color: "#5904060A" }
+                GradientStop { position: 0.22; color: "#C904060A" }
+                GradientStop { position: 0.52; color: "#DE04060A" }
+                GradientStop { position: 0.80; color: "#BF04060A" }
+                GradientStop { position: 1.0; color: "#4D04060A" }
             }
         }
 
+        // Key light, top right, drifting slowly with the backdrop.
         GlowBlob {
-            x: parent.width - width * 0.62
+            x: parent.width - width * 0.62 + (root.drift - 0.5) * 46
             y: -height * 0.32
             width: Math.max(600, parent.width * 0.85)
             height: width
-            tint: Theme.mediaAccent
-            strength: 0.22 + root.breath * 0.07
+            tint: root.glowKey
+            strength: 0.26 + root.breath * 0.08
         }
+        // Fill light, bottom left: the companion hue, breathing out of phase so
+        // the two never peak together and the field keeps moving.
         GlowBlob {
-            x: -width * 0.38
+            x: -width * 0.38 + (0.5 - root.drift) * 38
             y: parent.height - height * 0.62
             width: Math.max(520, parent.width * 0.7)
             height: width
-            tint: Theme.mediaAccent
-            strength: 0.14 + (1 - root.breath) * 0.06
+            tint: root.glowCompanion
+            strength: 0.20 + (1 - root.breath) * 0.07
+        }
+        // Deep bloom in the pack's own mid tone, low and central, so the two key
+        // lights do not read as a duotone cut across a black page.
+        GlowBlob {
+            x: parent.width * 0.20 - width * 0.5 + (root.drift - 0.5) * 26
+            y: parent.height * 0.42
+            width: Math.max(480, parent.width * 0.62)
+            height: width
+            tint: root.glowField
+            strength: 0.16 + root.breath * 0.05
         }
 
-        // Faint scan beam
+        // Horizon pool: light gathering along the bottom edge behind the panels.
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: parent.height * 0.44
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#0004060A" }
+                GradientStop { position: 1.0; color: root.glowA(root.glowKey, 0.14 + (1 - root.breath) * 0.06) }
+            }
+        }
+
+        // Faint scan beam, companion-tailed so it catches the second hue.
         Rectangle {
             visible: root.animating
             width: parent.width
             height: 200
             y: -height + root.beam * (parent.height + height)
             gradient: Gradient {
-                GradientStop { position: 0.0; color: root.accentA(0) }
-                GradientStop { position: 0.5; color: root.accentA(0.06) }
-                GradientStop { position: 1.0; color: root.accentA(0) }
+                GradientStop { position: 0.0; color: root.glowA(root.glowCompanion, 0) }
+                GradientStop { position: 0.5; color: root.glowA(root.glowKey, 0.07) }
+                GradientStop { position: 1.0; color: root.glowA(root.glowCompanion, 0) }
             }
         }
 
@@ -657,8 +752,8 @@ FocusScope {
                 height: width
                 radius: width / 2
                 x: ((index * 61) % 100) / 100 * backdrop.width
-                color: index % 4 === 0 ? "#FFFFFF" : Theme.mediaAccent
-                opacity: 0.10 + seed * 0.25
+                color: index % 5 === 0 ? "#FFFFFF" : index % 3 === 0 ? root.glowCompanion : root.glowKey
+                opacity: Theme.glow(0.10 + seed * 0.25)
                 SequentialAnimation on y {
                     running: root.animating
                     NumberAnimation {
@@ -732,8 +827,18 @@ FocusScope {
                     y: artFrame.y + artFrame.height / 2 - height / 2
                     width: artworkPanel.cardWidth * 2
                     height: width
-                    tint: Theme.mediaAccent
-                    strength: 0.24 + root.breath * 0.12
+                    tint: root.glowKey
+                    strength: 0.26 + root.breath * 0.12
+                }
+                // Second hue behind the cover, offset low and to the left, so the
+                // artwork is lit from two directions like the page behind it.
+                GlowBlob {
+                    x: parent.width / 2 - width / 2 - artworkPanel.cardWidth * 0.24
+                    y: artFrame.y + artFrame.height * 0.66 - height / 2
+                    width: artworkPanel.cardWidth * 1.7
+                    height: width
+                    tint: root.glowCompanion
+                    strength: 0.18 + (1 - root.breath) * 0.10
                 }
 
                 Column {
@@ -991,10 +1096,21 @@ FocusScope {
 
                             GlowBlob {
                                 anchors.centerIn: parent
-                                width: parent.width * 1.6
+                                width: parent.width * 1.75
                                 height: width
-                                tint: Theme.mediaAccent
-                                strength: 0.12 + root.breath * 0.10
+                                tint: root.glowKey
+                                strength: 0.14 + root.breath * 0.10
+                            }
+                            // Chromatic bloom: the companion hue offset away from
+                            // the key light, so the ring sits in coloured light
+                            // instead of a single flat halo.
+                            GlowBlob {
+                                x: parent.width / 2 - width / 2 - parent.width * 0.12
+                                y: parent.height / 2 - height / 2 + parent.height * 0.10
+                                width: parent.width * 1.35
+                                height: width
+                                tint: root.glowCompanion
+                                strength: 0.13 + (1 - root.breath) * 0.08
                             }
 
                             Rectangle {
@@ -1018,7 +1134,7 @@ FocusScope {
                                     layer.enabled: true
                                     layer.samples: 4
                                     ShapePath {
-                                        strokeColor: "#38FFFFFF"
+                                        strokeColor: Qt.rgba(root.orbitInk.r, root.orbitInk.g, root.orbitInk.b, 0.34)
                                         strokeWidth: 1.5
                                         strokeStyle: ShapePath.DashLine
                                         dashPattern: [1, 6]
@@ -1051,14 +1167,34 @@ FocusScope {
 
                             // progress
                             Item {
+                                id: progressArc
                                 anchors.fill: parent
                                 rotation: root.indeterminate ? root.spin : 0
+                                // One sweep drives all three strokes, so a halo
+                                // can never disagree with the arc it outlines.
+                                readonly property real sweep: root.indeterminate ? 100
+                                    : Math.max(2, 359.9 * root.shownProgress)
                                 Shape {
                                     anchors.fill: parent
                                     layer.enabled: true
                                     layer.samples: 4
+                                    // Outer bloom in the companion hue: this is
+                                    // what makes the arc read as lit rather than
+                                    // as paint on a flat ring.
                                     ShapePath {
-                                        strokeColor: root.accentA(0.22)
+                                        strokeColor: root.glowA(root.glowCompanion, 0.16)
+                                        strokeWidth: 30
+                                        fillColor: "transparent"
+                                        capStyle: ShapePath.RoundCap
+                                        PathAngleArc {
+                                            centerX: ringBox.c; centerY: ringBox.c
+                                            radiusX: ringBox.r; radiusY: ringBox.r
+                                            startAngle: -90
+                                            sweepAngle: progressArc.sweep
+                                        }
+                                    }
+                                    ShapePath {
+                                        strokeColor: root.glowA(root.glowKey, 0.24)
                                         strokeWidth: 20
                                         fillColor: "transparent"
                                         capStyle: ShapePath.RoundCap
@@ -1066,9 +1202,12 @@ FocusScope {
                                             centerX: ringBox.c; centerY: ringBox.c
                                             radiusX: ringBox.r; radiusY: ringBox.r
                                             startAngle: -90
-                                            sweepAngle: root.indeterminate ? 100 : Math.max(2, 359.9 * root.shownProgress)
+                                            sweepAngle: progressArc.sweep
                                         }
                                     }
+                                    // Structural core: raw accent, never glow
+                                    // scaled, so queue progress stays readable
+                                    // with Ambient glow turned all the way down.
                                     ShapePath {
                                         strokeColor: Theme.mediaAccent
                                         strokeWidth: 10
@@ -1078,23 +1217,34 @@ FocusScope {
                                             centerX: ringBox.c; centerY: ringBox.c
                                             radiusX: ringBox.r; radiusY: ringBox.r
                                             startAngle: -90
-                                            sweepAngle: root.indeterminate ? 100 : Math.max(2, 359.9 * root.shownProgress)
+                                            sweepAngle: progressArc.sweep
                                         }
                                     }
                                 }
                             }
 
-                            // glowing tip
+                            // glowing tip: a bloom behind the head of the arc, so
+                            // the leading edge looks like a light travelling the
+                            // ring instead of a dot drawn on top of it.
+                            GlowBlob {
+                                visible: !root.indeterminate
+                                width: 56
+                                height: width
+                                x: ringBox.c + ringBox.r * Math.cos(ringBox.tipAngle) - width / 2
+                                y: ringBox.c + ringBox.r * Math.sin(ringBox.tipAngle) - height / 2
+                                tint: root.glowKey
+                                strength: 0.42 + root.breath * 0.16
+                            }
                             Rectangle {
                                 visible: !root.indeterminate
-                                width: 14
-                                height: 14
-                                radius: 7
-                                x: ringBox.c + ringBox.r * Math.cos(ringBox.tipAngle) - 7
-                                y: ringBox.c + ringBox.r * Math.sin(ringBox.tipAngle) - 7
+                                width: 14 + root.breath * 2
+                                height: width
+                                radius: width / 2
+                                x: ringBox.c + ringBox.r * Math.cos(ringBox.tipAngle) - width / 2
+                                y: ringBox.c + ringBox.r * Math.sin(ringBox.tipAngle) - height / 2
                                 color: "#FFFFFF"
                                 border.width: 3
-                                border.color: root.accentA(0.55)
+                                border.color: root.accentA(0.75)
                             }
 
                             Column {
@@ -1215,7 +1365,8 @@ FocusScope {
                             opacity: 1 - Math.abs(root.flowPhase * 2 - 1)
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: root.accentA(0) }
+                                GradientStop { position: 0.0; color: root.glowA(root.glowCompanion, 0) }
+                                GradientStop { position: 0.6; color: root.glowA(root.glowCompanion, 0.5) }
                                 GradientStop { position: 1.0; color: root.accentA(1) }
                             }
                         }
@@ -1306,6 +1457,7 @@ FocusScope {
                         width: tileGrid.tileWidth
                         label: qsTr("REGION")
                         value: root.regionText()
+                        tint: root.glowCompanion
                         maxLines: 1
                     }
                     InfoTile {
@@ -1318,6 +1470,7 @@ FocusScope {
                         width: tileGrid.tileWidth
                         label: qsTr("SESSION DETAILS")
                         value: qsTr("Your session starts automatically")
+                        tint: Theme.mediaMuted
                     }
                 }
 
@@ -1404,7 +1557,7 @@ FocusScope {
         z: 50
         visible: root.artworkViewerOpen || opacity > 0.001
         opacity: root.artworkViewerOpen ? 1 : 0
-        color: "#F2060810"
+        color: "#F204060A"
         Behavior on opacity { NumberAnimation { duration: Theme.duration(220); easing.type: Easing.OutCubic } }
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("View artwork")
@@ -1413,8 +1566,16 @@ FocusScope {
             anchors.centerIn: parent
             width: Math.min(parent.width, parent.height) * 1.5
             height: width
-            tint: Theme.mediaAccent
-            strength: 0.16
+            tint: root.glowKey
+            strength: 0.18
+        }
+        GlowBlob {
+            x: parent.width / 2 - width / 2 + parent.width * 0.14
+            y: parent.height / 2 - height / 2 - parent.height * 0.10
+            width: Math.min(parent.width, parent.height) * 1.2
+            height: width
+            tint: root.glowCompanion
+            strength: 0.14
         }
 
         MouseArea {
