@@ -305,6 +305,11 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
         self.assertIn("    branches:\n      - arena/15b83ddf-opennow\n", workflow)
         self.assertIn("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'", workflow)
+        # The PS5-style desktop home branch builds through the same harness, so
+        # it has to be listed for the push trigger *and* for both job gates;
+        # a branch that only matches the trigger would silently skip the build.
+        self.assertIn("      - arena/c8d904a5-opennow\n", workflow)
+        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/c8d904a5-opennow'"), 2)
         self.assertIn("  contents: read", workflow)
         for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):

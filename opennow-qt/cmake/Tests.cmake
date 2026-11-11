@@ -332,11 +332,6 @@ if(BUILD_TESTING)
         res/brand/opennow-mark.png res/icons/desktop-play.svg
         res/icons/desktop-play-filled.svg res/icons/desktop-info.svg
         res/icons/store-steam.svg res/icons/store-epic.svg res/icons/store-xbox.svg)
-    # The theme test hosts the wait-game WebEngine view directly, so embed the
-    # same local HTML bundle the application exposes under its QML resource URL.
-    qt_add_resources(opennow-theme-tests "theme-arcade-game-assets"
-        PREFIX "/qt/qml/OpenNOW"
-        FILES ${OPENNOW_ARCADE_GAME_FILES})
     add_test(NAME opennow-theme-tests COMMAND opennow-theme-tests
         -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/theme"
         -o -,txt -o "${CMAKE_CURRENT_BINARY_DIR}/opennow-theme-results.txt,txt")

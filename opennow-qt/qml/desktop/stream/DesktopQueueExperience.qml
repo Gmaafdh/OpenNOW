@@ -38,7 +38,6 @@ FocusScope {
     signal cancelRequested()
     signal refreshRequested()
     signal requeueRequested()
-    signal whileYouWaitRequested()
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 760
@@ -1376,13 +1375,6 @@ FocusScope {
                     spacing: 10
                     opacity: root.sectionOpacity(5)
                     transform: Translate { y: root.sectionOffset(5, 14) }
-                    DesktopButton {
-                        objectName: "desktopQueueWhileYouWait"
-                        onMediaBackground: true
-                        primary: true
-                        text: qsTr("While you wait")
-                        onClicked: root.whileYouWaitRequested()
-                    }
                     DesktopButton {
                         objectName: "desktopQueueRefresh"
                         onMediaBackground: true

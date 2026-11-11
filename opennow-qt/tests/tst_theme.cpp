@@ -51,10 +51,6 @@ public slots:
         }
         for (const auto &entry : {std::pair{"DesktopSessionStarting", "desktop/stream/DesktopSessionStarting.qml"},
                                  {"DesktopQueueExperience", "desktop/stream/DesktopQueueExperience.qml"},
-                                 {"DesktopWhileYouWait", "desktop/stream/DesktopWhileYouWait.qml"},
-                                 {"DesktopCometCourier", "desktop/stream/DesktopCometCourier.qml"},
-                                 {"DesktopPrismPath", "desktop/stream/DesktopPrismPath.qml"},
-                                 {"DesktopPocketGarden", "desktop/stream/DesktopPocketGarden.qml"},
                                  {"DesktopBrandLockup", "desktop/components/DesktopBrandLockup.qml"},
                                  {"SessionSetupProgress", "state/SessionSetupProgress.qml"},
                                  {"DesktopGameModal", "desktop/components/DesktopGameModal.qml"},
