@@ -533,6 +533,10 @@ FocusScope {
         warmGames: root.warmGames
         idleDrift: !root.overlayOpen
         grainEnabled: !root.overlayOpen
+        // An overlay owns the pointer, so the stage stops following the cursor
+        // and the idle dim takes over instead of competing with the modal.
+        parallaxStrength: root.overlayOpen ? 0 : 1
+        idleDimming: !root.overlayOpen
         // Pull the art down while an overlay owns the foreground, and deepen
         // the vignette in light themes where bright key art washes out text.
         exposure: root.overlayOpen ? 0.42 : root.heroFocused ? 1 : 0.86
@@ -727,6 +731,7 @@ FocusScope {
                 railIcon: "desktop-clock.svg"
                 games: root.continueGames
                 currentIndex: root.focusZone === 2 ? root.focusIndex : -1
+                spotlightTitle: root.backdropGame ? String(root.backdropGame.title || "") : ""
                 active: root.active
                 loading: root.syncing
                 tileWidth: root.homeTileWidth
@@ -755,6 +760,7 @@ FocusScope {
                 railIcon: "desktop-star.svg"
                 games: root.favoriteGames
                 currentIndex: root.focusZone === 3 ? root.focusIndex : -1
+                spotlightTitle: root.backdropGame ? String(root.backdropGame.title || "") : ""
                 active: root.active
                 loading: root.syncing
                 tileWidth: root.homeTileWidth
@@ -779,6 +785,7 @@ FocusScope {
                 railIcon: "desktop-plus.svg"
                 games: root.newGames
                 currentIndex: root.focusZone === 4 ? root.focusIndex : -1
+                spotlightTitle: root.backdropGame ? String(root.backdropGame.title || "") : ""
                 active: root.active
                 loading: root.syncing
                 badgeMode: "new"
@@ -805,6 +812,7 @@ FocusScope {
                 railIcon: "desktop-gamepad.svg"
                 games: root.similarGames
                 currentIndex: root.focusZone === 5 ? root.focusIndex : -1
+                spotlightTitle: root.backdropGame ? String(root.backdropGame.title || "") : ""
                 active: root.active
                 loading: root.syncing
                 badgeMode: "rank"

@@ -314,12 +314,9 @@ Item {
         Accessible.role: Accessible.Pane
         Accessible.name: qsTr("Dock tiles")
 
-        Behavior on contentX {
-            NumberAnimation {
-                duration: root.motionOff ? 0 : 220
-                easing.type: Easing.OutCubic
-            }
-        }
+        // No Behaviour on contentX: setScroll() owns programmatic animation so
+        // that animatedScroll and reduced motion are honoured in one place, and
+        // so a flick is never re-animated underneath the player's finger.
 
         Row {
             id: tileRow

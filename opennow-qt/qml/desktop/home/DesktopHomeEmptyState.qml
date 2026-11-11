@@ -129,6 +129,34 @@ Item {
             lines.push(qsTr("error: %1").arg(errorMessage))
         return lines.join("\n")
     }
+    /// The four live facts rendered by the status grid.
+    readonly property var statusCells: {
+        const total = Number(ShellStore.catalogTotalCount || 0)
+        const store = Number(ShellStore.storeTotalCount || 0)
+        return [
+            {
+                label: qsTr("ACCOUNT"),
+                value: signedIn ? qsTr("Signed in") : qsTr("Signed out"),
+                tone: signedIn ? "ok" : "warn"
+            },
+            {
+                label: qsTr("LIBRARY"),
+                value: syncing ? qsTr("Syncing") : qsTr("%1 games").arg(total),
+                tone: syncing ? "warn" : (total === 0 && signedIn ? "bad" : "ok")
+            },
+            {
+                label: qsTr("HIDDEN"),
+                value: qsTr("%1 games").arg(hiddenCount),
+                tone: allHidden ? "bad" : "ok"
+            },
+            {
+                label: qsTr("STORE"),
+                value: store > 0 ? qsTr("%1 to stream").arg(store) : qsTr("Not loaded"),
+                tone: store > 0 ? "ok" : "warn"
+            }
+        ]
+    }
+
     /// The diagnostics card only earns its space when there is something to say.
     readonly property bool showDiagnostics: uiState === "error"
         || (uiState === "empty" && allHidden)
@@ -183,7 +211,14 @@ Item {
         onTriggered: root.tipIndex = (root.tipIndex + 1) % root.tips.length
     }
 
-    implicitHeight: DesktopTokens.px(showDiagnostics ? 460 : 392)
+    /// Fixed top inset. Anchoring the chain to a constant instead of centring
+    /// the plate is what lets the plate measure its content without creating a
+    /// binding cycle through its own y.
+    readonly property real contentTop: DesktopTokens.px(24)
+    /// Bottom of the last element in the copy chain.
+    readonly property real contentBottom: tipLine.y + tipLine.height
+
+    implicitHeight: contentTop + plate.height + DesktopTokens.px(24)
     Behavior on implicitHeight {
         NumberAnimation { duration: root.motionOff ? 0 : 220; easing.type: Easing.OutCubic }
     }
@@ -219,9 +254,10 @@ Item {
     // =========================================================================
     Rectangle {
         id: plate
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.contentTop
         width: Math.min(DesktopTokens.px(620), parent.width - DesktopTokens.px(32))
-        height: DesktopTokens.px(root.showDiagnostics ? 404 : 336)
+        height: root.contentBottom - root.contentTop + DesktopTokens.px(24)
         Behavior on height {
             NumberAnimation { duration: root.motionOff ? 0 : 220; easing.type: Easing.OutCubic }
         }
@@ -456,12 +492,75 @@ Item {
     }
 
     // =========================================================================
+    // 4b. Status grid
+    // =========================================================================
+    //
+    // The four facts support always asks for, read straight off the store: is
+    // an account attached, how many games came back, how many are hidden, and
+    // how big the streamable catalog is. Showing them in every state turns this
+    // page from a dead end into a diagnosis.
+    Row {
+        id: statusGrid
+        anchors.horizontalCenter: plate.horizontalCenter
+        y: stepRow.y + stepRow.height + DesktopTokens.px(16)
+        spacing: DesktopTokens.px(10)
+
+        Repeater {
+            model: root.statusCells
+
+            Rectangle {
+                id: cell
+                required property var modelData
+                required property int index
+                width: DesktopTokens.px(132)
+                height: DesktopTokens.px(52)
+                radius: DesktopTokens.px(13)
+                color: Theme.lightMode ? "#10040610" : "#12FFFFFF"
+                border.width: 1
+                border.color: cell.modelData.tone === "bad" ? "#44FF6A6A"
+                    : cell.modelData.tone === "warn" ? "#44F5B942"
+                    : Theme.lightMode ? "#14040610" : "#1AFFFFFF"
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("%1: %2").arg(cell.modelData.label, cell.modelData.value)
+
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: DesktopTokens.px(12)
+                    spacing: DesktopTokens.px(1)
+
+                    Text {
+                        text: cell.modelData.label
+                        color: DesktopTokens.textFaint
+                        font.family: DesktopTokens.monoFont
+                        font.pixelSize: DesktopTokens.tinySize
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.8
+                    }
+                    Text {
+                        text: cell.modelData.value
+                        color: cell.modelData.tone === "bad" ? DesktopTokens.danger
+                            : cell.modelData.tone === "warn" ? DesktopTokens.ledAmber
+                            : DesktopTokens.textHigh
+                        font.family: DesktopTokens.displayFont
+                        font.pixelSize: DesktopTokens.px(15)
+                        font.weight: Font.Black
+                        elide: Text.ElideRight
+                        width: DesktopTokens.px(110)
+                        maximumLineCount: 1
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
     // 5. Actions
     // =========================================================================
     Row {
         id: actionRow
         anchors.horizontalCenter: plate.horizontalCenter
-        y: stepRow.y + stepRow.height + DesktopTokens.px(18)
+        y: statusGrid.y + statusGrid.height + DesktopTokens.px(18)
         spacing: DesktopTokens.px(10)
 
         DesktopButton {
@@ -538,6 +637,8 @@ Item {
         y: actionRow.y + actionRow.height + DesktopTokens.px(16)
         width: plate.width - DesktopTokens.px(48)
         height: DesktopTokens.px(52)
+        // The plate measures from the tip line, so a hidden card must not
+        // contribute any height.
         radius: DesktopTokens.px(14)
         visible: root.showDiagnostics
         opacity: visible ? 1 : 0
@@ -636,7 +737,8 @@ Item {
     Text {
         id: tipLine
         anchors.horizontalCenter: plate.horizontalCenter
-        y: plate.y + plate.height - DesktopTokens.px(28)
+        y: (root.showDiagnostics ? diagnostics.y + diagnostics.height
+                                 : actionRow.y + actionRow.height) + DesktopTokens.px(18)
         width: plate.width - DesktopTokens.px(64)
         horizontalAlignment: Text.AlignHCenter
         text: root.tips[root.tipIndex]

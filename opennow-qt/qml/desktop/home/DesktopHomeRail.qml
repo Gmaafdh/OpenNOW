@@ -60,6 +60,22 @@ Item {
     /// Accent used for the count chip and the focused card hint.
     property color railAccent: DesktopTokens.mint
 
+    /// Title of the game the hero is featuring. The matching card gets the
+    /// poster's `featured` echo, so a shelf shows which of its games is on the
+    /// stage above without the screen tracking indices per rail.
+    property string spotlightTitle: ""
+
+    /// Entrance style handed to every card: "slide" lifts them in, "fade"
+    /// crossfades, "none" skips it (used when a rail re-sorts while visible).
+    property string revealMode: "slide"
+
+    /// Show the thin scroll position track under the shelf.
+    property bool showScrollTrack: true
+
+    /// Animate programmatic shelf scrolling. Off under reduced motion and while
+    /// the player is dragging, so the shelf never fights an active gesture.
+    property bool animatedScroll: true
+
     signal sortRequested(string mode)
     signal collapseToggled(bool collapsed)
 
@@ -96,6 +112,23 @@ Item {
     readonly property bool isEmpty: gameCount === 0 && !loading
     readonly property bool canScrollLeft: shelfFlick.contentX > 4
     readonly property bool canScrollRight: shelfFlick.contentX + shelfFlick.width < shelfFlick.contentWidth - 4
+    /// 0..1 position of the shelf, and the fraction of it that is on screen.
+    /// Both stay sane when the shelf is shorter than the viewport.
+    readonly property real scrollSpan: Math.max(0, shelfFlick.contentWidth - shelfFlick.width)
+    readonly property real scrollProgress: scrollSpan <= 0 ? 0 : Math.min(1, Math.max(0, shelfFlick.contentX / scrollSpan))
+    readonly property real scrollThumb: scrollSpan <= 0 ? 1
+        : Math.min(1, Math.max(0.12, shelfFlick.width / Math.max(1, shelfFlick.contentWidth)))
+    /// Index of the spotlighted game inside the sorted model, -1 when absent.
+    readonly property int spotlightIndex: {
+        if (spotlightTitle === "")
+            return -1
+        const list = sortedGames
+        for (let i = 0; i < list.length; ++i) {
+            if (String(list[i].title || "") === spotlightTitle)
+                return i
+        }
+        return -1
+    }
 
     implicitHeight: headerHeight + (collapsed ? 0 : tileHeight + DesktopTokens.px(10))
     height: implicitHeight
@@ -131,6 +164,33 @@ Item {
     // -------------------------------------------------------------------------
     // Scroll management — explicit navigation only
     // -------------------------------------------------------------------------
+    readonly property bool scrollAnimates: animatedScroll && !motionOff && !shelfFlick.moving
+
+    /// Single place that writes contentX, mirroring the dock. Every caller can
+    /// pass a rough target; the clamp and the animation choice happen here.
+    function setScroll(value) {
+        const target = Math.max(0, Math.min(scrollSpan, value))
+        if (Math.abs(target - shelfFlick.contentX) < 0.5)
+            return
+        if (root.scrollAnimates) {
+            shelfAnimation.stop()
+            shelfAnimation.from = shelfFlick.contentX
+            shelfAnimation.to = target
+            shelfAnimation.start()
+        } else {
+            shelfAnimation.stop()
+            shelfFlick.contentX = target
+        }
+    }
+
+    NumberAnimation {
+        id: shelfAnimation
+        target: shelfFlick
+        property: "contentX"
+        duration: 260
+        easing.type: Easing.OutCubic
+    }
+
     function ensureIndexVisible(index) {
         if (index < 0 || index >= gameCount || shelfFlick.width <= 0)
             return
@@ -140,10 +200,25 @@ Item {
         const viewRight = viewLeft + shelfFlick.width
         const margin = DesktopTokens.px(6)
         if (cardLeft < viewLeft + margin)
-            shelfFlick.contentX = Math.max(0, cardLeft - margin)
+            root.setScroll(cardLeft - margin)
         else if (cardRight > viewRight - margin)
-            shelfFlick.contentX = Math.min(Math.max(0, shelfFlick.contentWidth - shelfFlick.width),
-                                           cardRight - shelfFlick.width + margin)
+            root.setScroll(cardRight - shelfFlick.width + margin)
+    }
+
+    function scrollToStart() {
+        root.setScroll(0)
+    }
+
+    function scrollToEnd() {
+        root.setScroll(scrollSpan)
+    }
+
+    /// Centre a card without changing the selection, used when the hero stage
+    /// spotlights a game that also lives on this shelf.
+    function centerOn(index) {
+        if (index < 0 || index >= gameCount || shelfFlick.width <= 0)
+            return
+        root.setScroll(index * root.cardPitch + root.tileWidth / 2 - shelfFlick.width / 2)
     }
 
     function nudge(direction) {
@@ -426,12 +501,8 @@ Item {
         Accessible.role: Accessible.Pane
         Accessible.name: qsTr("%1 cards").arg(root.railTitle)
 
-        Behavior on contentX {
-            NumberAnimation {
-                duration: root.motionOff ? 0 : 220
-                easing.type: Easing.OutCubic
-            }
-        }
+        // No Behaviour on contentX: setScroll() owns programmatic animation so
+        // that animatedScroll and reduced motion are honoured in one place.
 
         Row {
             id: cardRow
@@ -449,6 +520,8 @@ Item {
                     tileHeight: root.tileHeight
                     current: root.active && root.currentIndex === index
                     revealIndex: index
+                    revealMode: root.revealMode
+                    featured: root.spotlightIndex === index
                     badgeText: root.badgeFor(index)
                     onPointed: root.pointed(index)
                     onActivated: root.activated(modelData)
@@ -456,6 +529,41 @@ Item {
                     onFavoriteToggled: root.favoriteToggled(modelData)
                 }
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Scroll position track. Long shelves give no sense of how much is left, so
+    // the rail draws a proportional thumb under the cards. It is deliberately
+    // not interactive: dragging it would fight the card flickable.
+    // -------------------------------------------------------------------------
+    Item {
+        id: scrollTrack
+        x: 0
+        y: shelfFlick.y + shelfFlick.height + DesktopTokens.px(4)
+        width: parent.width
+        height: DesktopTokens.px(3)
+        visible: root.showScrollTrack && !root.collapsed && !root.isEmpty && root.scrollSpan > 0
+        opacity: visible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: root.motionOff ? 0 : 160 } }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: DesktopTokens.px(1.5)
+            color: Theme.lightMode ? "#14040610" : "#1AFFFFFF"
+        }
+        Rectangle {
+            id: scrollThumb
+            radius: DesktopTokens.px(1.5)
+            height: parent.height
+            width: Math.max(DesktopTokens.px(24), scrollTrack.width * root.scrollThumb)
+            x: (scrollTrack.width - width) * root.scrollProgress
+            color: root.canScrollLeft || root.canScrollRight ? root.railAccent : DesktopTokens.seam
+            Behavior on x {
+                NumberAnimation { duration: root.motionOff ? 0 : 180; easing.type: Easing.OutCubic }
+            }
+            Accessible.role: Accessible.Indicator
+            Accessible.name: qsTr("Shelf position %1%").arg(Math.round(root.scrollProgress * 100))
         }
     }
 

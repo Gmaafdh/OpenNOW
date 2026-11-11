@@ -109,6 +109,21 @@ Item {
     /// from the title so every game gets a stable, distinct background.
     property string fallbackSeed: ""
 
+    /// Pointer parallax multiplier. 0 freezes the stage under the cursor, which
+    /// is what the screen wants while a modal owns the pointer.
+    property real parallaxStrength: 1
+
+    /// Idle treatment: after `idleDelay` ms without pointer movement the art
+    /// dims by `idleDim` so a controller-only setup does not burn a static
+    /// bright image into the panel. Any movement wakes it immediately.
+    property bool idleDimming: true
+    property int idleDelay: 180000
+    property real idleDim: 0.14
+
+    /// Emitted whenever artState changes so owners can drive their own spinner
+    /// without reaching into the crossfade internals.
+    signal artStateUpdated(string value)
+
     // -------------------------------------------------------------------------
     // Derived state
     // -------------------------------------------------------------------------
@@ -155,6 +170,36 @@ Item {
     readonly property color fallbackBottom: Qt.hsla(((fallbackHue + 38) % 360) / 360, 0.48,
                                                     lightMode ? 0.70 : 0.14, 1)
     readonly property bool artMissing: displayUrl === ""
+
+    /// Single source of truth for "what is the backdrop showing right now".
+    /// "missing" — the game has no art at all, the generated stage is painted.
+    /// "loading" — a crossfade to new art is in flight.
+    /// "ready"   — art is on screen.
+    /// "idle"    — nothing requested yet (first paint, inactive).
+    readonly property string artState: artMissing ? "missing"
+        : pendingUrl !== "" ? "loading" : currentUrl !== "" ? "ready" : "idle"
+    /// True once the idle timer has elapsed; cleared by any pointer movement.
+    property bool idleArmed: false
+    /// Multiplies the idle dim so callers can fade it in one place.
+    readonly property real idleAmount: idleArmed && idleDimming && !motionOff ? idleDim : 0
+
+    onArtStateChanged: root.artStateUpdated(artState)
+
+    /// Restart the idle countdown. Called from the pointer handler and whenever
+    /// the featured game changes, both of which count as activity.
+    function wakeFromIdle() {
+        root.idleArmed = false
+        if (root.idleDelay > 0)
+            idleTimer.restart()
+    }
+
+    Timer {
+        id: idleTimer
+        interval: Math.max(1000, root.idleDelay)
+        repeat: false
+        running: root.active && root.idleDimming && !root.artMissing && root.idleDelay > 0
+        onTriggered: root.idleArmed = true
+    }
 
     Accessible.role: Accessible.Pane
     Accessible.name: qsTr("Background artwork")
@@ -210,7 +255,10 @@ Item {
         root.topIsA = !root.topIsA
     }
 
-    onDisplayUrlChanged: root.requestArt(displayUrl)
+    onDisplayUrlChanged: {
+        root.requestArt(displayUrl)
+        root.wakeFromIdle()
+    }
     onActiveChanged: if (active) root.requestArt(displayUrl)
     Component.onCompleted: {
         root.firstPaint = true
@@ -237,6 +285,7 @@ Item {
     }
 
     onMotionOffChanged: if (motionOff) driftPhase = 0
+    onHeroFocusedChanged: root.wakeFromIdle()
     onArtMissingChanged: if (artMissing) driftPhase = 0
 
     /// One crossfading art layer. The image is decoded small and scaled up,
@@ -374,12 +423,12 @@ Item {
         scale: 1
         transformOrigin: Item.Center
         transform: Translate {
-            x: (root.pointerX - 0.5) * -DesktopTokens.px(18)
+            x: (root.pointerX - 0.5) * -DesktopTokens.px(18) * root.parallaxStrength
                + root.artBias * DesktopTokens.px(24)
                + root.alignmentOffset
                + Math.sin(root.driftPhase * Math.PI * 2) * DesktopTokens.px(10)
             y: root.stageOffset
-               + (root.pointerY - 0.5) * -DesktopTokens.px(10)
+               + (root.pointerY - 0.5) * -DesktopTokens.px(10) * root.parallaxStrength
                + Math.cos(root.driftPhase * Math.PI * 2) * DesktopTokens.px(4)
         }
 
@@ -541,7 +590,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.lightMode ? "#F4F7FB" : "#03060C"
-        opacity: (1 - root.clampedExposure) * (root.lightMode ? 0.75 : 0.85)
+        opacity: Math.min(0.92, (1 - root.clampedExposure) * (root.lightMode ? 0.75 : 0.85) + root.idleAmount)
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: root.motionOff ? 0 : 240 } }
     }
@@ -692,13 +741,15 @@ Item {
         id: parallaxHover
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onPointChanged: {
-            if (root.motionOff || !root.active)
+            root.wakeFromIdle()
+            if (root.motionOff || !root.active || root.parallaxStrength <= 0)
                 return
             const local = point.position
             root.pointerX = Math.max(0, Math.min(1, local.x / Math.max(1, root.width)))
             root.pointerY = Math.max(0, Math.min(1, local.y / Math.max(1, root.height)))
         }
         onHoveredChanged: {
+            root.wakeFromIdle()
             if (!hovered) {
                 root.pointerX = 0.5
                 root.pointerY = 0.5
