@@ -18,11 +18,13 @@ once per layer, and the shell-facing API is unchanged.
 """
 
 from pathlib import Path
+import json
 import re
 import unittest
 
 
 QT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = QT_ROOT.parent
 
 HOME_COMPONENTS = [
     "DesktopHomeBackdrop",
@@ -338,6 +340,254 @@ class HomeEmptyStateContracts(unittest.TestCase):
         self.assertIn("visible: root.hasGames", screen)
         self.assertIn("visible: !root.hasGames", screen)
         self.assertIn("dim: root.hasGames ? 0 : 0.62", screen)
+
+
+class HomeScrollContracts(unittest.TestCase):
+    """One writer per shelf, so animation and reduced motion cannot disagree."""
+
+    def test_dock_and_rail_scroll_through_a_single_helper(self) -> None:
+        for name in ("DesktopHomeDock", "DesktopHomeRail"):
+            with self.subTest(component=name):
+                source = home(name)
+                self.assertIn("function setScroll(value) {", source)
+                self.assertIn("property bool animatedScroll: true", source)
+                self.assertIn("readonly property bool scrollAnimates:", source)
+                # A Behaviour on contentX would re-animate every step of the
+                # explicit animation and defeat animatedScroll: false.
+                self.assertNotIn("Behavior on contentX", source)
+
+    def test_every_programmatic_scroll_goes_through_the_helper(self) -> None:
+        dock = home("DesktopHomeDock")
+        rail = home("DesktopHomeRail")
+        self.assertIn("root.setScroll(", dock)
+        self.assertIn("root.setScroll(", rail)
+        for name, source, flick in (("dock", dock, "tileFlick"), ("rail", rail, "shelfFlick")):
+            with self.subTest(shelf=name):
+                body = function_body(source, "setScroll")
+                self.assertIn("%s.contentX = target" % flick, body)
+                for fn in ("ensureTileVisible", "ensureIndexVisible"):
+                    if ("function %s(" % fn) in source:
+                        self.assertNotIn("%s.contentX = " % flick, function_body(source, fn))
+
+    def test_rail_paging_helpers_are_present(self) -> None:
+        rail = home("DesktopHomeRail")
+        for fn in ("scrollToStart", "scrollToEnd", "centerOn", "nudge"):
+            self.assertIn("function %s(" % fn, rail)
+        dock = home("DesktopHomeDock")
+        for fn in ("scrollToStart", "scrollToEnd", "pageForward", "pageBack", "centerOn"):
+            self.assertIn("function %s(" % fn, dock)
+        self.assertIn("readonly property int pageStep:", dock)
+
+
+class HomeRailPresentationContracts(unittest.TestCase):
+    def test_rail_sorts_locally_without_touching_the_page_model(self) -> None:
+        rail = home("DesktopHomeRail")
+        self.assertIn('property string sortMode: "default"', rail)
+        self.assertIn('readonly property var sortModes: ["default", "recent", "hours", "title"]', rail)
+        self.assertIn("function cycleSort() {", rail)
+        self.assertIn("readonly property var sortedGames:", rail)
+        # The shelf renders the sorted copy; the Repeater must not read `games`.
+        self.assertIn("model: root.sortedGames", rail)
+        self.assertNotIn("model: root.games", rail)
+
+    def test_rail_can_collapse_but_keeps_its_header(self) -> None:
+        rail = home("DesktopHomeRail")
+        self.assertIn("property bool collapsed: false", rail)
+        self.assertIn("function toggleCollapsed() {", rail)
+        self.assertIn("implicitHeight: headerHeight + (collapsed ? 0 : tileHeight + DesktopTokens.px(10))", rail)
+        self.assertIn("visible: !root.isEmpty && !root.collapsed", rail)
+
+    def test_rail_echoes_the_hero_spotlight_onto_one_card(self) -> None:
+        rail = home("DesktopHomeRail")
+        self.assertIn("property string spotlightTitle:", rail)
+        self.assertIn("readonly property int spotlightIndex:", rail)
+        self.assertIn("featured: root.spotlightIndex === index", rail)
+        screen = home("DesktopHomeScreen")
+        self.assertEqual(screen.count("spotlightTitle: root.backdropGame ? String(root.backdropGame.title"), 4)
+        poster = home("DesktopHomePoster")
+        self.assertIn("property bool featured: false", poster)
+
+    def test_rail_reports_its_scroll_position(self) -> None:
+        rail = home("DesktopHomeRail")
+        self.assertIn("readonly property real scrollSpan:", rail)
+        self.assertIn("readonly property real scrollProgress:", rail)
+        self.assertIn("readonly property real scrollThumb:", rail)
+        self.assertIn("id: scrollTrack", rail)
+
+
+class HomeBackdropStateContracts(unittest.TestCase):
+    def test_backdrop_publishes_one_art_state(self) -> None:
+        backdrop = home("DesktopHomeBackdrop")
+        self.assertIn("readonly property string artState:", backdrop)
+        for state in ('"missing"', '"loading"', '"ready"', '"idle"'):
+            self.assertIn(state, backdrop)
+        self.assertIn("signal artStateUpdated(string value)", backdrop)
+        self.assertIn("onArtStateChanged: root.artStateUpdated(artState)", backdrop)
+
+    def test_backdrop_parallax_and_idle_dim_are_owner_controllable(self) -> None:
+        backdrop = home("DesktopHomeBackdrop")
+        self.assertIn("property real parallaxStrength: 1", backdrop)
+        self.assertIn("property bool idleDimming: true", backdrop)
+        self.assertIn("property int idleDelay: 180000", backdrop)
+        self.assertIn("function wakeFromIdle() {", backdrop)
+        self.assertIn("id: idleTimer", backdrop)
+        self.assertIn("* root.parallaxStrength", backdrop)
+        self.assertIn("+ root.idleAmount", backdrop)
+        screen = home("DesktopHomeScreen")
+        self.assertIn("parallaxStrength: root.overlayOpen ? 0 : 1", screen)
+        self.assertIn("idleDimming: !root.overlayOpen", screen)
+
+    def test_screen_drives_the_new_backdrop_api(self) -> None:
+        screen = home("DesktopHomeScreen")
+        for binding in (
+            "exposure: root.overlayOpen",
+            "heroFocused: root.heroFocused",
+            "warmGames: root.warmGames",
+            "seamPosition: root.heroSeam",
+            "fallbackSeed: root.backdropSeed",
+            "artDescription: root.backdropDescription",
+            "vignette: Theme.lightMode",
+        ):
+            with self.subTest(binding=binding):
+                self.assertIn(binding, screen)
+        # The warm cache must include whatever the pointer is inspecting.
+        self.assertIn("list.unshift(hoveredDockGame)", screen)
+
+
+class HomeDockHoverContracts(unittest.TestCase):
+    def test_dock_publishes_hover_as_a_signal_not_a_binding(self) -> None:
+        dock = home("DesktopHomeDock")
+        self.assertIn("signal gameHovered(var game)", dock)
+        self.assertIn("function publishHover(index) {", dock)
+        screen = home("DesktopHomeScreen")
+        self.assertIn("onGameHovered: game => root.hoveredDockGame = game", screen)
+        # The dock writes hoveredGame itself; an owner binding would fight it.
+        self.assertNotIn("hoveredGame: dock.hoveredGame", screen)
+
+    def test_dock_density_reaches_the_screen(self) -> None:
+        dock = home("DesktopHomeDock")
+        self.assertIn('property string density: "comfortable"', dock)
+        self.assertIn('readonly property int tilePad: density === "compact"', dock)
+        screen = home("DesktopHomeScreen")
+        self.assertIn("density: root.dockDensity", screen)
+        self.assertIn('readonly property string dockDensity: height < DesktopTokens.px(720) ? "compact" : "comfortable"', screen)
+
+
+class HomePressFeedbackContracts(unittest.TestCase):
+    def test_press_morph_is_declared_exactly_once_per_component(self) -> None:
+        # A duplicate declaration turns one of them into a dead binding.
+        self.assertEqual(home("DesktopHomePoster").count("property real pressMorph"), 1)
+        self.assertEqual(home("DesktopHomeDockTile").count("property real pressMorph"), 1)
+
+    def test_press_releases_fire_a_single_ripple(self) -> None:
+        for name in ("DesktopHomePoster", "DesktopHomeDockTile"):
+            with self.subTest(component=name):
+                source = home(name)
+                self.assertIn("id: rippleAnimation", source)
+                self.assertIn("rippleAnimation.restart()", source)
+                self.assertIn("if (!pressed && !root.motionOff)", source)
+
+
+class HomeEmptyStateLayoutContracts(unittest.TestCase):
+    def test_plate_measures_its_content_instead_of_overlapping_it(self) -> None:
+        empty = home("DesktopHomeEmptyState")
+        self.assertIn("readonly property real contentTop: DesktopTokens.px(24)", empty)
+        self.assertIn("readonly property real contentBottom: tipLine.y + tipLine.height", empty)
+        self.assertIn("height: root.contentBottom - root.contentTop + DesktopTokens.px(24)", empty)
+        self.assertIn("implicitHeight: contentTop + plate.height + DesktopTokens.px(24)", empty)
+        # The plate is pinned to a constant top, which is what keeps the chain
+        # acyclic; centring it would feed plate.height back into every child y.
+        self.assertIn("id: plate\n        anchors.horizontalCenter: parent.horizontalCenter\n        y: root.contentTop", empty)
+        self.assertNotIn("y: plate.y + plate.height - DesktopTokens.px(28)", empty)
+
+    def test_empty_state_reports_live_facts_in_every_state(self) -> None:
+        empty = home("DesktopHomeEmptyState")
+        self.assertIn("readonly property var statusCells:", empty)
+        self.assertIn("id: statusGrid", empty)
+        self.assertIn("model: root.statusCells", empty)
+        self.assertIn("y: stepRow.y + stepRow.height + DesktopTokens.px(16)", empty)
+        self.assertIn("y: statusGrid.y + statusGrid.height + DesktopTokens.px(18)", empty)
+        for label in ('qsTr("ACCOUNT")', 'qsTr("LIBRARY")', 'qsTr("HIDDEN")', 'qsTr("STORE")'):
+            self.assertIn(label, empty)
+
+    def test_failed_sync_retries_on_a_countdown_and_can_be_copied(self) -> None:
+        empty = home("DesktopHomeEmptyState")
+        self.assertIn("property int retryCooldown: 15", empty)
+        self.assertIn("property int retryLimit: 3", empty)
+        self.assertIn("property int retrySeconds: 0", empty)
+        self.assertIn("readonly property bool retryArmed:", empty)
+        self.assertIn("function requestRetry() {", empty)
+        self.assertIn("function copyDiagnostics() {", empty)
+        self.assertIn("AppController.writeClipboardText(diagnosticsText)", empty)
+        self.assertIn("id: retryTimer", empty)
+        # The button and the countdown must share one code path.
+        self.assertIn("onClicked: root.requestRetry()", empty)
+        self.assertNotIn("onClicked: root.retryRequested()", empty)
+
+    def test_all_hidden_library_is_explained_not_reported_as_empty(self) -> None:
+        empty = home("DesktopHomeEmptyState")
+        self.assertIn("readonly property int hiddenCount:", empty)
+        self.assertIn("readonly property bool allHidden:", empty)
+        self.assertIn("ShellStore.isHidden(game)", empty)
+        self.assertIn('qsTr("Everything is hidden")', empty)
+        screen = home("DesktopHomeScreen")
+        self.assertIn('onRetryRequested: ShellStore.refreshCatalog("")', screen)
+
+
+class HomeHeaderContextContracts(unittest.TestCase):
+    def test_header_takes_density_sync_stamp_and_live_session(self) -> None:
+        header = home("DesktopHomeHeader")
+        self.assertIn('property string density: "comfortable"', header)
+        self.assertIn('property string lastSyncedLabel: ""', header)
+        self.assertIn('property string nowPlayingTitle: ""', header)
+        self.assertIn("readonly property bool compact: density === \"compact\"", header)
+        self.assertIn("implicitHeight: DesktopTokens.px(compact ? 62 : 78)", header)
+        screen = home("DesktopHomeScreen")
+        self.assertIn("density: root.dockDensity", screen)
+        self.assertIn("lastSyncedLabel: root.lastSyncedAgo", screen)
+        self.assertIn("nowPlayingTitle: root.sessionTitle", screen)
+
+    def test_header_does_not_double_prefix_the_sync_stamp(self) -> None:
+        # lastSyncLabel already reads "Synced 3 min ago"; the header adds its
+        # own prefix, so it must be fed the bare relative stamp.
+        screen = home("DesktopHomeScreen")
+        self.assertIn("readonly property string lastSyncedAgo:", screen)
+        self.assertNotIn("lastSyncedLabel: root.lastSyncLabel", screen)
+
+
+class HomeTranslationContracts(unittest.TestCase):
+    """npm run locales:check gates CI; pin the same rule here."""
+
+    def test_every_home_string_is_registered_in_the_source_locale(self) -> None:
+        en = json.loads((REPO_ROOT / "locales" / "en.json").read_text(encoding="utf-8"))
+
+        known = set()
+
+        def collect(value):
+            if isinstance(value, str):
+                known.add(value)
+            elif isinstance(value, dict):
+                for child in value.values():
+                    collect(child)
+
+        collect(en)
+        pattern = re.compile(r'\b(?:qsTr|I18n\.source)\(\s*("(?:\\.|[^"\\])*")')
+        for name in HOME_COMPONENTS:
+            source = home(name)
+            texts = {json.loads(match.group(1)) for match in pattern.finditer(source)}
+            with self.subTest(component=name):
+                # A pattern that matched nothing would make this test vacuous.
+                self.assertTrue(texts, "no qsTr strings found in %s" % name)
+            missing = sorted(text for text in texts if text and text not in known)
+            with self.subTest(component=name):
+                self.assertEqual(missing, [], "unregistered qsTr strings in %s" % name)
+
+    def test_home_strings_live_in_a_dedicated_namespace(self) -> None:
+        en = json.loads((REPO_ROOT / "locales" / "en.json").read_text(encoding="utf-8"))
+        self.assertIn("desktopHome", en)
+        keys = list(en["desktopHome"])
+        self.assertTrue(all(re.fullmatch(r"source\d{3}", key) for key in keys), keys[:5])
+        self.assertEqual(keys, sorted(keys))
 
 
 if __name__ == "__main__":
