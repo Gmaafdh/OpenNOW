@@ -532,7 +532,6 @@ FocusScope {
         seamPosition: root.heroSeam
         warmGames: root.warmGames
         idleDrift: !root.overlayOpen
-        grainEnabled: !root.overlayOpen
         // An overlay owns the pointer, so the stage stops following the cursor
         // and the idle dim takes over instead of competing with the modal.
         parallaxStrength: root.overlayOpen ? 0 : 1

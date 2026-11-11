@@ -98,7 +98,7 @@ Item {
     Accessible.name: qsTr("Home header")
     Accessible.description: sessionLive
         ? qsTr("%1 games, %2 pinned, %3. Now streaming %4.")
-            .arg(totalGames).arg(favoriteCount).arg(streamLabel, nowPlayingTitle)
+            .arg(totalGames).arg(favoriteCount).arg(streamLabel).arg(nowPlayingTitle)
         : qsTr("%1 games, %2 pinned, %3.").arg(totalGames).arg(favoriteCount).arg(streamLabel)
 
     Behavior on implicitHeight {

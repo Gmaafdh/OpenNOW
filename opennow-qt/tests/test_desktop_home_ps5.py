@@ -55,6 +55,86 @@ def function_body(source: str, name: str) -> str:
     return match.group(0)
 
 
+def multi_arg_calls(source: str):
+    """Yield (line, snippet) for every .arg(...) with a top-level comma.
+
+    QML's String.arg takes a single value; passing two throws
+    "String.arg(): Invalid arguments" at runtime, which the Windows smoke test
+    treats as a page failure. A regex cannot tell a two-argument call from a
+    one-argument call whose value contains a comma, so this walks the parens.
+    """
+    index = 0
+    while True:
+        found = source.find(".arg(", index)
+        if found < 0:
+            return
+        cursor = found + len(".arg(")
+        depth = 1
+        quote = None
+        while cursor < len(source) and depth:
+            char = source[cursor]
+            if quote:
+                if char == "\\":
+                    cursor += 2
+                    continue
+                if char == quote:
+                    quote = None
+            elif char in "\"'":
+                quote = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif char == "," and depth == 1:
+                yield (source[:found].count("\n") + 1, source[found:cursor + 1])
+                break
+            cursor += 1
+        index = found + len(".arg(")
+
+
+def qobject_components() -> set:
+    """Component names whose root object is a QtObject.
+
+    Those cannot be Repeater or ListView delegates: the view requires an Item and
+    warns "Delegate must be of Item type" at runtime, which the Windows smoke
+    test treats as a failure.
+    """
+    names = set()
+    for path in (QT_ROOT / "qml").rglob("*.qml"):
+        text = path.read_text(encoding="utf-8")
+        body = text.split("\n", 1)[1] if text.startswith("pragma") else text
+        stripped = [line for line in body.splitlines()
+                    if line.strip() and not line.strip().startswith(("//", "/*", "*", "import"))]
+        if stripped and stripped[0].strip().startswith("QtObject {"):
+            names.add(path.stem)
+    return names
+
+
+def repeater_delegates(source: str):
+    """Yield (line, type) for every component instantiated inside a Repeater."""
+    qtobjects = qobject_components()
+    for match in re.finditer(r"\bRepeater\s*{", source):
+        cursor = match.end()
+        depth = 1
+        while cursor < len(source) and depth:
+            char = source[cursor]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            cursor += 1
+        block = source[match.end():cursor]
+        offset = source[:match.end()].count("\n") + 1
+        for nested in re.finditer(r"(?m)^\s*([A-Z]\w*)\s*{", block):
+            name = nested.group(1)
+            if name in ("Repeater", "Component"):
+                continue
+            if name in qtobjects:
+                yield (offset + block[:nested.start()].count("\n"), name)
+
+
 class HomeRegistrationContracts(unittest.TestCase):
     def test_every_home_component_is_registered_with_the_qml_module(self) -> None:
         module = (QT_ROOT / "cmake" / "QmlModule.cmake").read_text(encoding="utf-8")
@@ -437,6 +517,26 @@ class HomeBackdropStateContracts(unittest.TestCase):
         self.assertIn("parallaxStrength: root.overlayOpen ? 0 : 1", screen)
         self.assertIn("idleDimming: !root.overlayOpen", screen)
 
+    def test_no_qtobject_is_used_as_a_repeater_delegate(self) -> None:
+        # Regression: the backdrop warmed its art cache with a Repeater over
+        # ArtworkSource, which is a QtObject. The model was empty in CI, so the
+        # warning only appeared once a real library loaded.
+        offenders = []
+        for name in HOME_COMPONENTS:
+            source = home(name)
+            for line, delegate in repeater_delegates(source):
+                offenders.append("%s:%d %s" % (name, line, delegate))
+        self.assertEqual(offenders, [])
+
+    def test_backdrop_warms_a_bounded_art_cache(self) -> None:
+        backdrop = home("DesktopHomeBackdrop")
+        self.assertIn("readonly property var warmUrls:", backdrop)
+        self.assertIn("function warmUrl(index) {", backdrop)
+        self.assertEqual(backdrop.count("ArtworkSource {"), 3)
+        self.assertIn("list.length < 3", backdrop)
+        screen = home("DesktopHomeScreen")
+        self.assertIn("warmGames: root.warmGames", screen)
+
     def test_screen_drives_the_new_backdrop_api(self) -> None:
         screen = home("DesktopHomeScreen")
         for binding in (
@@ -581,6 +681,15 @@ class HomeTranslationContracts(unittest.TestCase):
             missing = sorted(text for text in texts if text and text not in known)
             with self.subTest(component=name):
                 self.assertEqual(missing, [], "unregistered qsTr strings in %s" % name)
+
+    def test_no_string_arg_call_passes_more_than_one_value(self) -> None:
+        # Regression: three of these shipped in the first cut of the redesign and
+        # only surfaced when the Windows smoke test rendered the page.
+        for name in HOME_COMPONENTS:
+            offenders = ["%s:%d %s" % (name, line, snippet)
+                         for line, snippet in multi_arg_calls(home(name))]
+            with self.subTest(component=name):
+                self.assertEqual(offenders, [])
 
     def test_home_strings_live_in_a_dedicated_namespace(self) -> None:
         en = json.loads((REPO_ROOT / "locales" / "en.json").read_text(encoding="utf-8"))

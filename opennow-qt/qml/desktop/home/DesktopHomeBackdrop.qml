@@ -101,10 +101,6 @@ Item {
     /// art up when the dock grows or down when a rail is focused.
     property real stageOffset: 0
 
-    /// Film grain. Off under reduced motion and on software rendering, where an
-    /// extra tiled layer is not worth the fill rate.
-    property bool grainEnabled: true
-
     /// Fallback hue (0..360) used when a game has no artwork at all. Derived
     /// from the title so every game gets a stable, distinct background.
     property string fallbackSeed: ""
@@ -344,14 +340,37 @@ Item {
     // Art cache warm-up. ArtworkSource is the same loader RoundedArtwork uses,
     // so warming it here means the dock's next selection is already decoded.
     // -------------------------------------------------------------------------
-    Repeater {
-        model: (root.warmGames || []).slice(0, 3)
-        ArtworkSource {
-            required property var modelData
-            sourceUrl: DesktopTokens.artworkUrl(modelData, true)
-            active: root.active && !root.motionOff
-            requestActive: root.visible
+    /// Up to three upcoming hero URLs, resolved once here. ArtworkSource is a
+    /// QtObject, so it cannot be a Repeater delegate — the slots are explicit.
+    readonly property var warmUrls: {
+        const list = []
+        const upcoming = warmGames || []
+        for (let index = 0; index < upcoming.length && list.length < 3; ++index) {
+            const url = DesktopTokens.artworkUrl(upcoming[index], true)
+            if (url !== "")
+                list.push(url)
         }
+        return list
+    }
+
+    function warmUrl(index) {
+        return index < warmUrls.length ? String(warmUrls[index]) : ""
+    }
+
+    ArtworkSource {
+        sourceUrl: root.warmUrl(0)
+        active: root.active && !root.motionOff && root.warmUrl(0) !== ""
+        requestActive: root.visible
+    }
+    ArtworkSource {
+        sourceUrl: root.warmUrl(1)
+        active: root.active && !root.motionOff && root.warmUrl(1) !== ""
+        requestActive: root.visible
+    }
+    ArtworkSource {
+        sourceUrl: root.warmUrl(2)
+        active: root.active && !root.motionOff && root.warmUrl(2) !== ""
+        requestActive: root.visible
     }
 
     // =========================================================================
@@ -680,59 +699,10 @@ Item {
         }
     }
 
-    // Film grain. One small canvas is generated once and reused as a tile; the
-    // loader keeps it out of the tree entirely when grain is disabled.
-    Loader {
-        id: grainLoader
-        anchors.fill: parent
-        active: root.grainEnabled && !root.motionOff && !root.artMissing
-        sourceComponent: Item {
-            id: grainHost
-
-            Canvas {
-                id: grainCanvas
-                width: 96
-                height: 96
-                visible: false
-                renderStrategy: Canvas.Image
-                onPaint: {
-                    const ctx = getContext("2d")
-                    ctx.clearRect(0, 0, width, height)
-                    const image = ctx.createImageData(width, height)
-                    for (let pixel = 0; pixel < image.data.length; pixel += 4) {
-                        const value = 120 + Math.floor(Math.random() * 40)
-                        image.data[pixel] = value
-                        image.data[pixel + 1] = value
-                        image.data[pixel + 2] = value
-                        image.data[pixel + 3] = 14
-                    }
-                    ctx.putImageData(image, 0, 0)
-                }
-                Component.onCompleted: requestPaint()
-            }
-
-            Image {
-                anchors.fill: parent
-                source: grainCanvas.visible ? "" : grainCanvas.toDataURL("image/png")
-                fillMode: Image.Tile
-                opacity: root.lightMode ? 0.35 : 0.5
-                cache: true
-                asynchronous: false
-            }
-        }
-    }
-
-    // Live status for assistive tech: what is painted, and whether it is loading.
-    Item {
-        Accessible.role: Accessible.StaticText
-        Accessible.name: root.artDescription !== "" ? root.artDescription
-            : root.artMissing ? qsTr("No artwork for this game")
-            : root.pendingUrl !== "" ? qsTr("Loading artwork") : qsTr("Featured artwork loaded")
-        Accessible.ignored: false
-        width: 1
-        height: 1
-        opacity: 0
-    }
+    // No film-grain layer. A Canvas only paints while it is part of the visible
+    // scene graph, so an offscreen noise tile would have to stay on screen to
+    // produce anything at all; the vignette, scrims and coarse halo already
+    // carry the texture this backdrop needs.
 
     // =========================================================================
     // 5. Input

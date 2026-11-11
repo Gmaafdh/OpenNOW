@@ -521,7 +521,7 @@ Item {
                     : cell.modelData.tone === "warn" ? "#44F5B942"
                     : Theme.lightMode ? "#14040610" : "#1AFFFFFF"
                 Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("%1: %2").arg(cell.modelData.label, cell.modelData.value)
+                Accessible.name: qsTr("%1: %2").arg(cell.modelData.label).arg(cell.modelData.value)
 
                 Column {
                     anchors.verticalCenter: parent.verticalCenter

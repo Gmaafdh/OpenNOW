@@ -398,7 +398,7 @@ Item {
             HoverHandler { id: sortHover; cursorShape: Qt.PointingHandCursor }
             TapHandler { onTapped: root.cycleSort() }
             Accessible.role: Accessible.Button
-            Accessible.name: qsTr("Sort %1 by %2").arg(root.railTitle, root.sortLabel)
+            Accessible.name: qsTr("Sort %1 by %2").arg(root.railTitle).arg(root.sortLabel)
             Accessible.onPressAction: root.cycleSort()
         }
 
