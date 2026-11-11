@@ -315,13 +315,7 @@ qt_add_qml_module(opennow-qt
         qml/desktop/components/DesktopPosterOverlay.qml
         qml/desktop/components/DesktopTokens.qml
         qml/desktop/friends/DesktopFriendsScreen.qml
-        qml/desktop/home/DesktopHomeBackdrop.qml
-        qml/desktop/home/DesktopHomeDock.qml
-        qml/desktop/home/DesktopHomeDockTile.qml
-        qml/desktop/home/DesktopHomeEmptyState.qml
-        qml/desktop/home/DesktopHomeHeader.qml
         qml/desktop/home/DesktopHomePoster.qml
-        qml/desktop/home/DesktopHomeRail.qml
         qml/desktop/home/DesktopHomeScreen.qml
         qml/desktop/home/DesktopHomeShowcase.qml
         qml/desktop/library/DesktopLibraryScreen.qml

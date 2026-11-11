@@ -310,10 +310,9 @@ FocusScope {
         id: homeComponent
         DesktopHomeScreen {
             active: root.route === "home"
-            onRouteRequested: route => root.openRoute(route)
+            onRouteRequested: route => AppController.navigate(route)
             onGameRequested: game => ShellStore.openGame(game)
             onPlayRequested: game => { ShellStore.selectedGame = game; ShellStore.launchSelectedGame(false) }
-            onSearchRequested: root.commandOpen = true
         }
     }
     Component {
