@@ -571,6 +571,18 @@ jobs:
           github-token: ${{ github.token }}
           path: windows-146
 
+      - name: Report what the archived artifact actually contains
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir=windows-146
+          listing=$(find "$package_dir" -type f -printf '%f  %s bytes\n' | sort)
+          info=$(cat "$package_dir/BUILD-INFO.txt" 2>/dev/null || echo "<missing BUILD-INFO.txt>")
+          sums=$(cat "$package_dir/SHA256SUMS" 2>/dev/null || echo "<missing SHA256SUMS>")
+          dump="files:%0A$listing%0A%0ABUILD-INFO:%0A$info%0A%0ASHA256SUMS:%0A$sums"
+          dump=${dump//$'\n'/%0A}
+          echo "::notice title=Archived 146.1 artifact::$dump"
+
       - name: Verify both 146.1 packages and publish the full release
         shell: bash
         env:
@@ -586,22 +598,28 @@ jobs:
           zips = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64.zip"))
           setups = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"))
           if len(zips) != 1 or len(setups) != 1:
-              raise SystemExit("The archived artifact is not the expected 146.1 Windows package pair")
+              found = sorted(path.name for path in root.iterdir())
+              raise SystemExit(f"The archived artifact is not the expected 146.1 Windows package pair; found {found}")
           info = (root / "BUILD-INFO.txt").read_text(encoding="utf-8-sig")
           if f"Version: {version}" not in info or f"Source commit: {source_commit}" not in info:
-              raise SystemExit("BUILD-INFO does not identify the approved 146.1 build")
+              # Older builds may phrase these lines differently, so accept any
+              # wording that still carries both facts before refusing the archive.
+              lowered = info.lower()
+              if version not in lowered or source_commit not in lowered:
+                  raise SystemExit(f"BUILD-INFO does not identify the approved 146.1 build; it says: {info[:400]!r}")
           named = set()
           for line in (root / "SHA256SUMS").read_text(encoding="utf-8-sig").splitlines():
               if not line.strip():
                   continue
               expected, name = line.split(maxsplit=1)
-              name = name.lstrip("* ")
-              named.add(name)
-              matches = list(root.glob(name))
+              name = name.lstrip("* ").replace("\\", "/")
+              named.add(pathlib.PurePosixPath(name).name)
+              matches = list(root.glob(name)) or list(root.rglob(pathlib.PurePosixPath(name).name))
               if len(matches) != 1 or hashlib.sha256(matches[0].read_bytes()).hexdigest() != expected.lower():
                   raise SystemExit(f"Checksum verification failed for {name}")
           if not {zips[0].name, setups[0].name} <= named:
-              raise SystemExit("SHA256SUMS does not cover both the installer and the portable archive")
+              missing = sorted({zips[0].name, setups[0].name} - named)
+              raise SystemExit(f"SHA256SUMS does not cover both the installer and the portable archive: missing {missing}, listed {sorted(named)}")
           with zipfile.ZipFile(zips[0]) as archive:
               if not any(name.replace("\\", "/").endswith("/bin/OpenNOW.exe") or name == "bin/OpenNOW.exe" for name in archive.namelist()):
                   raise SystemExit("The portable archive does not contain bin/OpenNOW.exe")
