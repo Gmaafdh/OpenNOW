@@ -190,11 +190,11 @@ mod tests {
         ]);
         assert_eq!(messages.len(), 1);
         for message in messages {
-            // An undecodable native layout still publishes a visible custom
-            // cursor, but never a predefined shape and never the hidden
-            // cursor that would lock the pointer for the whole session.
-            assert_eq!(message.normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
-            assert_eq!(message.visible, Some(true));
+            // The record carries no bitmap length, so it only references an
+            // image the host published earlier: no shape and no mode is
+            // synthesized, and the cursor already on screen survives.
+            assert_eq!(message.normalized, None);
+            assert_eq!(message.visible, None);
             capture.notify(now);
         }
         assert!(capture.update(now, |command| {

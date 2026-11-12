@@ -7,6 +7,7 @@ use str0m::channel::{ChannelConfig, ChannelId, Reliability};
 #[cfg(test)]
 use crate::nvst_budget::TEXT_BATCH_GUARD;
 use crate::nvst_budget::{WriteClass, admit_write};
+use crate::nvst_cursor_image::NativeBitmapCursor;
 
 pub(crate) const CONTROL_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(3);
 pub(crate) const INPUT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -508,17 +509,19 @@ pub(crate) fn server_cursor_messages(bytes: &[u8]) -> Vec<NvstServerCursorMessag
                 });
             }
             COMMAND_BITMAP_CURSOR if payload.len() >= 8 => {
-                // Bitmap cursor payloads have a distinct native pixel layout, so
-                // they are published through normalized_bitmap_cursor instead of
-                // being mistaken for input/control commands.
+                // A bitmap record carries the game's own cursor art as a Windows
+                // BMP. It is normalized into the shape the shell and the media
+                // host already decode instead of being mistaken for an input or
+                // control command.
+                let normalized = normalized_bitmap_cursor(payload);
                 updates.push(NvstServerCursorMessage {
                     command: code,
                     offset,
                     raw: bytes[offset..payload_end].to_vec(),
                     cursor_id: None,
                     position: None,
-                    visible: Some(true),
-                    normalized: Some(normalized_bitmap_cursor(payload)),
+                    visible: normalized.is_some().then_some(true),
+                    normalized,
                 });
             }
             _ => {}
@@ -528,35 +531,49 @@ pub(crate) fn server_cursor_messages(bytes: &[u8]) -> Vec<NvstServerCursorMessag
     updates
 }
 
-/// Publishes one bitmap cursor notification as a visible custom cursor.
+/// The cursor published when a host sends art this build cannot decode: custom
+/// type, id 0, no hotspot and no image. Only a predefined id 0 means hidden, so
+/// this keeps a plain arrow on screen instead of nothing at all.
+const ARROW_CURSOR: [u8; 7] = [1, 0, 0, 0, 0, 0, 0];
+
+/// Normalizes one bitmap cursor record into the platform's cursor wire shape.
 ///
-/// A payload that already matches the platform wire shape is passed through, so
-/// the game's own cursor image is rendered with its hotspot. Anything else is a
-/// native pixel layout this client cannot decode yet, and it still has to
-/// publish a visible cursor: dropping the record left the shell believing the
-/// video carried the pointer, so the player saw no cursor at all in-game.
-fn normalized_bitmap_cursor(payload: &[u8]) -> Vec<u8> {
+/// A payload already in that shape is passed through. A native record is
+/// decoded, and one that only references an image the host published earlier
+/// publishes nothing so the cursor already on screen survives. Art this build
+/// cannot decode still publishes a visible cursor: dropping the record left the
+/// shell believing the video carried the pointer, so the player saw no cursor at
+/// all in-game.
+fn normalized_bitmap_cursor(payload: &[u8]) -> Option<Vec<u8>> {
     if payload.first() == Some(&1) && crate::nvst_cursor::valid_cursor_channel_message(payload) {
-        return payload.to_vec();
+        return Some(payload.to_vec());
     }
-    // The raw bytes still go to the diagnostics log, so a report shows exactly
-    // what the host published and what this build cannot draw yet.
+    match crate::nvst_cursor_image::native_bitmap_cursor(payload) {
+        NativeBitmapCursor::Image(normalized) => Some(normalized),
+        NativeBitmapCursor::Reference => None,
+        NativeBitmapCursor::Undecodable(reason) => {
+            log_undecodable_bitmap(payload, &reason);
+            Some(ARROW_CURSOR.to_vec())
+        }
+    }
+}
+
+/// Records why a cursor could not be drawn, with enough of the layout that a
+/// diagnostic export shows what this build is missing.
+fn log_undecodable_bitmap(payload: &[u8], reason: &str) {
     let layout = payload
         .iter()
+        .take(64)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     opennow_streamer_protocol::log::log_line(
         "INFO",
         "nvst-cursor",
         &format!(
-            "bitmap cursor published an undecoded layout bytes={} hex={}; drawing the arrow",
-            payload.len(),
-            layout
+            "bitmap cursor kept its arrow: {reason} bytes={} hex={layout}",
+            payload.len()
         ),
     );
-    // type 1 (custom), id 0, hotspot 0/0, empty MIME, zero-length image. Custom
-    // id 0 is a visible cursor; only predefined id 0 means hidden.
-    vec![1, 0, 0, 0, 0, 0, 0]
 }
 
 pub(crate) fn native_input_types(packet: &[u8]) -> Result<Vec<u32>, NvstInputCodecError> {
@@ -1478,6 +1495,19 @@ fn read_u64_le(bytes: &[u8], offset: usize) -> Option<u64> {
 mod tests {
     use super::*;
 
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+
+    /// Reads a normalized cursor payload back the way the media host does.
+    fn decoded_cursor_image(normalized: &[u8]) -> image::DynamicImage {
+        let length = u16::from_le_bytes([normalized[5], normalized[6]]) as usize;
+        let encoded = &normalized[7..7 + length];
+        assert_eq!(7 + length, normalized.len(), "no trailing fields");
+        let png = BASE64.decode(encoded).expect("base64 PNG");
+        let decoded = image::load_from_memory(&png);
+        decoded.expect("a PNG the shell and the media host decode")
+    }
+
     #[test]
     fn unicode_text_uses_verified_type_23_bytes_and_timestamp_envelope() {
         let text = opennow_streamer_protocol::text_input::TextInputSlot::default()
@@ -1863,15 +1893,41 @@ mod tests {
     }
 
     #[test]
-    fn bitmap_cursor_notifications_publish_a_visible_custom_cursor() {
-        let native = control_command(COMMAND_BITMAP_CURSOR, &hex("2000200000000000"));
-        let cursors = server_cursor_messages(&native);
+    fn bitmap_cursor_records_publish_the_hosts_cursor_image() {
+        // A 1x1 Windows BMP: bottom-up BGRA pixels after a 54 byte header.
+        let mut bitmap = vec![0_u8; 58];
+        bitmap[..2].copy_from_slice(b"BM");
+        bitmap[10..14].copy_from_slice(&54_u32.to_le_bytes());
+        bitmap[14..18].copy_from_slice(&40_u32.to_le_bytes());
+        bitmap[18..22].copy_from_slice(&1_i32.to_le_bytes());
+        bitmap[22..26].copy_from_slice(&1_i32.to_le_bytes());
+        bitmap[26..28].copy_from_slice(&1_u16.to_le_bytes());
+        bitmap[28..30].copy_from_slice(&32_u16.to_le_bytes());
+        bitmap[54..58].copy_from_slice(&[10, 20, 30, 255]);
+        // The record around it: host cursor id 1000, the bitmap length and a
+        // hotspot that is wider than the image, so it has to be clamped.
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&1000_u32.to_le_bytes());
+        payload.extend_from_slice(&58_u16.to_le_bytes());
+        payload.extend_from_slice(&4_u16.to_le_bytes());
+        payload.extend_from_slice(&0_u16.to_le_bytes());
+        payload.extend_from_slice(&[0, 0]);
+        payload.extend_from_slice(&bitmap);
+
+        let record = control_command(COMMAND_BITMAP_CURSOR, &payload);
+        let cursors = server_cursor_messages(&record);
         assert_eq!(cursors.len(), 1);
         assert_eq!(cursors[0].visible, Some(true));
-        assert_eq!(cursors[0].normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
+        let normalized = cursors[0].normalized.clone().expect("cursor art");
+        assert_eq!(&normalized[..5], &[1, 232, 0, 0, 0]);
+        let image = decoded_cursor_image(&normalized);
+        assert_eq!((image.width(), image.height()), (1, 1));
+        let rgba = image.to_rgba8();
+        assert_eq!(rgba.get_pixel(0, 0).0, [30, 20, 10, 255]);
+    }
 
-        // A payload already in the platform wire shape renders as the game's own
-        // cursor image instead of falling back to a plain arrow.
+    #[test]
+    fn a_wire_shaped_bitmap_cursor_payload_is_passed_through() {
         let wire = control_command(
             COMMAND_BITMAP_CURSOR,
             &[
@@ -1880,17 +1936,45 @@ mod tests {
         );
         let cursors = server_cursor_messages(&wire);
         assert_eq!(cursors.len(), 1);
+        assert_eq!(cursors[0].visible, Some(true));
         assert_eq!(
             cursors[0].normalized,
             Some(vec![
                 1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'
             ])
         );
+    }
 
-        // A native layout that merely starts with the custom-cursor type byte
-        // must not be forwarded as an image the platform cannot decode.
-        let lookalike = control_command(COMMAND_BITMAP_CURSOR, &hex("01000000000000ff"));
-        let cursors = server_cursor_messages(&lookalike);
+    #[test]
+    fn a_bitmap_cursor_record_without_an_image_publishes_nothing() {
+        // Captured from a host: cursor id 1000, a zero length, a hash and a
+        // flag. Publishing a placeholder here would throw the game's own cursor
+        // art away every time the host repeats the reference.
+        let reference = control_command(COMMAND_BITMAP_CURSOR, &hex("e803000000000738826100"));
+        let cursors = server_cursor_messages(&reference);
+        assert_eq!(cursors.len(), 1);
+        assert_eq!(cursors[0].normalized, None);
+        assert_eq!(cursors[0].visible, None);
+
+        let short = control_command(COMMAND_BITMAP_CURSOR, &hex("2000200000000000"));
+        let cursors = server_cursor_messages(&short);
+        assert_eq!(cursors.len(), 1);
+        assert_eq!(cursors[0].normalized, None);
+    }
+
+    #[test]
+    fn an_undecodable_bitmap_cursor_still_publishes_a_visible_cursor() {
+        // The record promises 64 bytes of bitmap and carries eight that are not
+        // a BMP, so the player keeps a plain arrow instead of no cursor at all.
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&1000_u32.to_le_bytes());
+        payload.extend_from_slice(&64_u16.to_le_bytes());
+        payload.extend_from_slice(&[0; 6]);
+        payload.extend_from_slice(&[0xff; 8]);
+        let record = control_command(COMMAND_BITMAP_CURSOR, &payload);
+        let cursors = server_cursor_messages(&record);
+        assert_eq!(cursors.len(), 1);
+        assert_eq!(cursors[0].visible, Some(true));
         assert_eq!(cursors[0].normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
     }
 

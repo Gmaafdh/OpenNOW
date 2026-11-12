@@ -7,11 +7,13 @@ rust-version.workspace = true
 
 [dependencies]
 aes.workspace = true
+base64.workspace = true
 ctr.workspace = true
 crc32fast.workspace = true
 getrandom.workspace = true
 ghash.workspace = true
 hmac.workspace = true
+image.workspace = true
 mtu.workspace = true
 opennow-streamer-hid = { path = "../opennow-streamer-hid" }
 opennow-streamer-protocol = { path = "../opennow-streamer-protocol" }
