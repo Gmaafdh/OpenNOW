@@ -1,6 +1,9 @@
 from pathlib import Path
+import codecs
+import hashlib
 import os
 import re
+import zipfile
 import subprocess
 import sys
 import tempfile
@@ -372,6 +375,13 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe", job)
         self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip", job)
         self.assertIn("SHA256SUMS does not cover both the installer and the portable archive", job)
+        # A refusal has to be readable without the job log, which lives on a
+        # blob host that is not reachable from every network.
+        self.assertIn("::error title=146.1 publish verification failed::", job)
+        # Both metadata files come off a Windows runner, so CRLF and the byte
+        # order mark have to be normalised before anything is compared.
+        self.assertIn('encoding="utf-8-sig"', job)
+        self.assertIn('replace("\\r\\n", "\\n")', job)
         # A release, not a pre-release, and never marked latest by hand.
         self.assertNotIn("--prerelease", job)
         self.assertNotIn("--latest", job)
@@ -385,6 +395,64 @@ class CIWorkflowTest(unittest.TestCase):
             "/bin/OpenNOW.exe",
         ):
             self.assertIn(proof, job)
+
+    def test_publish_verifier_accepts_the_windows_package_metadata_it_will_meet(self):
+        # The verifier runs against files a Windows runner wrote with Set-Content:
+        # CRLF endings and a byte order mark. A version that compared them as-is
+        # kept a trailing CR on every SHA256SUMS filename, matched nothing, and
+        # failed the publish job with a bare exit code, so the script embedded in
+        # the workflow is extracted and run here against that exact fixture.
+        workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
+        job = workflow.split("  publish-windows-146-release:", 1)[1]
+        # The heredoc terminator is indented in the raw YAML, so slice on the
+        # bare word and let dedent remove the block indentation afterwards.
+        script = textwrap.dedent(re.split(r"\n[ \t]*PYTHON\n", job.split("<<'PYTHON'\n", 1)[1], 1)[0])
+        version = "1.0.3-nightly.146.1"
+        commit = "b3d3c72948bc3732532041cb33edafb7b7497889"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = root / "payload" / "bin"
+            payload.mkdir(parents=True)
+            (payload / "OpenNOW.exe").write_bytes(b"MZ fake executable")
+            archive = root / f"OpenNOW-Qt-{version}-Windows-x64.zip"
+            with zipfile.ZipFile(archive, "w") as opened:
+                opened.write(payload / "OpenNOW.exe", "bin/OpenNOW.exe")
+            installer = root / f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"
+            installer.write_bytes(b"fake installer payload")
+            info = "\r\n".join([
+                "OpenNOW Windows x64 unsigned compatibility test build",
+                f"Version: {version}",
+                f"Source commit: {commit}",
+                "Run: https://github.com/Gmaafdh/OpenNOW/actions/runs/42347482232",
+            ]) + "\r\n"
+            (root / "BUILD-INFO.txt").write_bytes(codecs.BOM_UTF8 + info.encode("utf-8"))
+            sums = "".join(
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\r\n"
+                for path in (archive, installer)
+            )
+            (root / "SHA256SUMS").write_bytes(sums.encode("ascii"))
+
+            result = subprocess.run(
+                [sys.executable, "-c", script, str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("::notice title=146.1 packages verified::", result.stdout)
+            manifest = archive.with_name(archive.name + ".manifest.json")
+            self.assertTrue(manifest.is_file())
+            notes = root / "RELEASE-NOTES.md"
+            self.assertTrue(notes.is_file())
+            for package in (archive, installer):
+                self.assertIn(package.name, notes.read_text())
+
+            # The same fixture with one corrupted byte must refuse to publish and
+            # must say so in an annotation rather than only in the job log.
+            installer.write_bytes(b"X" + installer.read_bytes()[1:])
+            broken = subprocess.run(
+                [sys.executable, "-c", script, str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(broken.returncode, 1)
+            self.assertIn("::error title=146.1 publish verification failed::", broken.stdout)
+            self.assertIn("Checksum verification failed for", broken.stdout)
 
     def test_windows_ctest_annotation_preserves_the_first_failure(self):
         with tempfile.TemporaryDirectory() as directory:

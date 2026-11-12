@@ -571,17 +571,32 @@ jobs:
           github-token: ${{ github.token }}
           path: windows-146
 
+      # The job log lives on a blob host that is not reachable from everywhere, so
+      # the artifact's own metadata is carried out as annotations: one per file,
+      # percent-encoded and stripped of the CR that Windows Set-Content leaves
+      # behind, because a raw CR silently truncates an annotation message.
       - name: Report what the archived artifact actually contains
         shell: bash
         run: |
           set -euo pipefail
-          package_dir=windows-146
-          listing=$(find "$package_dir" -type f -printf '%f  %s bytes\n' | sort)
-          info=$(cat "$package_dir/BUILD-INFO.txt" 2>/dev/null || echo "<missing BUILD-INFO.txt>")
-          sums=$(cat "$package_dir/SHA256SUMS" 2>/dev/null || echo "<missing SHA256SUMS>")
-          dump="files:%0A$listing%0A%0ABUILD-INFO:%0A$info%0A%0ASHA256SUMS:%0A$sums"
-          dump=${dump//$'\n'/%0A}
-          echo "::notice title=Archived 146.1 artifact::$dump"
+          python3 - windows-146 <<'EVIDENCE'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+
+          def annotate(level, title, text):
+              for bad, good in (("%", "%25"), ("\r", ""), ("\n", "%0A"), (":", "%3A")):
+                  text = text.replace(bad, good)
+              print(f"::{level} title={title}::{text}", flush=True)
+
+          files = sorted(path for path in root.rglob("*") if path.is_file())
+          annotate("notice", "Archived 146.1 artifact", "\n".join(
+              f"{path.relative_to(root).as_posix()}  {path.stat().st_size} bytes" for path in files
+          ) or "<the artifact is empty>")
+          for name in ("BUILD-INFO.txt", "SHA256SUMS"):
+              path = root / name
+              body = path.read_text(encoding="utf-8-sig", errors="replace") if path.is_file() else f"<missing {name}>"
+              annotate("notice", f"Archived 146.1 {name}", body)
+          EVIDENCE
 
       - name: Verify both 146.1 packages and publish the full release
         shell: bash
@@ -595,34 +610,60 @@ jobs:
           root = pathlib.Path(sys.argv[1])
           version = "1.0.3-nightly.146.1"
           source_commit = "b3d3c72948bc3732532041cb33edafb7b7497889"
-          zips = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64.zip"))
-          setups = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"))
+
+          def annotate(level, title, text):
+              for bad, good in (("%", "%25"), ("\r", " "), ("\n", " | "), (":", "%3A")):
+                  text = str(text).replace(bad, good)
+              print(f"::{level} title={title}::{text}", flush=True)
+
+          def fail(text):
+              # Refusals have to be visible without the job log, so they are
+              # reported as annotations before the step exits non-zero.
+              annotate("error", "146.1 publish verification failed", text)
+              raise SystemExit(1)
+
+          def windows_text(path):
+              # Set-Content on the Windows runner writes CRLF endings and a byte
+              # order mark; both have to go before any comparison is meaningful.
+              return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+
+          zips = sorted(root.glob(f"OpenNOW-Qt-{version}-Windows-x64.zip"))
+          setups = sorted(root.glob(f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"))
           if len(zips) != 1 or len(setups) != 1:
-              found = sorted(path.name for path in root.iterdir())
-              raise SystemExit(f"The archived artifact is not the expected 146.1 Windows package pair; found {found}")
-          info = (root / "BUILD-INFO.txt").read_text(encoding="utf-8-sig")
+              found = sorted(p.name for p in root.rglob("*") if p.is_file())
+              fail(f"expected exactly one portable zip and one installer, found {found}")
+          info_path = root / "BUILD-INFO.txt"
+          sums_path = root / "SHA256SUMS"
+          for required in (info_path, sums_path):
+              if not required.is_file():
+                  fail(f"{required.name} is missing from the archived artifact")
+          info = windows_text(info_path)
           if f"Version: {version}" not in info or f"Source commit: {source_commit}" not in info:
-              # Older builds may phrase these lines differently, so accept any
-              # wording that still carries both facts before refusing the archive.
+              # Other wording is acceptable, but both facts must still appear.
               lowered = info.lower()
               if version not in lowered or source_commit not in lowered:
-                  raise SystemExit(f"BUILD-INFO does not identify the approved 146.1 build; it says: {info[:400]!r}")
+                  fail(f"BUILD-INFO does not identify the approved 146.1 build; it says: {info[:400]!r}")
           named = set()
-          for line in (root / "SHA256SUMS").read_text(encoding="utf-8-sig").splitlines():
-              if not line.strip():
+          for line in windows_text(sums_path).splitlines():
+              line = line.strip()
+              if not line:
                   continue
-              expected, name = line.split(maxsplit=1)
-              name = name.lstrip("* ").replace("\\", "/")
+              expected, raw_name = line.split(maxsplit=1)
+              name = raw_name.strip().lstrip("*").strip().replace("\\", "/")
               named.add(pathlib.PurePosixPath(name).name)
               matches = list(root.glob(name)) or list(root.rglob(pathlib.PurePosixPath(name).name))
-              if len(matches) != 1 or hashlib.sha256(matches[0].read_bytes()).hexdigest() != expected.lower():
-                  raise SystemExit(f"Checksum verification failed for {name}")
+              if len(matches) != 1:
+                  fail(f"SHA256SUMS names {name}, which matched {len(matches)} files in the artifact")
+              actual = hashlib.sha256(matches[0].read_bytes()).hexdigest()
+              if actual != expected.strip().lower():
+                  fail(f"Checksum verification failed for {name}: recorded {expected.strip().lower()}, computed {actual}")
           if not {zips[0].name, setups[0].name} <= named:
               missing = sorted({zips[0].name, setups[0].name} - named)
-              raise SystemExit(f"SHA256SUMS does not cover both the installer and the portable archive: missing {missing}, listed {sorted(named)}")
+              fail(f"SHA256SUMS does not cover both the installer and the portable archive; missing {missing}, listed {sorted(named)}")
           with zipfile.ZipFile(zips[0]) as archive:
-              if not any(name.replace("\\", "/").endswith("/bin/OpenNOW.exe") or name == "bin/OpenNOW.exe" for name in archive.namelist()):
-                  raise SystemExit("The portable archive does not contain bin/OpenNOW.exe")
+              entries = [name.replace("\\", "/") for name in archive.namelist()]
+          if not any(name.endswith("/bin/OpenNOW.exe") or name in ("bin/OpenNOW.exe", "OpenNOW.exe") for name in entries):
+              fail(f"the portable archive holds {len(entries)} entries and none is bin/OpenNOW.exe; first entries: {entries[:5]}")
           digest = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (zips[0], setups[0])}
           manifest = {
               "schemaVersion": 1, "version": version, "asset": zips[0].name,
@@ -639,17 +680,18 @@ jobs:
               "## Packages",
               "",
               f"- `OpenNOW-Qt-{version}-Windows-x64-setup.exe` - installer. SHA256 `{digest[setups[0].name]}`",
-              f"- `OpenNOW-Qt-{version}-Windows-x64.zip` - portable archive; unpack and run `bin/OpenNOW.exe`. SHA256 `{digest[zips[0].name]}`",
+              f"- `OpenNOW-Qt-{version}-Windows-x64.zip` - portable archive; unpack it completely, then run `bin/OpenNOW.exe`. SHA256 `{digest[zips[0].name]}`",
               "",
               "Both packages are checksum-verified against `SHA256SUMS`. Neither is code-signed, so Windows SmartScreen warns on first run.",
               "",
               "This is a fixed point release. The rolling `arena-fast` pre-release that the in-app update button reads is left untouched.",
           ]
           (root / "RELEASE-NOTES.md").write_text("\n".join(notes) + "\n", encoding="utf-8")
+          annotate("notice", "146.1 packages verified", json.dumps(digest))
           print("verified both packages: " + json.dumps(digest))
           PYTHON
           if gh release view 1.0.3-nightly.146.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release 1.0.3-nightly.146.1 already exists; refusing to overwrite it"
+            echo "::error title=146.1 publish verification failed::Release 1.0.3-nightly.146.1 already exists; refusing to overwrite it"
             exit 1
           fi
           gh release create 1.0.3-nightly.146.1 \
