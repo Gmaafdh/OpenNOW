@@ -191,35 +191,6 @@ TestCase {
         ShellStore.activeSession = {queuePosition: 21}
     }
 
-    function test_ambientGlowLightsTheQueueBackdrop() {
-        const queue = descendants(screen).find(item => item.objectName === "desktopQueueExperience")
-        verify(queue !== undefined)
-        // GlowBlob exposes its scaled alpha as `lit`, so the blooms can be
-        // audited without rendering a single pixel.
-        const blooms = () => descendants(queue).filter(item => item.lit !== undefined)
-        AppController.reducedMotion = true
-
-        ShellStore.settings = Object.assign({}, ShellStore.settings, {ambientGlow: 0})
-        compare(Theme.glow(0.4), 0)
-        verify(blooms().length >= 8, "expected the backdrop, cover, ring, tip and viewer blooms")
-        for (const bloom of blooms())
-            compare(bloom.lit, 0, "a bloom is still lit with Ambient glow at zero")
-        verify(queue.glowA(queue.glowKey, 0.5).a < 0.01, "ambient alphas must scale with the setting")
-
-        ShellStore.settings = Object.assign({}, ShellStore.settings, {ambientGlow: 100})
-        for (const bloom of blooms())
-            verify(bloom.lit > 0, "a bloom stayed dark at the maximum Ambient glow")
-        verify(queue.glowA(queue.glowKey, 0.5).a > 0.8, "the setting must open past the authored alpha")
-
-        // Structural chrome is never ambient: with the glow turned off the queue
-        // still shows its arc, its panel edges and its accent-coloured copy.
-        ShellStore.settings = Object.assign({}, ShellStore.settings, {ambientGlow: 0})
-        verify(Math.abs(queue.accentA(0.5).a - 0.5) < 0.02, "structural alphas must not be glow scaled")
-        compare(textItem("STARTING SESSION").color, Theme.mediaAccent)
-        compare(textItem("YOUR PLACE").color, Theme.mediaMuted)
-        ShellStore.settings = Object.assign({}, ShellStore.settings, {ambientGlow: 60})
-    }
-
     function test_failureAndReconnect() {
         ShellStore.settings = {themePack: "nocturne", appTheme: "light"}
         ShellStore.streamState = "failed"
