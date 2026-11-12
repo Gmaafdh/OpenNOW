@@ -325,8 +325,7 @@ mod tests {
         let text = &normalized[7..7 + length];
         assert_eq!(7 + length, normalized.len(), "no trailing fields");
         let png = BASE64.decode(text).expect("base64 PNG");
-        image::load_from_memory(&png)
-            .expect("a PNG the media host and the shell both decode")
+        image::load_from_memory(&png).expect("a PNG the media host and the shell both decode")
     }
 
     fn expect_image(payload: &[u8]) -> image::DynamicImage {
