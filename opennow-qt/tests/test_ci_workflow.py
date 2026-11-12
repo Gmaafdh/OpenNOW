@@ -299,29 +299,37 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04"],
+            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04", "ubuntu-24.04"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
         self.assertIn("    branches:\n      - arena/15b83ddf-opennow\n", workflow)
         self.assertIn("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'", workflow)
-        # The PS5-style desktop home branch builds through the same harness, so
-        # it has to be listed for the push trigger *and* for both job gates;
-        # a branch that only matches the trigger would silently skip the build.
+        # Session branches build through the same harness, so each one has to be
+        # listed for the push trigger *and* for every job gate that should run on
+        # it; a branch that only matches the trigger would silently skip them.
         self.assertIn("      - arena/c8d904a5-opennow\n", workflow)
         self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/c8d904a5-opennow'"), 2)
+        # The branch that publishes the archived 146.1 release runs the contracts
+        # job and the publish job only. It must never reach the Windows build
+        # gate: that would spend 35 minutes rebuilding the very package this job
+        # exists to restore without building.
+        self.assertIn("      - arena/2a2749e0-opennow\n", workflow)
+        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/2a2749e0-opennow'"), 2)
         self.assertIn("  contents: read", workflow)
         for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, workflow)
-        # The harness publishes exactly one thing: the rolling arena-fast
-        # pre-release that the in-app update button installs from. It must not
-        # touch any other release, and only the Windows job may write.
-        self.assertEqual(workflow.count("      contents: write"), 2)
+        # The harness publishes two things and nothing else: the rolling
+        # arena-fast pre-release that the in-app update button installs from, and
+        # the fixed 1.0.3-nightly.146.1 full release restored from its archived
+        # artifact. Only the Windows build job, the restore job and the 146.1
+        # publish job may write contents.
+        self.assertEqual(workflow.count("      contents: write"), 3)
         self.assertIn("    permissions:\n      contents: write\n", workflow)
         for release_command in re.findall(r"gh release \w+ (\S+)", workflow):
             with self.subTest(release=release_command):
-                self.assertEqual(release_command, "arena-fast")
+                self.assertIn(release_command, {"arena-fast", "1.0.3-nightly.146.1"})
         self.assertIn("gh release upload arena-fast $zip $manifest", workflow)
         self.assertIn("run-id: 42347482232", workflow)
         self.assertIn("actions/download-artifact@v4", workflow)
@@ -348,6 +356,35 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
         self.assertIn("name: OpenNOW-Windows-x64-dx10", workflow)
         self.assertIn("retention-days: 14", workflow)
+
+    def test_archived_146_1_is_published_as_a_full_release_with_both_packages(self):
+        workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
+        self.assertIn("  publish-windows-146-release:\n", workflow)
+        job = workflow.split("  publish-windows-146-release:", 1)[1]
+        self.assertIn("Publish Windows nightly 146.1 as a full release", job)
+        # Opt-in by commit message, like the restore job, so an ordinary push to
+        # this branch cannot republish a release by accident.
+        self.assertIn("contains(github.event.head_commit.message, '[publish-windows-146.1]')", job)
+        self.assertIn("run-id: 42347482232", job)
+        # The tag points at the commit the archived build actually came from.
+        self.assertIn("--target b3d3c72948bc3732532041cb33edafb7b7497889", job)
+        # Both packages ship: the installer next to the portable archive.
+        self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe", job)
+        self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip", job)
+        self.assertIn("SHA256SUMS does not cover both the installer and the portable archive", job)
+        # A release, not a pre-release, and never marked latest by hand.
+        self.assertNotIn("--prerelease", job)
+        self.assertNotIn("--latest", job)
+        # It refuses to touch an existing release instead of clobbering it.
+        self.assertIn("already exists; refusing to overwrite it", job)
+        # Same verification chain the restore job uses, extended to both packages.
+        for proof in (
+            "Version: {version}",
+            "Source commit: {source_commit}",
+            "Checksum verification failed for",
+            "/bin/OpenNOW.exe",
+        ):
+            self.assertIn(proof, job)
 
     def test_windows_ctest_annotation_preserves_the_first_failure(self):
         with tempfile.TemporaryDirectory() as directory:

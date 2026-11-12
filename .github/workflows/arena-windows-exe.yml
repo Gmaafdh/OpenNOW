@@ -11,6 +11,7 @@ on:
       - arena/857f597a-opennow
       - arena/a9a90719-opennow
       - arena/c8d904a5-opennow
+      - arena/2a2749e0-opennow
 
 permissions:
   contents: read
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   contracts:
     name: Validate merged source and packaging contracts
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow' || github.ref == 'refs/heads/arena/c8d904a5-opennow'
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/a9a90719-opennow' || github.ref == 'refs/heads/arena/c8d904a5-opennow' || github.ref == 'refs/heads/arena/2a2749e0-opennow'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -547,3 +548,100 @@ jobs:
             "$package_dir/BUILD-INFO.txt" "$package_dir/SHA256SUMS" \
             --repo "$GITHUB_REPOSITORY" --clobber
           echo "Restored 1.0.3-nightly.146.1 from its existing Actions artifact. No build was run." >> "$GITHUB_STEP_SUMMARY"
+
+  publish-windows-146-release:
+    name: Publish Windows nightly 146.1 as a full release
+    if: ${{ github.ref == 'refs/heads/arena/2a2749e0-opennow' && github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-146.1]') }}
+    needs: contracts
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the already-built 146.1 packages
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenNOW-Windows-x64-dx10
+          repository: ${{ github.repository }}
+          run-id: 42347482232
+          github-token: ${{ github.token }}
+          path: windows-146
+
+      - name: Verify both 146.1 packages and publish the full release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package_dir=windows-146
+          python3 - "$package_dir" <<'PYTHON'
+          import hashlib, json, pathlib, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          version = "1.0.3-nightly.146.1"
+          source_commit = "b3d3c72948bc3732532041cb33edafb7b7497889"
+          zips = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64.zip"))
+          setups = list(root.glob(f"OpenNOW-Qt-{version}-Windows-x64-setup.exe"))
+          if len(zips) != 1 or len(setups) != 1:
+              raise SystemExit("The archived artifact is not the expected 146.1 Windows package pair")
+          info = (root / "BUILD-INFO.txt").read_text(encoding="utf-8-sig")
+          if f"Version: {version}" not in info or f"Source commit: {source_commit}" not in info:
+              raise SystemExit("BUILD-INFO does not identify the approved 146.1 build")
+          named = set()
+          for line in (root / "SHA256SUMS").read_text(encoding="utf-8-sig").splitlines():
+              if not line.strip():
+                  continue
+              expected, name = line.split(maxsplit=1)
+              name = name.lstrip("* ")
+              named.add(name)
+              matches = list(root.glob(name))
+              if len(matches) != 1 or hashlib.sha256(matches[0].read_bytes()).hexdigest() != expected.lower():
+                  raise SystemExit(f"Checksum verification failed for {name}")
+          if not {zips[0].name, setups[0].name} <= named:
+              raise SystemExit("SHA256SUMS does not cover both the installer and the portable archive")
+          with zipfile.ZipFile(zips[0]) as archive:
+              if not any(name.replace("\\", "/").endswith("/bin/OpenNOW.exe") or name == "bin/OpenNOW.exe" for name in archive.namelist()):
+                  raise SystemExit("The portable archive does not contain bin/OpenNOW.exe")
+          digest = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (zips[0], setups[0])}
+          manifest = {
+              "schemaVersion": 1, "version": version, "asset": zips[0].name,
+              "size": zips[0].stat().st_size, "sha256": digest[zips[0].name], "signature": ""
+          }
+          (root / (zips[0].name + ".manifest.json")).write_text(
+              json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8"
+          )
+          notes = [
+              f"OpenNOW {version} for Windows x64 (DirectX 10 compatibility build).",
+              "",
+              f"Restored from the archived Actions artifact of run 42347482232, built from source commit `{source_commit[:12]}`. No build was run for this release.",
+              "",
+              "## Packages",
+              "",
+              f"- `OpenNOW-Qt-{version}-Windows-x64-setup.exe` - installer. SHA256 `{digest[setups[0].name]}`",
+              f"- `OpenNOW-Qt-{version}-Windows-x64.zip` - portable archive; unpack and run `bin/OpenNOW.exe`. SHA256 `{digest[zips[0].name]}`",
+              "",
+              "Both packages are checksum-verified against `SHA256SUMS`. Neither is code-signed, so Windows SmartScreen warns on first run.",
+              "",
+              "This is a fixed point release. The rolling `arena-fast` pre-release that the in-app update button reads is left untouched.",
+          ]
+          (root / "RELEASE-NOTES.md").write_text("\n".join(notes) + "\n", encoding="utf-8")
+          print("verified both packages: " + json.dumps(digest))
+          PYTHON
+          if gh release view 1.0.3-nightly.146.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release 1.0.3-nightly.146.1 already exists; refusing to overwrite it"
+            exit 1
+          fi
+          gh release create 1.0.3-nightly.146.1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target b3d3c72948bc3732532041cb33edafb7b7497889 \
+            --title "OpenNOW 1.0.3-nightly.146.1 (Windows x64)" \
+            --notes-file "$package_dir/RELEASE-NOTES.md" \
+            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe" \
+            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip" \
+            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip.manifest.json" \
+            "$package_dir/BUILD-INFO.txt" \
+            "$package_dir/SHA256SUMS"
+          echo "Published 1.0.3-nightly.146.1 as a full release with the installer and the portable archive. No build was run." >> "$GITHUB_STEP_SUMMARY"
