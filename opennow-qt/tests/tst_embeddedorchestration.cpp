@@ -25,6 +25,8 @@ bool prepareLaunchGuards(QJSEngine &engine)
         var queueSelector={opened:false,begin:function(title){return false}};
         var bugReports={observeTelemetry:function(){},observeFrameDrops:function(){},reportStreamError:function(){}};
         var launchRequestedAtMs=0;
+        var webrtcSignalingFailures=0, webrtcSignalingFailureSessionId='', webrtcSignalingSettled=false;
+        var webrtcSignalingRequeued=false;
         function reportSessionStart() {}
         function reportSessionEnd() {}
     )JS")).isError()) return false;
@@ -636,6 +638,8 @@ private slots:
             var recoveryDiscoveryRequestId='',sessionClaimRequestId='',streamerStopRequestId='',recoverySessionId='';
             var sessionClaimIsRecovery=false,resumePollAttempts=0,resumePollDeadlineMs=0,ready=true;
             var coreSessionRestoreId='',sessionStopIntentId='',streamPollFailureAttempts=0;
+            var webrtcSignalingFailures = 0, webrtcSignalingFailureSessionId = '', webrtcSignalingSettled = false;
+            var webrtcSignalingRequeued = false;
             var NativeStreamRuntime={running:false},requests=[];
             var CoreClient={cancel:function() {},request:function(method,params) {requests.push({method:method,params:params});return 'recovery';}};
             var streamerRestartTimer={running:false,restart:function() {this.running=true;},stop:function() {this.running=false;}};
@@ -2325,6 +2329,8 @@ private slots:
             var sessionClaimIsRecovery = false, streamerStartRequestId = '', streamerPrepareRequestId = '';
             var sessionRecoveryPending = false, sessionRecoveryAwaitingAuth = false, recoveryDiscoveryRequestId = '', recoverySessionId = '';
             var streamerStopRequestId = '', streamStopRequestId = '', streamPollRequestId = '';
+            var webrtcSignalingFailures = 0, webrtcSignalingFailureSessionId = '', webrtcSignalingSettled = false;
+            var webrtcSignalingRequeued = false;
             var NativeStreamRuntime = {running: false}, nativeRuntimeCapabilities = {};
             var nativeRuntimeReady = true, prepares = 0, claims = 0, discoveries = 0;
             var streamerRestartTimer = {running: false, restarts: 0,

@@ -2070,7 +2070,9 @@ QtObject {
         sessionReconnectAttempts = 0
         streamerRestartRecoveryCount = 0
         sessionRecoveryCount = 0
-        resetWebrtcSignalingFailures()
+        webrtcSignalingFailures = 0
+        webrtcSignalingFailureSessionId = ""
+        webrtcSignalingSettled = false
         webrtcSignalingRequeued = false
         guidePagesVisited = []
         antiAfkEnabled = false
@@ -2307,7 +2309,6 @@ QtObject {
             streamPollFailureAttempts = 0
             streamerRecoveryExhausted = false
             sessionProgressAutoRecoveries = 0
-            resetWebrtcSignalingFailures()
         }
         if (!activeSession) {
             reportSessionEnd(previousSession, "remote_ended")
@@ -2456,12 +2457,6 @@ QtObject {
             }))
     }
 
-    function resetWebrtcSignalingFailures() {
-        webrtcSignalingFailures = 0
-        webrtcSignalingFailureSessionId = ""
-        webrtcSignalingSettled = false
-    }
-
     // `reported` is true only for the error event itself; the stopped status
     // that trails it describes the same failure and must not be counted twice.
     // Returns true when the failure was consumed here instead of being handed
@@ -2516,7 +2511,9 @@ QtObject {
         streamPollFailureAttempts = 0
         sessionStopIntentId = ""
         streamerRecoveryExhausted = false
-        resetWebrtcSignalingFailures()
+        webrtcSignalingFailures = 0
+        webrtcSignalingFailureSessionId = ""
+        webrtcSignalingSettled = false
         recoverStreamingSession(streamMessage)
     }
 
@@ -3402,7 +3399,6 @@ QtObject {
         streamPollFailureAttempts = 0
         sessionProgressAutoRecoveries = 0
         streamerRecoveryExhausted = false
-        resetWebrtcSignalingFailures()
         sessionRecoveryPending = false
         sessionRecoveryAwaitingAuth = false
         streamState = activeSession.resumePending ? "resuming" : "preparing"
@@ -4289,7 +4285,9 @@ QtObject {
             streamerRestartAttempts = 0
             sessionReconnectAttempts = 0
             streamerRecoveryExhausted = false
-            resetWebrtcSignalingFailures()
+            webrtcSignalingFailures = 0
+            webrtcSignalingFailureSessionId = ""
+            webrtcSignalingSettled = false
             webrtcSignalingRequeued = false
             streamerRestartTimer.stop()
             if (streamer && (streamer.firstFrameLatencyMs === undefined

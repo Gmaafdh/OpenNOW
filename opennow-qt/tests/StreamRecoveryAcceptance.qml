@@ -713,7 +713,9 @@ QtObject {
             ShellStore.cancelSessionRecovery()
             ShellStore.streamerRestartTimer.stop()
             ShellStore.streamPollTimer.stop()
-            ShellStore.resetWebrtcSignalingFailures()
+            ShellStore.webrtcSignalingFailures = 0
+            ShellStore.webrtcSignalingFailureSessionId = ""
+            ShellStore.webrtcSignalingSettled = false
             ShellStore.activeSession = {sessionId:sessionId,status:3,phase:"streaming",
                 appId:"100",transportMode:"webrtc",ownerScope:owner}
             ShellStore.streamer = {sessionId:sessionId,status:"connecting"}
@@ -795,7 +797,9 @@ QtObject {
         ShellStore.cancelSessionRecovery()
         ShellStore.streamerRestartTimer.stop()
         ShellStore.streamPollTimer.stop()
-        ShellStore.resetWebrtcSignalingFailures()
+        ShellStore.webrtcSignalingFailures = 0
+        ShellStore.webrtcSignalingFailureSessionId = ""
+        ShellStore.webrtcSignalingSettled = false
         ShellStore.webrtcSignalingRequeued = false
         ShellStore.streamerRecoveryExhausted = false
         ShellStore.sessionReconnectAttempts = 0
