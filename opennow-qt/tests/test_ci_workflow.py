@@ -302,7 +302,8 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04"],
+            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04",
+             "ubuntu-24.04"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
@@ -313,26 +314,29 @@ class CIWorkflowTest(unittest.TestCase):
         # it; a branch that only matches the trigger would silently skip them.
         self.assertIn("      - arena/c8d904a5-opennow\n", workflow)
         self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/c8d904a5-opennow'"), 2)
-        # The branch that publishes the archived 146.1 release runs the contracts
-        # job, the staging job and the publish job only. It must never reach the
-        # Windows build gate: that would spend 35 minutes rebuilding the very
-        # package these jobs exist to restore without building.
+        # The branch that publishes the archived 146.1 release also builds and
+        # publishes its own packages, so it reaches the contracts job, the Windows
+        # build gate, the nightly release job, the staging job and the 146.1
+        # publish job. A branch that only matched the trigger would silently skip
+        # every one of them and never produce an installer.
         self.assertIn("      - arena/2a2749e0-opennow\n", workflow)
-        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/2a2749e0-opennow'"), 3)
+        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/2a2749e0-opennow'"), 5)
         self.assertIn("  contents: read", workflow)
         for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, workflow)
-        # The harness publishes two things and nothing else: the rolling
-        # arena-fast pre-release that the in-app update button installs from, and
-        # the fixed 1.0.3-nightly.146.1 full release restored from its archived
-        # artifact. Only the Windows build job, the restore job and the 146.1
-        # publish job may write contents.
-        self.assertEqual(workflow.count("      contents: write"), 3)
+        # The harness publishes three things and nothing else: the rolling
+        # arena-fast pre-release that the in-app update button installs from, the
+        # fixed 1.0.3-nightly.146.1 full release restored from its archived
+        # artifact, and a per-build nightly release of the packages this run just
+        # compiled. Only the Windows build job, the nightly release job, the
+        # restore job and the 146.1 publish job may write contents.
+        self.assertEqual(workflow.count("      contents: write"), 4)
         self.assertIn("    permissions:\n      contents: write\n", workflow)
         for release_command in re.findall(r"gh release \w+ (\S+)", workflow):
             with self.subTest(release=release_command):
-                self.assertIn(release_command, {"arena-fast", "1.0.3-nightly.146.1"})
+                self.assertIn(release_command,
+                              {"arena-fast", "1.0.3-nightly.146.1", '"$tag"'})
         self.assertIn("gh release upload arena-fast $zip $manifest", workflow)
         self.assertIn("run-id: 42347482232", workflow)
         self.assertIn("actions/download-artifact@v4", workflow)
@@ -359,6 +363,36 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("packaging/windows/build-setup.ps1", workflow)
         self.assertIn("name: OpenNOW-Windows-x64-dx10", workflow)
         self.assertIn("retention-days: 14", workflow)
+
+    def test_freshly_built_windows_packages_are_published_as_a_full_release(self):
+        workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
+        self.assertIn("  publish-windows-nightly-release:\n", workflow)
+        job = workflow.split("  publish-windows-nightly-release:", 1)[1].split(
+            "\n  restore-windows-146:", 1)[0]
+        self.assertIn("Publish the freshly built Windows packages as a full release", job)
+        # Nothing to publish until the packages exist, so the build gate has to
+        # have produced them in this very run.
+        self.assertIn("needs: [contracts, windows-x64]", job)
+        self.assertIn("      contents: write\n", job)
+        # Reading this run's own artifact needs no extra scope, and asking for one
+        # is what produced "Resource not accessible by integration" on the 146.1 job.
+        self.assertNotIn("actions: read", job)
+        self.assertNotIn("run-id:", job)
+        self.assertIn("name: OpenNOW-Windows-x64-dx10", job)
+        self.assertIn("github.ref == 'refs/heads/arena/2a2749e0-opennow'", job)
+        # One installer plus one portable archive, and the tag follows the build
+        # identity the Windows job already stamps into the packages.
+        self.assertIn('tag="1.0.3-nightly.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"', job)
+        self.assertIn('--target "$GITHUB_SHA"', job)
+        self.assertIn("Nightly release is missing a package", job)
+        self.assertIn('gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${packages[@]}"', job)
+        # Never latest: the in-app updater reads arena-fast, and a nightly build
+        # from a session branch must not become the channel it installs from.
+        self.assertNotIn("--latest", job)
+        self.assertNotIn("arena-fast", job)
+        # A refusal to create the release must not throw the packages away.
+        self.assertIn("Nightly release could not be created", job)
+        self.assertIn("if: failure()", job)
 
     def test_archived_146_1_is_published_as_a_full_release_with_both_packages(self):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()

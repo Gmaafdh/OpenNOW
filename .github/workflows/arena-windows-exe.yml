@@ -58,7 +58,7 @@ jobs:
     needs: contracts
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/c8d904a5-opennow' || (github.ref == 'refs/heads/arena/a9a90719-opennow' && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[restore-windows-146.1]')))
+    if: github.ref == 'refs/heads/arena/15b83ddf-opennow' || github.ref == 'refs/heads/arena/857f597a-opennow' || github.ref == 'refs/heads/arena/c8d904a5-opennow' || github.ref == 'refs/heads/arena/2a2749e0-opennow' || (github.ref == 'refs/heads/arena/a9a90719-opennow' && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[restore-windows-146.1]')))
     runs-on: windows-2025
     timeout-minutes: 180
     env:
@@ -458,6 +458,7 @@ jobs:
           @(
             "## Windows x64 unsigned test build"
             "[Download setup.exe and portable ZIP]($env:ARTIFACT_URL)"
+            "Release tag for this build: 1.0.3-nightly.$env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT"
             "Source: $env:GITHUB_SHA"
             "Extract the portable ZIP completely and launch bin\OpenNOW.exe."
             "Windows WARP/protocol, Qt adapter, and queue presentation tests passed."
@@ -479,6 +480,105 @@ jobs:
           path: ci-logs/
           if-no-files-found: ignore
           retention-days: 14
+
+  publish-windows-nightly-release:
+    name: Publish the freshly built Windows packages as a full release
+    if: ${{ github.ref == 'refs/heads/arena/2a2749e0-opennow' && github.event_name == 'push' }}
+    needs: [contracts, windows-x64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the packages built by this run
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenNOW-Windows-x64-dx10
+          github-token: ${{ github.token }}
+          path: windows-packages
+
+      # The 146.1 publish job proved that a token scoped to contents: write alone
+      # can upload release assets; creating the release is what the workflow token
+      # was refused. This job therefore treats an existing release as success and
+      # only ever re-uploads packages, so a refusal cannot lose a build.
+      - name: Create the nightly release and upload both packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p ci-logs
+          log() { printf '%s\n' "$*" | tee -a ci-logs/publish-release.log; }
+          shopt -s nullglob
+          packages=(windows-packages/*)
+          log "found ${#packages[@]} file(s) in windows-packages"
+          for package in "${packages[@]}"; do log "  $(basename "$package") $(stat -c %s "$package") bytes"; done
+          installer=()
+          archive=()
+          for package in "${packages[@]}"; do
+            case "$package" in
+              *-setup.exe) installer+=("$package") ;;
+              *.zip) archive+=("$package") ;;
+            esac
+          done
+          if [ "${#installer[@]}" -ne 1 ] || [ "${#archive[@]}" -ne 1 ]; then
+            echo "::error title=Nightly release is missing a package::expected exactly one installer and one portable archive, found ${#installer[@]} and ${#archive[@]}"
+            exit 1
+          fi
+          tag="1.0.3-nightly.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          title="OpenNOW $tag - Windows x64"
+          notes_file=ci-logs/release-notes.md
+          {
+            printf '%s\n' "Both Windows packages for this build, published as a full release." ""
+            printf '%s\n' "**Branch:** \`${GITHUB_REF_NAME}\`" "**Commit:** \`${GITHUB_SHA}\`" \
+              "**Run:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" ""
+            printf '%s\n' "## What this build fixes" ""
+            printf '%s\n' "- The cursor is visible over the stream from the first frame, in every game."
+            printf '%s\n' "- WebRTC/compatibility sessions start with absolute mouse tracking and the pointer confined to the game window, instead of starting in relative pointer lock with an invisible cursor."
+            printf '%s\n' "- A session no longer assumes the server composited a cursor into the video unless the transport can actually say so, which is what left nothing on screen."
+            printf '%s\n' "- F8 still grabs or releases the mouse, and that choice survives focus and overlay changes." ""
+            printf '%s\n' "## Packages" ""
+            printf '%s\n' "| File | What it is |" "| --- | --- |"
+            printf '%s\n' "| \`$(basename "${installer[0]}")\` | Installer - runs the setup wizard |"
+            printf '%s\n' "| \`$(basename "${archive[0]}")\` | Portable archive - extract it fully, then run \`bin\\OpenNOW.exe\` |"
+            for package in "${packages[@]}"; do
+              case "$package" in
+                "${installer[0]}"|"${archive[0]}") ;;
+                *) printf '%s\n' "| \`$(basename "$package")\` | Build metadata |" ;;
+              esac
+            done
+            printf '%s\n' "" "Both packages are unsigned, so Windows SmartScreen warns on first launch."
+          } > "$notes_file"
+          log "release tag $tag"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            log "release $tag already exists; refreshing its notes and packages"
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file" 2>&1 | tee -a ci-logs/publish-release.log || \
+              echo "::warning title=Nightly release notes were not refreshed::editing $tag was refused; the packages are still uploaded"
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "$title" --notes-file "$notes_file" 2>&1 | tee -a ci-logs/publish-release.log || \
+              echo "::warning title=Nightly release could not be created::creating $tag was refused; the packages are still uploaded"
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${packages[@]}" 2>&1 | tee -a ci-logs/publish-release.log
+          log "published $tag with ${#packages[@]} file(s)"
+
+      - name: Publish the nightly release failure excerpt
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'EXCERPT'
+          import pathlib
+          logs = sorted(pathlib.Path("ci-logs").glob("*.log"))
+          if not logs:
+              print("::error title=Nightly release failed::no log was written")
+              raise SystemExit(0)
+          text = logs[-1].read_text(errors="replace").splitlines()[-80:]
+          body = "\n".join(text)[:6000].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+          print(f"::error title=Nightly release log excerpt::{body}")
+          EXCERPT
 
   restore-windows-146:
     name: Restore existing Windows nightly 146.1 (no rebuild)

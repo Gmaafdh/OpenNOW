@@ -1625,10 +1625,30 @@ void NativeStreamRuntime::drainCallbacks(const std::shared_ptr<CallbackState> &s
             d->upstreamProgressSamples.publish(false, false, 0, 0);
             const bool embeddedStartAccepted = kind == u"ok"_s && !d->externalWindow;
             d->presentationAllowed.store(embeddedStartAccepted, std::memory_order_release);
-            const bool defaultRelativeMouse = embeddedStartAccepted
-                && document.object().value(u"transport"_s).toString() == u"webrtc"_s;
+            const auto acceptedTransport = document.object().value(u"transport"_s).toString();
+#if defined(Q_OS_MACOS)
+            // macOS has no pointer owner in absolute mode, so a WebRTC session
+            // would leave a cursor that is free to wander out of the window. It
+            // captures relatively and F8 releases it.
+            const bool defaultRelativeMouse = embeddedStartAccepted && acceptedTransport == u"webrtc"_s;
+#else
+            // Everywhere else absolute mode already confines the pointer, so a
+            // session starts with the cursor on screen the way GeForce NOW's own
+            // client does. Locking by default left WebRTC players with no cursor
+            // at all, because nothing on that transport can ever ask for one.
+            const bool defaultRelativeMouse = false;
+#endif
             if (std::exchange(d->defaultRelativeMouse, defaultRelativeMouse) != defaultRelativeMouse) {
                 emit cursorStateReset();
+                if (!current()) return;
+            }
+            // Only NVST publishes cursor notifications, so only NVST can ever
+            // report that the server composited a cursor into the video. Keeping
+            // that assumption on a transport with no cursor channel hides the
+            // local cursor for the whole session with nothing to replace it.
+            if (embeddedStartAccepted && acceptedTransport == u"webrtc"_s && d->serverCursorComposited) {
+                d->serverCursorComposited = false;
+                emit cursorCaptureChanged(false);
                 if (!current()) return;
             }
             const bool allowed = std::exchange(d->inputAuthorizationPending, false)

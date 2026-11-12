@@ -1285,6 +1285,15 @@ private slots:
         api.send = [](const OpenNowStreamer *, const std::uint8_t *, std::size_t) {
             return sendStatus;
         };
+        // GeForce NOW's own client has a cursor from the first frame, so a
+        // WebRTC session only starts pointer-locked where absolute mode has no
+        // owner to confine the pointer: macOS. Everywhere else the default is a
+        // visible absolute cursor and F8 is what locks it.
+#if defined(Q_OS_MACOS)
+        constexpr bool webRtcStartsRelative = true;
+#else
+        constexpr bool webRtcStartsRelative = false;
+#endif
         NativeStreamRuntime runtime(api);
         QVERIFY(runtime.start());
         QVERIFY(!runtime.defaultRelativeMouse());
@@ -1301,14 +1310,17 @@ private slots:
                               {QStringLiteral("id"), QStringLiteral("first")}}));
         deliver(R"({"id":"first","type":"ok","transport":"webrtc"})");
         QTRY_VERIFY(runtime.inputAllowed());
-        QVERIFY(runtime.defaultRelativeMouse());
-        QCOMPARE(authorizedDefaults, QList<bool>{true});
-        QCOMPARE(resets.count(), 2);
+        QCOMPARE(runtime.defaultRelativeMouse(), webRtcStartsRelative);
+        QCOMPARE(authorizedDefaults, QList<bool>{webRtcStartsRelative});
+        // The same accepted start stops claiming a server-composited cursor,
+        // because a transport with no cursor channel can never deliver one.
+        QTRY_VERIFY(!runtime.serverCursorComposited());
+        QCOMPARE(resets.count(), webRtcStartsRelative ? 2 : 1);
         sendStatus = OPENNOW_STREAMER_QUEUE_FULL;
         const auto restore = qScopeGuard([] { sendStatus = OPENNOW_STREAMER_OK; });
         QVERIFY(!runtime.send({{QStringLiteral("type"), QStringLiteral("start")},
                                {QStringLiteral("id"), QStringLiteral("rejected")}}));
-        QVERIFY(runtime.defaultRelativeMouse());
+        QCOMPARE(runtime.defaultRelativeMouse(), webRtcStartsRelative);
         QVERIFY(runtime.inputAllowed());
         sendStatus = OPENNOW_STREAMER_OK;
         QVERIFY(runtime.send({{QStringLiteral("type"), QStringLiteral("start")},
@@ -1336,7 +1348,7 @@ private slots:
         QVERIFY(runtime.send({{QStringLiteral("type"), QStringLiteral("start")},
                               {QStringLiteral("id"), QStringLiteral("shutdown-session")}}));
         deliver(R"({"id":"shutdown-session","type":"ok","transport":"webrtc"})");
-        QTRY_VERIFY(runtime.defaultRelativeMouse());
+        QTRY_COMPARE(runtime.defaultRelativeMouse(), webRtcStartsRelative);
         QVERIFY(runtime.shutdown());
         QVERIFY(!runtime.defaultRelativeMouse());
     }

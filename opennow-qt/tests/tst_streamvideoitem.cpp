@@ -722,6 +722,14 @@ private slots:
 
     void relativeMouseDefaultIsUpdatedForAnExistingStreamItem()
     {
+        // A visible absolute cursor is the default everywhere except macOS, so
+        // the first frame of a WebRTC session already has a cursor instead of
+        // waiting for the player to find F8.
+#if defined(Q_OS_MACOS)
+        constexpr bool webRtcStartsRelative = true;
+#else
+        constexpr bool webRtcStartsRelative = false;
+#endif
         CursorSession session;
         QVERIFY(session.start(QStringLiteral("nvst")));
         StreamVideoItem item(session.window.contentItem());
@@ -739,11 +747,12 @@ private slots:
             reinterpret_cast<const std::uint8_t *>(ready.constData()), ready.size(),
             CursorSession::callbacks.user_data);
         QTRY_VERIFY(item.captureActive());
-        QVERIFY(item.relativeMouse());
+        QCOMPARE(item.relativeMouse(), webRtcStartsRelative);
         item.togglePointerLock();
-        QVERIFY(!item.relativeMouse());
+        QCOMPARE(item.relativeMouse(), !webRtcStartsRelative);
+        // The explicit choice outlives a cursor reset, in both directions.
         item.resetRemoteCursor();
-        QVERIFY(!item.relativeMouse());
+        QCOMPARE(item.relativeMouse(), !webRtcStartsRelative);
     }
 
     void macCursorVisibilityTracksCaptureAndServerHandoff()
@@ -821,12 +830,26 @@ private slots:
                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
         item.mouseReleaseEvent(&release);
         QTRY_VERIFY(item.captureActive());
-        const bool webrtc = transport == QStringLiteral("webrtc");
-        QCOMPARE(item.relativeMouse(), webrtc);
-        QCOMPARE(item.m_macPointer->locked(), webrtc);
-        QCOMPARE(pointer.associated, !webrtc);
-        QCOMPARE(pointer.hideCount, webrtc ? 1 : 0);
-        if (!webrtc) {
+        // The accepted transport picks the starting capture mode, and a WebRTC
+        // session starts pointer locked only where absolute mode has no owner to
+        // confine the cursor. Everywhere else the first frame already carries a
+        // visible cursor, so this test asks the runtime what it decided and then
+        // drives the pointer lock itself.
+#if defined(Q_OS_MACOS)
+        constexpr bool webRtcStartsRelative = true;
+#else
+        constexpr bool webRtcStartsRelative = false;
+#endif
+        const bool startsRelative =
+            transport == QStringLiteral("webrtc") && webRtcStartsRelative;
+        QCOMPARE(session.runtime.defaultRelativeMouse(), startsRelative);
+        QCOMPARE(item.relativeMouse(), startsRelative);
+        QCOMPARE(item.m_macPointer->locked(), startsRelative);
+        QCOMPARE(pointer.associated, !startsRelative);
+        QCOMPARE(pointer.hideCount, startsRelative ? 1 : 0);
+        if (!startsRelative) {
+            // A hidden-cursor notification is what locks an absolute session, and
+            // it has to be honoured from the very first message.
             item.applyRemoteCursor(QByteArray::fromHex("0000"));
             QVERIFY(item.m_macPointer->locked());
         }
