@@ -539,6 +539,18 @@ fn normalized_bitmap_cursor(payload: &[u8]) -> Vec<u8> {
     if payload.first() == Some(&1) && crate::nvst_cursor::valid_cursor_channel_message(payload) {
         return payload.to_vec();
     }
+    // The raw bytes still go to the diagnostics log, so a report shows exactly
+    // what the host published and what this build cannot draw yet.
+    let layout = payload.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    opennow_streamer_protocol::log::log_line(
+        "INFO",
+        "nvst-cursor",
+        &format!(
+            "bitmap cursor published an undecoded layout bytes={} hex={}; drawing the arrow",
+            payload.len(),
+            layout
+        ),
+    );
     // type 1 (custom), id 0, hotspot 0/0, empty MIME, zero-length image. Custom
     // id 0 is a visible cursor; only predefined id 0 means hidden.
     vec![1, 0, 0, 0, 0, 0, 0]
