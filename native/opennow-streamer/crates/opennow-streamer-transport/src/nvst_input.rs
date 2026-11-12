@@ -541,7 +541,10 @@ fn normalized_bitmap_cursor(payload: &[u8]) -> Vec<u8> {
     }
     // The raw bytes still go to the diagnostics log, so a report shows exactly
     // what the host published and what this build cannot draw yet.
-    let layout = payload.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let layout = payload
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     opennow_streamer_protocol::log::log_line(
         "INFO",
         "nvst-cursor",
@@ -1871,13 +1874,17 @@ mod tests {
         // cursor image instead of falling back to a plain arrow.
         let wire = control_command(
             COMMAND_BITMAP_CURSOR,
-            &[1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'],
+            &[
+                1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd',
+            ],
         );
         let cursors = server_cursor_messages(&wire);
         assert_eq!(cursors.len(), 1);
         assert_eq!(
             cursors[0].normalized,
-            Some(vec![1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'])
+            Some(vec![
+                1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'
+            ])
         );
 
         // A native layout that merely starts with the custom-cursor type byte
