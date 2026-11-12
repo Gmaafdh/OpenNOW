@@ -134,6 +134,9 @@ pub enum TransportEvent {
     Disconnected(String),
     InputReady(u16),
     InputUnavailable(String),
+    /// One normalized server cursor notification: a system cursor id or a
+    /// bitmap cursor the local pointer should adopt.
+    Cursor(Vec<u8>),
     Log(String),
     Stats(TransportStats),
 }
@@ -970,6 +973,18 @@ impl TransportWorker {
                 if let Some(version) = self.input.channel_data(self.channels, data.id, &data.data) {
                     self.input_ready.store(true, Ordering::Release);
                     self.emit(TransportEvent::InputReady(version))?;
+                }
+                // GFN describes the pointer with 0x010f (system cursor) and
+                // 0x0110 (bitmap cursor) records. NVST reads them off the
+                // reliable ServerControl stream; WebRTC has no such stream, so
+                // the same framing is parsed out of whatever the host sends back
+                // on any data channel. Bytes that are not cursor records are
+                // ignored exactly as before, and input stays outbound only.
+                for message in crate::nvst_input::server_cursor_messages(&data.data) {
+                    let Some(cursor) = message.normalized else {
+                        continue;
+                    };
+                    self.emit(TransportEvent::Cursor(cursor))?;
                 }
             }
             Event::ChannelClose(id) if self.input.channel_closed(self.channels, id) => {

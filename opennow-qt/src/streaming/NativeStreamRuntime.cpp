@@ -108,7 +108,10 @@ QString nativeStreamerLogPath()
 QString handshakeSummary(const QJsonObject &object)
 {
     QStringList fields;
-    for (const auto *key : {"id", "type", "event", "status", "code", "protocolVersion", "phase"}) {
+    // "transport" is what decides the cursor and input defaults, so a support
+    // log has to name it: nvst and webrtc behave differently by design.
+    for (const auto *key :
+         {"id", "type", "event", "status", "code", "protocolVersion", "phase", "transport"}) {
         const auto value = object.value(QLatin1String(key));
         const auto text = value.isString() ? value.toString()
                         : value.isDouble() ? QString::number(value.toDouble()) : QString{};

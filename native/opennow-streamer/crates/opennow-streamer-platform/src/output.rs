@@ -1427,6 +1427,10 @@ impl SdlInputCapture {
             sdl.mouse().set_relative_mouse_mode(false);
             window.set_mouse_grab(false);
             self.relative_mouse = false;
+            // Entering relative mode hid the system pointer, and Windows tracks
+            // that with a display counter. Restore it on every exit so a session
+            // that ends while locked cannot leave the shell without a cursor.
+            sdl.mouse().show_cursor(true);
             eprintln!("External SDL mouse control mode: absolute cursor");
         }
     }

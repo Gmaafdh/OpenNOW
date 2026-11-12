@@ -373,6 +373,10 @@ impl Worker {
             "status",
             json!({"status":"connecting","message":"Connecting WebRTC compatibility transport"}),
         );
+        // WebRTC never composites a pointer into the video and, unlike NVST, has
+        // no cursor-capture negotiation to say so. State it explicitly instead of
+        // leaving the shell to assume the video already contains the cursor.
+        self.emit("cursor-capture", json!({"composited":false}));
         self.emit("microphone-state", json!({"state":"unavailable","enabled":false,"message":"WebRTC compatibility does not support microphone audio"}));
         let mut signaling = signaling::Signaling::connect(&self.context.session, &self.cancelled)?;
         if !self.active() {
@@ -456,6 +460,7 @@ impl Worker {
         let mut progress = Progress::new(Instant::now(), published_baseline);
         let mut input_origin = Instant::now();
         let mut input_state = input::InputState::default();
+        let mut cursor_notifications = 0_u64;
         let mut drops = QueueDropReports::new();
         let mut telemetry = Telemetry::new(Instant::now());
         let result = (|| -> Result<(), Failure> {
@@ -472,6 +477,15 @@ impl Worker {
                         self.emit("input-ready", json!({"protocolVersion":version}));
                     }
                     TransportEvent::InputUnavailable(message) => return Err(Failure { code:"webrtc-input-unavailable", message }),
+                    TransportEvent::Cursor(bytes) => {
+                        cursor_notifications += 1;
+                        if cursor_notifications == 1 {
+                            self.emit("log", json!({"level":"info","message":"WebRTC host published a cursor notification; the local pointer now follows the game cursor"}));
+                        }
+                        if let Some(media) = &self.media {
+                            media.update_cursor(bytes);
+                        }
+                    }
                     TransportEvent::Log(message) => self.emit("log", json!({"level":"info","message":message})),
                     TransportEvent::Stats(stats) => telemetry.transport = stats,
                 }
