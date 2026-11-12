@@ -370,14 +370,31 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("contains(github.event.head_commit.message, '[publish-windows-146.1]')", job)
         self.assertIn("run-id: 42347482232", job)
         # The tag points at the commit the archived build actually came from.
-        self.assertIn("--target b3d3c72948bc3732532041cb33edafb7b7497889", job)
+        self.assertIn("local commit=b3d3c72948bc3732532041cb33edafb7b7497889", job)
+        self.assertIn('-f "target_commitish=$commit"', job)
         # Both packages ship: the installer next to the portable archive.
         self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe", job)
         self.assertIn("OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip", job)
         self.assertIn("SHA256SUMS does not cover both the installer and the portable archive", job)
         # A refusal has to be readable without the job log, which lives on a
-        # blob host that is not reachable from every network.
-        self.assertIn("::error title=146.1 publish verification failed::", job)
+        # blob host that is not reachable from every network: each outcome is
+        # annotated, and a failed publish also carries its gh conversation out.
+        for title in (
+            "146.1 publish verification failed",
+            "146.1 release creation failed",
+            "146.1 asset upload failed",
+        ):
+            self.assertIn(title, job)
+        self.assertIn("if: failure()", job)
+        self.assertIn("ci-logs/publish-release.log", job)
+        # Created through the REST API as a release: not a draft, not a
+        # pre-release, and GitHub is left to mark it latest on its own terms.
+        self.assertIn("-F draft=false", job)
+        self.assertIn("-F prerelease=false", job)
+        # Assets go up through the same proven call the fast channel uses, so a
+        # re-run completes a half-published release instead of failing on it.
+        self.assertIn("gh release upload 1.0.3-nightly.146.1", job)
+        self.assertIn("--clobber", job)
         # Both metadata files come off a Windows runner, so CRLF and the byte
         # order mark have to be normalised before anything is compared.
         self.assertIn('encoding="utf-8-sig"', job)
@@ -385,8 +402,10 @@ class CIWorkflowTest(unittest.TestCase):
         # A release, not a pre-release, and never marked latest by hand.
         self.assertNotIn("--prerelease", job)
         self.assertNotIn("--latest", job)
-        # It refuses to touch an existing release instead of clobbering it.
-        self.assertIn("already exists; refusing to overwrite it", job)
+        # It refuses to move a tag that points somewhere else, and re-running it
+        # completes a half-published release instead of clobbering a good one.
+        self.assertIn("refusing to overwrite it", job)
+        self.assertIn("already exists with all ${#assets[@]} assets; nothing to publish", job)
         # Same verification chain the restore job uses, extended to both packages.
         for proof in (
             "Version: {version}",
@@ -436,7 +455,7 @@ class CIWorkflowTest(unittest.TestCase):
                 [sys.executable, "-c", script, str(root)], capture_output=True, text=True
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("::notice title=146.1 packages verified::", result.stdout)
+            self.assertIn("146.1 packages verified", result.stdout)
             manifest = archive.with_name(archive.name + ".manifest.json")
             self.assertTrue(manifest.is_file())
             notes = root / "RELEASE-NOTES.md"
@@ -451,7 +470,7 @@ class CIWorkflowTest(unittest.TestCase):
                 [sys.executable, "-c", script, str(root)], capture_output=True, text=True
             )
             self.assertEqual(broken.returncode, 1)
-            self.assertIn("::error title=146.1 publish verification failed::", broken.stdout)
+            self.assertIn("146.1 publish verification failed", broken.stdout)
             self.assertIn("Checksum verification failed for", broken.stdout)
 
     def test_windows_ctest_annotation_preserves_the_first_failure(self):

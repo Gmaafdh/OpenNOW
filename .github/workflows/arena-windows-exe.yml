@@ -584,7 +584,7 @@ jobs:
           root = pathlib.Path(sys.argv[1])
 
           def annotate(level, title, text):
-              for bad, good in (("%", "%25"), ("\r", ""), ("\n", "%0A"), (":", "%3A")):
+              for bad, good in (("%", "%25"), ("\r", ""), ("\n", "%0A")):
                   text = text.replace(bad, good)
               print(f"::{level} title={title}::{text}", flush=True)
 
@@ -612,7 +612,7 @@ jobs:
           source_commit = "b3d3c72948bc3732532041cb33edafb7b7497889"
 
           def annotate(level, title, text):
-              for bad, good in (("%", "%25"), ("\r", " "), ("\n", " | "), (":", "%3A")):
+              for bad, good in (("%", "%25"), ("\r", " "), ("\n", " | ")):
                   text = str(text).replace(bad, good)
               print(f"::{level} title={title}::{text}", flush=True)
 
@@ -690,18 +690,89 @@ jobs:
           annotate("notice", "146.1 packages verified", json.dumps(digest))
           print("verified both packages: " + json.dumps(digest))
           PYTHON
-          if gh release view 1.0.3-nightly.146.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error title=146.1 publish verification failed::Release 1.0.3-nightly.146.1 already exists; refusing to overwrite it"
-            exit 1
-          fi
-          gh release create 1.0.3-nightly.146.1 \
-            --repo "$GITHUB_REPOSITORY" \
-            --target b3d3c72948bc3732532041cb33edafb7b7497889 \
-            --title "OpenNOW 1.0.3-nightly.146.1 (Windows x64)" \
-            --notes-file "$package_dir/RELEASE-NOTES.md" \
-            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe" \
-            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip" \
-            "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip.manifest.json" \
-            "$package_dir/BUILD-INFO.txt" \
-            "$package_dir/SHA256SUMS"
-          echo "Published 1.0.3-nightly.146.1 as a full release with the installer and the portable archive. No build was run." >> "$GITHUB_STEP_SUMMARY"
+          annotate() {
+            local level=$1 title=$2 text=$3
+            text=${text//%/%25}
+            text=${text//$'\r'/}
+            text=${text//$'\n'/ | }
+            echo "::$level title=$title::$text"
+          }
+
+          mkdir -p ci-logs
+          publish() {
+            local commit=b3d3c72948bc3732532041cb33edafb7b7497889
+            local assets=(
+              "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64-setup.exe"
+              "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip"
+              "$package_dir/OpenNOW-Qt-1.0.3-nightly.146.1-Windows-x64.zip.manifest.json"
+              "$package_dir/BUILD-INFO.txt"
+              "$package_dir/SHA256SUMS"
+            )
+            local release_id target have missing asset body url output
+            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.id' 2>/dev/null || true)
+            if [ -n "$release_id" ]; then
+              # Re-running must complete a half-published release, never replace
+              # a good one, and never move a tag that points somewhere else.
+              target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.target_commitish // ""')
+              have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '[.assets[].name] | join(" ")')
+              if [ -n "$target" ] && [ "${target:0:12}" != "${commit:0:12}" ]; then
+                annotate error "146.1 publish verification failed" "Release 1.0.3-nightly.146.1 already exists and points at $target, not the approved build; refusing to overwrite it"
+                return 1
+              fi
+              missing=0
+              for asset in "${assets[@]}"; do
+                case " $have " in
+                  *" $(basename "$asset") "*) ;;
+                  *) missing=$((missing + 1)) ;;
+                esac
+              done
+              if [ "$missing" -eq 0 ]; then
+                annotate notice "146.1 release already complete" "Release 1.0.3-nightly.146.1 already exists with all ${#assets[@]} assets; nothing to publish"
+                echo "## 1.0.3-nightly.146.1 was already published" >> "$GITHUB_STEP_SUMMARY"
+                return 0
+              fi
+              annotate notice "146.1 release incomplete" "Release 1.0.3-nightly.146.1 is missing $missing of ${#assets[@]} assets, present ${have:-none}; completing it"
+            else
+              body=$(cat "$package_dir/RELEASE-NOTES.md")
+              if ! url=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+                  -f "tag_name=1.0.3-nightly.146.1" \
+                  -f "target_commitish=$commit" \
+                  -f "name=OpenNOW 1.0.3-nightly.146.1 (Windows x64)" \
+                  -f "body=$body" \
+                  -F draft=false \
+                  -F prerelease=false \
+                  -F make_latest=true \
+                  --jq '.html_url' 2>&1); then
+                annotate error "146.1 release creation failed" "$url"
+                return 1
+              fi
+              annotate notice "146.1 release created" "$url"
+            fi
+            if ! output=$(gh release upload 1.0.3-nightly.146.1 "${assets[@]}" \
+                --repo "$GITHUB_REPOSITORY" --clobber 2>&1); then
+              annotate error "146.1 asset upload failed" "$output"
+              return 1
+            fi
+            annotate notice "146.1 assets uploaded" "${output:-all five assets}"
+            echo "Published 1.0.3-nightly.146.1 as a full release with the installer and the portable archive. No build was run." >> "$GITHUB_STEP_SUMMARY"
+          }
+          publish 2>&1 | tee ci-logs/publish-release.log
+
+      # The blob host that stores job logs is not reachable from every client
+      # environment, so a failed publish carries its own gh conversation out as
+      # an annotation instead of leaving a bare "exit code 1" behind.
+      - name: Publish the release failure excerpt
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - ci-logs <<'EXCERPT'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          for log in sorted(root.glob("*.log")):
+              lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+              text = "\n".join(lines[-80:])[-6000:] or "<empty log>"
+              for bad, good in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+                  text = text.replace(bad, good)
+              print(f"::error title={log.name}::{text}", flush=True)
+          EXCERPT
