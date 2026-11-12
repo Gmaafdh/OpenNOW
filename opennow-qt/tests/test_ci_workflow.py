@@ -302,7 +302,7 @@ class CIWorkflowTest(unittest.TestCase):
         workflow = (WORKFLOWS / "arena-windows-exe.yml").read_text()
         self.assertEqual(
             re.findall(r"^\s+runs-on: (.+)$", workflow, re.MULTILINE),
-            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04", "ubuntu-24.04"],
+            ["ubuntu-24.04", "windows-2025", "ubuntu-24.04", "ubuntu-24.04", "ubuntu-24.04"],
         )
         self.assertIn("    needs: contracts", workflow)
         self.assertEqual(workflow.count("    if: github.ref == 'refs/heads/arena/15b83ddf-opennow'"), 2)
@@ -314,11 +314,11 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("      - arena/c8d904a5-opennow\n", workflow)
         self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/c8d904a5-opennow'"), 2)
         # The branch that publishes the archived 146.1 release runs the contracts
-        # job and the publish job only. It must never reach the Windows build
-        # gate: that would spend 35 minutes rebuilding the very package this job
-        # exists to restore without building.
+        # job, the staging job and the publish job only. It must never reach the
+        # Windows build gate: that would spend 35 minutes rebuilding the very
+        # package these jobs exist to restore without building.
         self.assertIn("      - arena/2a2749e0-opennow\n", workflow)
-        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/2a2749e0-opennow'"), 2)
+        self.assertEqual(workflow.count("github.ref == 'refs/heads/arena/2a2749e0-opennow'"), 3)
         self.assertIn("  contents: read", workflow)
         for prohibited in ("pull_request:", "pull_request_target:", "secrets.", "environment:"):
             with self.subTest(prohibited=prohibited):
@@ -365,10 +365,27 @@ class CIWorkflowTest(unittest.TestCase):
         self.assertIn("  publish-windows-146-release:\n", workflow)
         job = workflow.split("  publish-windows-146-release:", 1)[1]
         self.assertIn("Publish Windows nightly 146.1 as a full release", job)
+        # Reading an artifact out of another workflow run is what needs
+        # actions: read, and asking for it alongside contents: write is what
+        # GitHub answered with "Resource not accessible by integration" when the job
+        # tried to create the release. The download therefore lives in its own
+        # job, and the publishing token asks for the single scope that this
+        # workflow already publishes arena-fast with.
+        staged = workflow.split("  stage-windows-146-packages:", 1)[1].split("\n  publish-windows-146-release:", 1)[0]
+        self.assertIn("Stage the archived 146.1 packages for publication", staged)
+        self.assertIn("run-id: 42347482232", staged)
+        self.assertIn("      actions: read\n", staged)
+        self.assertNotIn("contents: write", staged)
+        self.assertIn("name: windows-146-packages", staged)
+        self.assertIn("      - stage-windows-146-packages\n", job)
+        self.assertIn("      contents: write\n", job)
+        self.assertNotIn("actions: read", job)
+        self.assertIn("name: windows-146-packages\n", job)
+        # A permission refusal has to name itself rather than leave a bare 403.
+        self.assertIn('"Publishing token access"', job)
         # Opt-in by commit message, like the restore job, so an ordinary push to
         # this branch cannot republish a release by accident.
         self.assertIn("contains(github.event.head_commit.message, '[publish-windows-146.1]')", job)
-        self.assertIn("run-id: 42347482232", job)
         # The tag points at the commit the archived build actually came from.
         self.assertIn("local commit=b3d3c72948bc3732532041cb33edafb7b7497889", job)
         self.assertIn('-f "target_commitish=$commit"', job)

@@ -549,19 +549,18 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
           echo "Restored 1.0.3-nightly.146.1 from its existing Actions artifact. No build was run." >> "$GITHUB_STEP_SUMMARY"
 
-  publish-windows-146-release:
-    name: Publish Windows nightly 146.1 as a full release
+  # Reading an artifact from another workflow run needs actions: read, and the
+  # job that publishes needs contents: write. Keeping them apart means the
+  # publishing token asks for exactly the scope that already works in this
+  # workflow - the windows-x64 job publishes arena-fast with contents: write
+  # alone - instead of a combination that GitHub answered with a 403.
+  stage-windows-146-packages:
+    name: Stage the archived 146.1 packages for publication
     if: ${{ github.ref == 'refs/heads/arena/2a2749e0-opennow' && github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-146.1]') }}
-    needs: contracts
     runs-on: ubuntu-24.04
     permissions:
       actions: read
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
       - name: Download the already-built 146.1 packages
         uses: actions/download-artifact@v4
         with:
@@ -569,6 +568,34 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 42347482232
           github-token: ${{ github.token }}
+          path: windows-146
+
+      - name: Stage them for the publishing job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-146-packages
+          path: windows-146/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-windows-146-release:
+    name: Publish Windows nightly 146.1 as a full release
+    if: ${{ github.ref == 'refs/heads/arena/2a2749e0-opennow' && github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-146.1]') }}
+    needs:
+      - contracts
+      - stage-windows-146-packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the staged 146.1 packages
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-146-packages
           path: windows-146
 
       # The job log lives on a blob host that is not reachable from everywhere, so
@@ -708,7 +735,9 @@ jobs:
               "$package_dir/BUILD-INFO.txt"
               "$package_dir/SHA256SUMS"
             )
-            local release_id target have missing asset body url output
+            local release_id target have missing asset body url output access
+            access=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions' 2>&1 || true)
+            annotate notice "Publishing token access" "$access"
             # "gh api --jq" writes the JSON error body to stdout when a tag has no
             # release yet, so a probe that only asks whether its output is
             # non-empty concludes that every release already exists and then dies
