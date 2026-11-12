@@ -704,6 +704,18 @@ QtObject {
     property bool streamerRecoveryExhausted: false
     property int sessionReconnectAttempts: 0
     readonly property int maximumSessionReconnectAttempts: 8
+    // A WebRTC seat whose signaling endpoint never returns an offer fails the
+    // same way on every retry, because re-claiming hands back the same seat
+    // and the same endpoint. Spending the connection-retry budget on it holds
+    // the player on the queue screen for minutes with nothing to show, so it
+    // gets a much smaller budget that ends in a fresh allocation instead.
+    property int webrtcSignalingFailures: 0
+    property string webrtcSignalingFailureSessionId: ""
+    property bool webrtcSignalingRequeued: false
+    property bool webrtcSignalingSettled: false
+    readonly property int maximumWebrtcSignalingFailures: 2
+    readonly property string webrtcSignalingRequeueMessage: qsTr("This rig did not answer the WebRTC connection. Requesting a fresh rig…")
+    readonly property string webrtcSignalingExhaustedMessage: qsTr("This rig did not answer the WebRTC connection. Request a fresh rig to keep playing.")
     property int streamPollFailureAttempts: 0
     readonly property int maximumStreamPollFailureAttempts: 8
     property bool sessionRecoveryPending: false
@@ -2058,6 +2070,8 @@ QtObject {
         sessionReconnectAttempts = 0
         streamerRestartRecoveryCount = 0
         sessionRecoveryCount = 0
+        resetWebrtcSignalingFailures()
+        webrtcSignalingRequeued = false
         guidePagesVisited = []
         antiAfkEnabled = false
         const variants = selectedGame.variants || []
@@ -2293,6 +2307,7 @@ QtObject {
             streamPollFailureAttempts = 0
             streamerRecoveryExhausted = false
             sessionProgressAutoRecoveries = 0
+            resetWebrtcSignalingFailures()
         }
         if (!activeSession) {
             reportSessionEnd(previousSession, "remote_ended")
@@ -2441,6 +2456,59 @@ QtObject {
             }))
     }
 
+    function resetWebrtcSignalingFailures() {
+        webrtcSignalingFailures = 0
+        webrtcSignalingFailureSessionId = ""
+        webrtcSignalingSettled = false
+    }
+
+    // `reported` is true only for the error event itself; the stopped status
+    // that trails it describes the same failure and must not be counted twice.
+    // Returns true when the failure was consumed here instead of being handed
+    // to the ordinary reconnect budget. Re-claiming returns the same seat and
+    // the same signaling endpoint, so that budget only repeats the identical
+    // timeout and holds the queue screen for minutes with nothing to show.
+    // Leaves the seat for a fresh allocation once, because that is the only
+    // retry that can reach a different endpoint; a second dead seat is
+    // reported rather than looped on.
+    function handleWebrtcSignalingFailure(reported) {
+        const sessionId = activeSession ? String(activeSession.sessionId || "") : ""
+        if (sessionId !== webrtcSignalingFailureSessionId) {
+            webrtcSignalingFailureSessionId = sessionId
+            webrtcSignalingFailures = 0
+            webrtcSignalingSettled = false
+        }
+        if (webrtcSignalingSettled) {
+            // The snapshot already copied the transport's own text into
+            // streamMessage. This seat is settled, so neither the retry loop
+            // nor that text may replace what the player is being told.
+            streamMessage = webrtcSignalingRequeued && requeueRequested
+                ? webrtcSignalingRequeueMessage : webrtcSignalingExhaustedMessage
+            return true
+        }
+        if (!reported)
+            return false
+        webrtcSignalingFailures += 1
+        if (webrtcSignalingFailures < maximumWebrtcSignalingFailures)
+            return false
+        cancelSessionRecovery()
+        webrtcSignalingFailures = 0
+        webrtcSignalingSettled = true
+        if (!webrtcSignalingRequeued && pendingLaunchParams !== null && !requeueRequested) {
+            webrtcSignalingRequeued = true
+            streamMessage = webrtcSignalingRequeueMessage
+            requeueSession()
+            if (requeueRequested)
+                return true
+            webrtcSignalingRequeued = false
+        }
+        streamerRecoveryExhausted = true
+        streamState = "error"
+        streamMessage = webrtcSignalingExhaustedMessage
+        lastError = streamMessage
+        return true
+    }
+
     function retryNativeStreamer() {
         streamerRestartTimer.stop()
         streamerRestartAttempts = 0
@@ -2448,6 +2516,7 @@ QtObject {
         streamPollFailureAttempts = 0
         sessionStopIntentId = ""
         streamerRecoveryExhausted = false
+        resetWebrtcSignalingFailures()
         recoverStreamingSession(streamMessage)
     }
 
@@ -2520,6 +2589,9 @@ QtObject {
             lastError = streamMessage
             return
         }
+        if (streamer.errorCode === "webrtc-signaling-failed"
+                && handleWebrtcSignalingFailure(status === "error"))
+            return
         if (sessionRecoveryPending || streamerRestartTimer.running)
             return
         scheduleSessionRecovery(streamMessage)
@@ -3330,6 +3402,7 @@ QtObject {
         streamPollFailureAttempts = 0
         sessionProgressAutoRecoveries = 0
         streamerRecoveryExhausted = false
+        resetWebrtcSignalingFailures()
         sessionRecoveryPending = false
         sessionRecoveryAwaitingAuth = false
         streamState = activeSession.resumePending ? "resuming" : "preparing"
@@ -4216,6 +4289,8 @@ QtObject {
             streamerRestartAttempts = 0
             sessionReconnectAttempts = 0
             streamerRecoveryExhausted = false
+            resetWebrtcSignalingFailures()
+            webrtcSignalingRequeued = false
             streamerRestartTimer.stop()
             if (streamer && (streamer.firstFrameLatencyMs === undefined
                     || streamer.firstFrameLatencyMs === null)) {

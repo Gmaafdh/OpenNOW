@@ -346,6 +346,15 @@ impl Worker {
     }
 
     fn terminal(&self, failure: Failure) {
+        // The shell only surfaces the code, and every Failure built in this
+        // module bypasses the signaling logger, so without this line a seat
+        // that never answers looks exactly like a slow one in the diagnostics
+        // export.
+        opennow_streamer_protocol::log::log_line(
+            "WARN",
+            "webrtc-transport",
+            &format!("{}: {}", failure.code, failure.message),
+        );
         let mut lifecycle = lock_lifecycle(&self.lifecycle);
         if lifecycle.generation != self.generation
             || lifecycle.state == State::Idle
@@ -382,11 +391,17 @@ impl Worker {
         if !self.active() {
             return Ok(());
         }
+        opennow_streamer_protocol::log::log_line(
+            "INFO",
+            "webrtc-signaling",
+            "sign-in accepted; awaiting the server offer",
+        );
         let peer_info = signaling
             .protocol
             .peer_info(self.stream.width, self.stream.height);
         signaling.send(peer_info)?;
-        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        let started = Instant::now();
+        let deadline = started + STARTUP_TIMEOUT;
         let mut candidates = Vec::new();
         let offer = loop {
             if !self.active() {
@@ -411,6 +426,16 @@ impl Worker {
                 None => thread::sleep(SIGNALING_POLL_INTERVAL),
             }
         };
+        opennow_streamer_protocol::log::log_line(
+            "INFO",
+            "webrtc-signaling",
+            &format!(
+                "offer received bytes={} queuedCandidates={} elapsedMs={}",
+                offer.len(),
+                candidates.len(),
+                started.elapsed().as_millis()
+            ),
+        );
         let threshold = sdp::partial_reliability(&offer)?;
         let mut transport_session = self.context.session.clone();
         let host = transport_session

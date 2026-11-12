@@ -699,6 +699,122 @@ QtObject {
         ShellStore.activeSession = null
         ShellStore.streamer = {status:"stopped"}
     }
+    // A seat whose WebRTC signaling endpoint never answers fails identically on
+    // every reconnect, because re-claiming hands back the same endpoint. This
+    // reproduces the reported stall: the queue completes, the rig is allocated,
+    // and the shell then repeats the same twenty second timeout while the queue
+    // screen offers nothing to do but kill the application.
+    function checkWebrtcSignalingEscape() {
+        client.state = "ready"
+        const owner = {generation:4,userId:"webrtc-owner",providerIdpId:"webrtc-provider"}
+        const termination = {source:"webrtc-transport",code:"webrtc-signaling-failed",resumable:null}
+        const reason = "Timed out waiting for the WebRTC offer"
+        const begin = sessionId => {
+            ShellStore.cancelSessionRecovery()
+            ShellStore.streamerRestartTimer.stop()
+            ShellStore.streamPollTimer.stop()
+            ShellStore.resetWebrtcSignalingFailures()
+            ShellStore.activeSession = {sessionId:sessionId,status:3,phase:"streaming",
+                appId:"100",transportMode:"webrtc",ownerScope:owner}
+            ShellStore.streamer = {sessionId:sessionId,status:"connecting"}
+            ShellStore.streamState = "connecting"
+            ShellStore.streamMessage = ""
+            ShellStore.lastError = ""
+            ShellStore.streamerStopExpected = false
+            ShellStore.streamerRecoveryExhausted = false
+            ShellStore.sessionReconnectAttempts = 0
+            ShellStore.requeueRequested = false
+            ShellStore.forceNewAfterStop = false
+            ShellStore.pendingLaunchParams = {appId:"100"}
+            ShellStore.coreSessionRestoreId = ""
+            ShellStore.sessionStopIntentId = ""
+            ShellStore.streamerStopRequestId = ""
+            ShellStore.streamStopRequestId = ""
+            ShellStore.streamPollRequestId = ""
+            ShellStore.streamerPrepareRequestId = ""
+            return client.calls.length
+        }
+        // One attempt is the error event plus the stopped status trailing it.
+        const attempt = () => {
+            ShellStore.acceptNativeEvent({type:"error", code:"webrtc-signaling-failed",
+                message:reason, termination:termination})
+            ShellStore.acceptNativeEvent({type:"status", status:"stopped",
+                message:reason, termination:termination})
+        }
+        const stops = since => client.calls.slice(since)
+            .filter(call => call.method === "session.stop")
+
+        ShellStore.webrtcSignalingRequeued = false
+        let since = begin("webrtc-seat")
+        attempt()
+        check(ShellStore.webrtcSignalingFailures === 1,
+              "one reported signaling failure is counted once, not once per event")
+        check(ShellStore.streamerRestartTimer.running && ShellStore.streamState === "reconnecting",
+              "a first signaling timeout keeps the ordinary bounded recovery")
+        check(!ShellStore.streamerRecoveryExhausted && stops(since).length === 0,
+              "a first signaling timeout neither gives up nor stops the cloud session")
+        check(ShellStore.sessionReconnectAttempts === 0,
+              "the stopped status trailing the error spends no reconnect budget")
+
+        since = client.calls.length
+        attempt()
+        check(ShellStore.webrtcSignalingRequeued && ShellStore.requeueRequested,
+              "a second identical failure requests a fresh allocation")
+        const requeues = stops(since)
+        check(requeues.length === 1 && requeues[0].params.sessionId === "webrtc-seat",
+              "the escape leaves exactly the dead seat")
+        check(!ShellStore.streamerRestartTimer.running && !ShellStore.sessionRecoveryPending,
+              "the escape cancels the reconnect loop that would repeat the timeout")
+        check(ShellStore.streamState === "stopping" && ShellStore.forceNewAfterStop,
+              "the escape relaunches instead of re-claiming the same seat")
+        check(ShellStore.sessionReconnectAttempts === 0,
+              "a dead WebRTC seat never spends the connection-retry budget")
+        check(ShellStore.streamMessage === ShellStore.webrtcSignalingRequeueMessage,
+              "the stopped status trailing the escape does not overwrite what the player reads")
+        check(ShellStore.webrtcSignalingFailures === 0,
+              "the settled seat keeps no failure count that a later snapshot could reuse")
+
+        // The one automatic escape is spent, so a second dead seat must be
+        // reported with a way forward instead of looping again.
+        since = begin("webrtc-seat-two")
+        attempt()
+        check(!ShellStore.streamerRecoveryExhausted && stops(since).length === 0
+              && ShellStore.webrtcSignalingFailures === 1,
+              "a replacement seat gets its own failure budget")
+        attempt()
+        check(ShellStore.streamerRecoveryExhausted && ShellStore.streamState === "error",
+              "a second dead seat ends instead of requesting another allocation")
+        check(stops(since).length === 0,
+              "the reported failure leaves the cloud session for the player to end")
+        check(ShellStore.lastError === ShellStore.webrtcSignalingExhaustedMessage
+              && ShellStore.streamMessage === ShellStore.webrtcSignalingExhaustedMessage,
+              "the reported failure keeps an actionable message through its trailing status")
+        check(ShellStore.sessionReconnectAttempts === 0,
+              "reporting a dead seat still spends no reconnect budget")
+
+        ShellStore.cancelSessionRecovery()
+        ShellStore.streamerRestartTimer.stop()
+        ShellStore.streamPollTimer.stop()
+        ShellStore.resetWebrtcSignalingFailures()
+        ShellStore.webrtcSignalingRequeued = false
+        ShellStore.streamerRecoveryExhausted = false
+        ShellStore.sessionReconnectAttempts = 0
+        ShellStore.requeueRequested = false
+        ShellStore.forceNewAfterStop = false
+        ShellStore.pendingLaunchParams = null
+        // The escape above leaves a session.stop in flight; later checks assume
+        // an idle shell, so release every handle this fixture took.
+        ShellStore.streamStopRequestId = ""
+        ShellStore.streamerStopRequestId = ""
+        ShellStore.streamPollRequestId = ""
+        ShellStore.sessionStopIntentId = ""
+        ShellStore.streamerStopExpected = false
+        ShellStore.streamState = "idle"
+        ShellStore.streamMessage = ""
+        ShellStore.lastError = ""
+        ShellStore.activeSession = null
+        ShellStore.streamer = {status:"stopped"}
+    }
     function checkRemoteTerminationReporting() {
         client.state = "ready"
         const auth = {user:{userId:"report-owner",displayName:"Report owner"},provider:{idpId:"report-provider"}}
@@ -1023,6 +1139,7 @@ QtObject {
         stats.destroy()
         checkQueuedPollRetries()
         checkPresentationClassification()
+        checkWebrtcSignalingEscape()
         checkOwnedTerminations()
         checkActiveTimerExhaustion()
         checkCoreRestartPreservesSession()

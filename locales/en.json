@@ -4204,6 +4204,8 @@
     "thisPermanentlyRemovesTheFileFromThisDevice": "This permanently removes the file from this device.",
     "thisQueueCanNoLongerBeRestartedReturnToTheGameAnd": "This queue can no longer be restarted. Return to the game and launch it again.",
     "thisRemovesTheSavedNVIDIASessionAndLocalPINFor": "This removes the saved NVIDIA session and local PIN for this profile. Captures and settings stay on this device.",
+    "thisRigDidNotAnswerTheWebRTCConnectionRequestAFreshRigToKeepPlaying": "This rig did not answer the WebRTC connection. Request a fresh rig to keep playing.",
+    "thisRigDidNotAnswerTheWebRTCConnectionRequestingAFreshRig": "This rig did not answer the WebRTC connection. Requesting a fresh rig…",
     "update": "UPDATE",
     "upToFourControllersOnThisDeviceGoStraightTo": "Up to four controllers on this device go straight to your game as separate players.",
     "updatesWhenGeForceNOWReportsIt": "Updates when GeForce NOW reports it",
