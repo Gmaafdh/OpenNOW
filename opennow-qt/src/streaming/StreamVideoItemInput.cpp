@@ -1136,8 +1136,14 @@ void StreamVideoItem::updateLocalCursor()
         unsetCursor();
         return;
     }
-    if (m_relativeMouse || (m_serverCursorComposited && !m_usesMacPointerCapture
-                           && m_manualRelativeMouse != false)) {
+    // A cursor the server actually published outranks the compositing claim.
+    // GFN hosts send the game's own cursor image for this client to draw, so
+    // blanking the pointer while that image sits unused leaves nothing on
+    // screen whenever the claim is never withdrawn - which is what NVST
+    // players saw in-game. Only an unpublished cursor defers to the video.
+    if (m_relativeMouse
+        || (m_serverCursorComposited && !m_remoteCursorVisible && !m_usesMacPointerCapture
+            && m_manualRelativeMouse != false)) {
         setCursor(Qt::BlankCursor);
         return;
     }

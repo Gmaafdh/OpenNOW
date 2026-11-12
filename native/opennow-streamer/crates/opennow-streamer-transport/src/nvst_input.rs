@@ -508,17 +508,17 @@ pub(crate) fn server_cursor_messages(bytes: &[u8]) -> Vec<NvstServerCursorMessag
                 });
             }
             COMMAND_BITMAP_CURSOR if payload.len() >= 8 => {
-                // Bitmap cursor payloads have a distinct native pixel layout.
-                // Keep detecting them explicitly so they cannot be mistaken for
-                // input/control commands while raw bitmap support is added.
+                // Bitmap cursor payloads have a distinct native pixel layout, so
+                // they are published through normalized_bitmap_cursor instead of
+                // being mistaken for input/control commands.
                 updates.push(NvstServerCursorMessage {
                     command: code,
                     offset,
                     raw: bytes[offset..payload_end].to_vec(),
                     cursor_id: None,
                     position: None,
-                    visible: None,
-                    normalized: None,
+                    visible: Some(true),
+                    normalized: Some(normalized_bitmap_cursor(payload)),
                 });
             }
             _ => {}
@@ -526,6 +526,22 @@ pub(crate) fn server_cursor_messages(bytes: &[u8]) -> Vec<NvstServerCursorMessag
         offset = payload_end;
     }
     updates
+}
+
+/// Publishes one bitmap cursor notification as a visible custom cursor.
+///
+/// A payload that already matches the platform wire shape is passed through, so
+/// the game's own cursor image is rendered with its hotspot. Anything else is a
+/// native pixel layout this client cannot decode yet, and it still has to
+/// publish a visible cursor: dropping the record left the shell believing the
+/// video carried the pointer, so the player saw no cursor at all in-game.
+fn normalized_bitmap_cursor(payload: &[u8]) -> Vec<u8> {
+    if payload.first() == Some(&1) && crate::nvst_cursor::valid_cursor_channel_message(payload) {
+        return payload.to_vec();
+    }
+    // type 1 (custom), id 0, hotspot 0/0, empty MIME, zero-length image. Custom
+    // id 0 is a visible cursor; only predefined id 0 means hidden.
+    vec![1, 0, 0, 0, 0, 0, 0]
 }
 
 pub(crate) fn native_input_types(packet: &[u8]) -> Result<Vec<u32>, NvstInputCodecError> {
@@ -1829,6 +1845,34 @@ mod tests {
             assert_eq!(cursors[1].offset, visible_offset);
             assert_eq!(cursors[1].normalized, Some(hex("000c0000000000")));
         }
+    }
+
+    #[test]
+    fn bitmap_cursor_notifications_publish_a_visible_custom_cursor() {
+        let native = control_command(COMMAND_BITMAP_CURSOR, &hex("2000200000000000"));
+        let cursors = server_cursor_messages(&native);
+        assert_eq!(cursors.len(), 1);
+        assert_eq!(cursors[0].visible, Some(true));
+        assert_eq!(cursors[0].normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
+
+        // A payload already in the platform wire shape renders as the game's own
+        // cursor image instead of falling back to a plain arrow.
+        let wire = control_command(
+            COMMAND_BITMAP_CURSOR,
+            &[1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'],
+        );
+        let cursors = server_cursor_messages(&wire);
+        assert_eq!(cursors.len(), 1);
+        assert_eq!(
+            cursors[0].normalized,
+            Some(vec![1, 0, 1, 2, 3, b'p', b'n', b'g', 4, 0, b'a', b'b', b'c', b'd'])
+        );
+
+        // A native layout that merely starts with the custom-cursor type byte
+        // must not be forwarded as an image the platform cannot decode.
+        let lookalike = control_command(COMMAND_BITMAP_CURSOR, &hex("01000000000000ff"));
+        let cursors = server_cursor_messages(&lookalike);
+        assert_eq!(cursors[0].normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
     }
 
     #[test]

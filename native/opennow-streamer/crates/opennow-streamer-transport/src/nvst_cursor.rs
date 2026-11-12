@@ -190,8 +190,11 @@ mod tests {
         ]);
         assert_eq!(messages.len(), 1);
         for message in messages {
-            assert_eq!(message.normalized, None);
-            assert_eq!(message.visible, None);
+            // An undecodable native layout still publishes a visible custom
+            // cursor, but never a predefined shape and never the hidden
+            // cursor that would lock the pointer for the whole session.
+            assert_eq!(message.normalized, Some(vec![1, 0, 0, 0, 0, 0, 0]));
+            assert_eq!(message.visible, Some(true));
             capture.notify(now);
         }
         assert!(capture.update(now, |command| {

@@ -898,6 +898,38 @@ private slots:
         QCOMPARE(pointer.hideCount, 0);
     }
 
+    void publishedServerCursorOutranksTheCompositingClaim()
+    {
+        CursorSession session;
+        QVERIFY(session.start());
+        StreamVideoItem item(session.window.contentItem());
+        item.m_usesMacPointerCapture = false;
+        item.setRenderCallback({});
+        item.setSize(session.window.size());
+        item.forceActiveFocus();
+        QTRY_VERIFY(item.captureActive());
+        // Before anything is published the host may still be drawing the pointer
+        // into the video, so the local one stays out of the way.
+        QVERIFY(item.m_serverCursorComposited);
+        QVERIFY(!item.m_remoteCursorKnown);
+        QCOMPARE(item.cursor().shape(), Qt::BlankCursor);
+        // GFN then publishes the game's own cursor and expects this client to
+        // draw it. That has to win even if the compositing claim was never
+        // withdrawn, which is what left NVST players with no cursor in-game.
+        item.applyRemoteCursor(QByteArray::fromHex("0002"));
+        QVERIFY(item.m_serverCursorComposited);
+        QVERIFY(!item.relativeMouse());
+        QCOMPARE(item.cursor().shape(), Qt::IBeamCursor);
+        // A hidden cursor still hands ownership back to the game.
+        item.applyRemoteCursor(QByteArray::fromHex("0000"));
+        QVERIFY(item.relativeMouse());
+        QCOMPARE(item.cursor().shape(), Qt::BlankCursor);
+        // An explicit unlock brings the published cursor straight back.
+        item.togglePointerLock();
+        QVERIFY(!item.relativeMouse());
+        QCOMPARE(item.cursor().shape(), Qt::IBeamCursor);
+    }
+
     void cursorOwnershipSurvivesOverlaysFullscreenAndRestart()
     {
         CursorSession session;
@@ -930,8 +962,10 @@ private slots:
             QTRY_VERIFY(item.captureActive());
             item.applyRemoteCursor(QByteArray::fromHex("0002"));
             QCOMPARE(item.cursor().shape(), Qt::IBeamCursor);
+            // A published cursor keeps ownership even while the host still
+            // claims it composites the pointer into the video.
             session.composition(true);
-            QTRY_COMPARE(item.cursor().shape(), Qt::BlankCursor);
+            QTRY_COMPARE(item.cursor().shape(), Qt::IBeamCursor);
             session.composition(false);
             QTRY_COMPARE(item.cursor().shape(), Qt::IBeamCursor);
             item.applyRemoteCursor(QByteArray::fromHex("0000"));
