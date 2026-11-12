@@ -709,12 +709,20 @@ jobs:
               "$package_dir/SHA256SUMS"
             )
             local release_id target have missing asset body url output
-            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.id' 2>/dev/null || true)
-            if [ -n "$release_id" ]; then
+            # "gh api --jq" writes the JSON error body to stdout when a tag has no
+            # release yet, so a probe that only asks whether its output is
+            # non-empty concludes that every release already exists and then dies
+            # on the first follow-up query under set -e. Existence is decided by
+            # exit status, and the id is accepted only when it is all digits.
+            if gh release view 1.0.3-nightly.146.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               # Re-running must complete a half-published release, never replace
               # a good one, and never move a tag that points somewhere else.
-              target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.target_commitish // ""')
-              have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '[.assets[].name] | join(" ")')
+              release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.id' 2>/dev/null || true)
+              case $release_id in ''|*[!0-9]*) release_id="" ;; esac
+              target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '.target_commitish // ""' 2>/dev/null || true)
+              have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/1.0.3-nightly.146.1" --jq '[.assets[].name] | join(" ")' 2>/dev/null || true)
+              case $target in ''|'{'*) target="" ;; esac
+              case $have in '{'*) have="" ;; esac
               if [ -n "$target" ] && [ "${target:0:12}" != "${commit:0:12}" ]; then
                 annotate error "146.1 publish verification failed" "Release 1.0.3-nightly.146.1 already exists and points at $target, not the approved build; refusing to overwrite it"
                 return 1
@@ -727,7 +735,7 @@ jobs:
                 esac
               done
               if [ "$missing" -eq 0 ]; then
-                annotate notice "146.1 release already complete" "Release 1.0.3-nightly.146.1 already exists with all ${#assets[@]} assets; nothing to publish"
+                annotate notice "146.1 release already complete" "Release 1.0.3-nightly.146.1 (id ${release_id:-unknown}) already exists with all ${#assets[@]} assets; nothing to publish"
                 echo "## 1.0.3-nightly.146.1 was already published" >> "$GITHUB_STEP_SUMMARY"
                 return 0
               fi
@@ -741,7 +749,7 @@ jobs:
                   -f "body=$body" \
                   -F draft=false \
                   -F prerelease=false \
-                  -F make_latest=true \
+                  -f make_latest=true \
                   --jq '.html_url' 2>&1); then
                 annotate error "146.1 release creation failed" "$url"
                 return 1

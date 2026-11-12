@@ -391,6 +391,15 @@ class CIWorkflowTest(unittest.TestCase):
         # pre-release, and GitHub is left to mark it latest on its own terms.
         self.assertIn("-F draft=false", job)
         self.assertIn("-F prerelease=false", job)
+        # make_latest is a string in the REST API, unlike those two booleans.
+        self.assertIn("-f make_latest=true", job)
+        # "gh api --jq" writes the JSON error body to stdout when the tag has no
+        # release yet, so a probe that only tests whether its output is non-empty
+        # concludes the release already exists and then dies on the first
+        # follow-up query under set -e. Existence goes by exit status and the id
+        # is accepted only when it is all digits.
+        self.assertIn('if gh release view 1.0.3-nightly.146.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then', job)
+        self.assertIn("case $release_id in ''|*[!0-9]*) release_id=\"\" ;; esac", job)
         # Assets go up through the same proven call the fast channel uses, so a
         # re-run completes a half-published release instead of failing on it.
         self.assertIn("gh release upload 1.0.3-nightly.146.1", job)
