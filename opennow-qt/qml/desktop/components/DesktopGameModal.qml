@@ -29,9 +29,16 @@ FocusScope {
     // The column stops short of the close button, so a short, narrow window
     // never puts a corner action on top of the title.
     readonly property int cornerReserve: DesktopTokens.px(24) + DesktopTokens.px(40)
+    // A wide window gets a centred stage instead of a column pinned to the left
+    // edge with a thousand pixels of bare artwork beside it: the title, actions
+    // and the summary bar all live inside it. Narrow windows keep the plain
+    // inset, so every suite window renders exactly as before.
+    readonly property int stageWidth: Math.max(DesktopTokens.px(320),
+        Math.min(DesktopTokens.px(1560), Math.max(0, width - contentInset * 2)))
+    readonly property int stageInset: Math.max(contentInset, Math.round((width - stageWidth) / 2))
     readonly property int contentWidth: Math.max(DesktopTokens.px(320),
-        Math.min(DesktopTokens.px(780), Math.max(0, width - contentInset * 2 - cornerReserve)))
-    readonly property int scrollWidth: Math.max(1, Math.min(contentInset + contentWidth, width))
+        Math.min(DesktopTokens.px(780), Math.max(0, stageWidth - cornerReserve)))
+    readonly property int scrollWidth: Math.max(1, Math.min(stageInset + stageWidth, width))
     readonly property int heroHeight: Math.max(headerInfo.implicitHeight + heroSlack,
         Math.round(maximumDialogHeight * 0.36))
     // The scrims follow the theme, so every existing label colour keeps its
@@ -349,7 +356,7 @@ FocusScope {
                     height: root.heroHeight
                     Column {
                         id: headerInfo
-                        x: root.contentInset; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
+                        x: root.stageInset; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
                         width: root.contentWidth; spacing: root.heroSpacing
                         Text {
                             width: parent.width
@@ -403,17 +410,19 @@ FocusScope {
                     Column {
                         id: bodyContent
                         objectName: "gameDetailsBody"
-                        x: root.contentInset
-                        width: root.contentWidth
+                        x: root.stageInset
+                        // The action column keeps its reading width; only the
+                        // summary bar spans the whole stage.
+                        width: root.stageWidth
                         spacing: DesktopTokens.px(20)
                         DesktopGameDlssPanel {
-                            width: parent.width
+                            width: root.contentWidth
                             info: dlssInfo
                             visible: root.dlssExpanded && (dlssInfo.listed || dlssInfo.notListed)
                         }
                         Column {
                             objectName: "gameDetailsReadiness"
-                            width: parent.width
+                            width: root.contentWidth
                             spacing: DesktopTokens.px(8)
                             Row {
                                 id: membershipNotice
@@ -557,7 +566,7 @@ FocusScope {
                         RowLayout {
                             id: actionRow
                             objectName: "gameDetailsPrimaryActions"
-                            width: parent.width
+                            width: root.contentWidth
                             spacing: DesktopTokens.px(10)
                             DesktopButton {
                                 id: primaryAction
@@ -654,7 +663,7 @@ FocusScope {
                         // named by the store the license comes from.
                         Row {
                             objectName: "gameDetailsStoreRequirement"
-                            width: parent.width
+                            width: root.contentWidth
                             visible: root.requirementText !== ""
                             spacing: DesktopTokens.px(10)
                             Rectangle {
@@ -746,7 +755,7 @@ FocusScope {
                         // before launch instead of only inside the settings page.
                         Rectangle {
                             objectName: "gameDetailsGameplaySettingsPanel"
-                            width: parent.width
+                            width: root.contentWidth
                             height: settingsRows.implicitHeight + DesktopTokens.px(24)
                             radius: DesktopTokens.px(16)
                             visible: root.gameplaySettingsShown
@@ -794,7 +803,7 @@ FocusScope {
                             }
                         }
                         CloudLibraryActions {
-                            width: parent.width
+                            width: root.contentWidth
                             game: root.game
                             showFavorites: false
                             showStatus: false
@@ -852,7 +861,7 @@ FocusScope {
             objectName: "gameDetailsBack"
             // A short window has no headroom for a top bar above the title.
             visible: !root.compactDetails
-            anchors.left: parent.left; anchors.leftMargin: DesktopTokens.px(24)
+            anchors.left: parent.left; anchors.leftMargin: root.stageInset
             anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
             height: DesktopTokens.px(40)
             font.pixelSize: DesktopTokens.captionSize
@@ -874,7 +883,7 @@ FocusScope {
         }
         DesktopButton {
             objectName: "gameDetailsClose"
-            anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(24)
+            anchors.right: parent.right; anchors.rightMargin: root.stageInset
             anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
             width: DesktopTokens.px(40); height: DesktopTokens.px(40); themedGlyph: "close"; leftPadding: 0; rightPadding: 0
             cornerRadius: width / 2

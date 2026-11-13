@@ -129,7 +129,13 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # The column stops short of the close button, so a corner action can
         # never sit on top of the title.
         self.assertIn("readonly property int cornerReserve", details)
-        self.assertIn("width - contentInset * 2 - cornerReserve", details)
+        # Wide windows centre a stage instead of pinning everything to the left
+        # edge; suite windows keep the plain inset and render exactly as before.
+        self.assertIn("readonly property int stageWidth", details)
+        self.assertIn("readonly property int stageInset", details)
+        self.assertIn("Math.max(contentInset, Math.round((width - stageWidth) / 2))", details)
+        self.assertIn("Math.max(0, stageWidth - cornerReserve)", details)
+        self.assertIn("width: root.stageWidth", details)
         # A short window shrinks the title block and the CTA together and keeps
         # the hero proportional, so the primary action stays inside the cap.
         self.assertIn("readonly property bool compactDetails: maximumDialogHeight < DesktopTokens.px(620)", details)
