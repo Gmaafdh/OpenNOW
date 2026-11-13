@@ -278,7 +278,7 @@ FocusScope {
             anchors.fill: parent
             artwork: DesktopTokens.artworkUrl(root.game, true)
             cornerRadius: 0
-            cinematicFit: true
+            cinematicFit: false
             alignArtworkRight: true
             scrimStart: 1
             fallbackColor: Theme.shell
@@ -326,7 +326,14 @@ FocusScope {
             onHeightChanged: Qt.callLater(root.revealFocusedControl)
             onContentHeightChanged: Qt.callLater(root.revealFocusedControl)
             ScrollBar.vertical: ScrollBar {
-                policy: detailsFlick.contentHeight > detailsFlick.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                policy: ScrollBar.AsNeeded
+                width: DesktopTokens.px(10)
+                padding: DesktopTokens.px(3)
+                background: Item {}
+                contentItem: Rectangle {
+                    radius: width / 2
+                    color: Theme.lightMode ? "#59101827" : "#59EEF2F8"
+                }
             }
             Column {
                 id: detailsColumn
@@ -838,6 +845,30 @@ FocusScope {
                         }
                     }
                 }
+            }
+        }
+        DesktopButton {
+            objectName: "gameDetailsBack"
+            // A short window has no headroom for a top bar above the title.
+            visible: !root.compactDetails
+            anchors.left: parent.left; anchors.leftMargin: DesktopTokens.px(24)
+            anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
+            height: DesktopTokens.px(40)
+            font.pixelSize: DesktopTokens.captionSize
+            leftPadding: DesktopTokens.px(36); rightPadding: DesktopTokens.px(18)
+            cornerRadius: height / 2
+            text: qsTr("Library")
+            onClicked: root.closeRequested()
+            Image {
+                x: DesktopTokens.px(15)
+                anchors.verticalCenter: parent.verticalCenter
+                width: DesktopTokens.px(12); height: DesktopTokens.px(12)
+                rotation: -90
+                source: Theme.lightMode ? "qrc:/qt/qml/OpenNOW/res/icons/desktop-chevron-up-on-light.svg"
+                                          : "qrc:/qt/qml/OpenNOW/res/icons/desktop-chevron-up.svg"
+                sourceSize: Qt.size(Math.max(1, Math.round(width * Screen.devicePixelRatio)),
+                                    Math.max(1, Math.round(height * Screen.devicePixelRatio)))
+                fillMode: Image.PreserveAspectFit
             }
         }
         DesktopButton {

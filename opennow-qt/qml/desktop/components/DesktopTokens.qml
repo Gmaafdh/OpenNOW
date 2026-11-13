@@ -112,12 +112,14 @@ QtObject {
                        color.b + (1 - color.b) * mix, 1)
     }
     readonly property color actionViolet: Theme.mixColors(Theme.focus, Theme.violet, 70)
-    readonly property color actionStart: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.66)
-    readonly property color actionEnd: tintToward(actionViolet, 0.30)
-    readonly property color actionStartHover: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.78)
-    readonly property color actionEndHover: tintToward(actionViolet, 0.42)
-    readonly property color actionStartDown: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.52)
-    readonly property color actionEndDown: tintToward(actionViolet, 0.18)
+    // The stops stay light enough for the fixed dark ink, but no lighter: the
+    // sweep has to read as the accent, not as a pale wash over the artwork.
+    readonly property color actionStart: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.40)
+    readonly property color actionEnd: tintToward(actionViolet, 0.16)
+    readonly property color actionStartHover: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.52)
+    readonly property color actionEndHover: tintToward(actionViolet, 0.28)
+    readonly property color actionStartDown: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.28)
+    readonly property color actionEndDown: tintToward(actionViolet, 0.06)
     readonly property color actionInk: "#0A0D14"
     property FontMetrics storeTitleMetrics: FontMetrics {
         font.family: Theme.bodyFont

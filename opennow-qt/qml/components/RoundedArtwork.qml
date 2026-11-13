@@ -85,7 +85,7 @@ Item {
             anchors.fill: parent
             source: artworkSource.resolvedUrl
             fillMode: root.cinematicFit ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-            horizontalAlignment: root.cinematicFit && root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
+            horizontalAlignment: root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
             sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
             asynchronous: true
@@ -99,7 +99,7 @@ Item {
             anchors.fill: parent
             source: fallbackSource.resolvedUrl
             fillMode: root.cinematicFit ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-            horizontalAlignment: root.cinematicFit && root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
+            horizontalAlignment: root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
             sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
             asynchronous: true

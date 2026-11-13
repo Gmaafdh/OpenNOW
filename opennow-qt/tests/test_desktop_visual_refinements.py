@@ -75,6 +75,9 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # so a custom accent can never produce an unreadable button.
         self.assertIn("Theme.mixColors(Theme.focus, Theme.violet, 70)", tokens)
         self.assertIn('readonly property color actionInk: "#0A0D14"', tokens)
+        # Light enough for the fixed dark ink at every stop, but no lighter.
+        self.assertIn("tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.40)", tokens)
+        self.assertIn("tintToward(actionViolet, 0.16)", tokens)
         self.assertIn("DesktopTokens.actionStart", card)
         self.assertIn("DesktopTokens.actionEnd", card)
         self.assertIn("DesktopTokens.actionInk", card)
@@ -110,6 +113,15 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         details = qml("desktop/components/DesktopGameModal.qml")
         # Full-bleed artwork with one left-hand column for the title and actions.
         self.assertIn("readonly property int dialogWidth: width", details)
+        # The artwork fills the window: a cover crop has no letterbox bands, and
+        # the scroll thumb appears only while scrolling instead of drawing a
+        # permanent rule across the art.
+        self.assertIn("cinematicFit: false", details)
+        self.assertIn("policy: ScrollBar.AsNeeded", details)
+        self.assertIn("background: Item {}", details)
+        # The way back to the library sits where the shell navigation was.
+        self.assertIn('objectName: "gameDetailsBack"', details)
+        self.assertIn("visible: !root.compactDetails", details)
         self.assertIn("readonly property int contentInset: DesktopTokens.px(56)", details)
         self.assertIn("id: backdrop", details)
         self.assertIn("readonly property int scrollWidth", details)
