@@ -148,14 +148,13 @@ FocusScope {
     }
     readonly property var games: filteredGames()
     readonly property real tileScale: Math.max(0.75, Math.min(1.5, Number(ShellStore.settings.posterSizeScale || 1.05))) / 1.05
-    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10) / (176 * tileScale)))
+    readonly property int libraryColumns: Math.max(1, Math.floor((grid.width + 10)
+        / (DesktopTokens.libraryCardBaseWidth * tileScale)))
     readonly property int libraryCellW: Math.max(1, Math.floor(grid.width / libraryColumns))
-    // Artwork, frame padding and the optional information deck share one
-    // geometry contract with DesktopPoster; hiding labels reclaims the space.
+    // 16:9 artwork, an optional title line and the status chip share one
+    // geometry contract with DesktopLibraryCard; hiding labels reclaims the line.
     readonly property bool tileLabelsVisible: ShellStore.settings.showTileLabels !== false
-    readonly property int libraryCellH: tileLabelsVisible
-        ? Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(126)
-        : Math.round(Math.max(1, libraryCellW - 24) * 198 / 132) + DesktopTokens.px(24)
+    readonly property int libraryCellH: DesktopTokens.libraryCardHeight(libraryCellW, tileLabelsVisible)
 
     function editCollection(mode, game) {
         collectionDialog.mode = mode
@@ -487,11 +486,15 @@ FocusScope {
         transform: Translate { y: 42 * (1 - root.revealAt(0.46)) }
         cellWidth: root.libraryCellW
         cellHeight: root.libraryCellH
+        // Landscape rows are tall, so always keep two full rows beyond the fold
+        // instantiated: fast flicks stay smooth and the label contracts of an
+        // off-fold tile stay reachable on a short window.
+        cacheBuffer: Math.max(DesktopTokens.px(320), root.libraryCellH * 2)
         model: root.games
         focus: true
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-        delegate: DesktopPoster {
+        delegate: DesktopLibraryCard {
             required property var modelData
             required property int index
             game: modelData
@@ -503,7 +506,15 @@ FocusScope {
                 ShellStore.selectedGame = modelData
                 root.detailsRequested(modelData)
             }
+            onDetailsActivated: {
+                ShellStore.selectedGame = modelData
+                root.detailsRequested(modelData)
+            }
             onDoubleClicked: {
+                ShellStore.selectedGame = modelData
+                root.playRequested(modelData)
+            }
+            onPlayActivated: {
                 ShellStore.selectedGame = modelData
                 root.playRequested(modelData)
             }

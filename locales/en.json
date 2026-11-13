@@ -2393,7 +2393,15 @@
     "s_0207": "min 15",
     "s_0208": "max 24 ms",
     "s_0209": "F3 · PS · XB — CYCLE",
-    "s_0210": "SHIFT+F3 COPY"
+    "s_0210": "SHIFT+F3 COPY",
+    "s_0211": "Membership required",
+    "s_0212": "License required",
+    "s_0213": "Play %1",
+    "s_0214": "View details for %1",
+    "s_0215": "Linked to your %1 account. Ready to play.",
+    "s_0216": "%1 account required to play this game.",
+    "s_0217": "Show gameplay settings before launch",
+    "s_0218": "Requests only. The rig decides the final stream."
   },
   "qt": {
       "s_3247a036": "16:19 | 08/27",

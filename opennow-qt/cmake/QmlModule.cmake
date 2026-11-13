@@ -292,7 +292,6 @@ qt_add_qml_module(opennow-qt
         qml/desktop/components/DesktopGlyph.qml
         qml/desktop/components/DesktopIconGuide.qml
         qml/desktop/components/DesktopKeyHint.qml
-        qml/desktop/components/DesktopPoster.qml
         qml/desktop/components/DesktopPosterOverlay.qml
         qml/desktop/components/DesktopTokens.qml
         qml/desktop/friends/DesktopFriendsScreen.qml
@@ -300,6 +299,7 @@ qt_add_qml_module(opennow-qt
         qml/desktop/home/DesktopHomeScreen.qml
         qml/desktop/home/DesktopHomeShowcase.qml
         qml/desktop/library/DesktopLibraryScreen.qml
+        qml/desktop/library/DesktopLibraryCard.qml
         qml/desktop/library/DesktopLibraryHero.qml
         qml/desktop/library/DesktopLibraryMarquee.qml
         qml/desktop/library/DesktopCollectionDialog.qml

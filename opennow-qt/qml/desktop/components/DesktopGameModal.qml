@@ -19,9 +19,39 @@ FocusScope {
     MotionProgress { id: reveal; objectName: "gameDetailsMotion"; shown: root.opened }
 
     readonly property int gutter: DesktopTokens.px(32)
-    readonly property int dialogWidth: Math.min(DesktopTokens.px(760), Math.max(0, width - gutter * 2))
+    // The detail view is a full-screen landscape presentation: key art fills the
+    // window and one left-hand column carries the title, the primary action and
+    // everything a player still needs before launch.
+    readonly property int dialogWidth: width
     readonly property int maximumDialogHeight: Math.max(0, height - gutter * 2)
     readonly property int dialogHeight: Math.min(maximumDialogHeight, Math.ceil(detailsColumn.implicitHeight))
+    readonly property int contentInset: DesktopTokens.px(56)
+    // The column stops short of the close button, so a short, narrow window
+    // never puts a corner action on top of the title.
+    readonly property int cornerReserve: DesktopTokens.px(24) + DesktopTokens.px(40)
+    readonly property int contentWidth: Math.max(DesktopTokens.px(320),
+        Math.min(DesktopTokens.px(780), Math.max(0, width - contentInset * 2 - cornerReserve)))
+    readonly property int scrollWidth: Math.max(1, Math.min(contentInset + contentWidth, width))
+    readonly property int heroHeight: Math.max(headerInfo.implicitHeight + heroSlack,
+        Math.round(maximumDialogHeight * 0.36))
+    // The scrims follow the theme, so every existing label colour keeps its
+    // contrast on top of the artwork in Paper and in the dark themes alike.
+    readonly property color scrimNear: Theme.lightMode ? "#F0F3F7FA" : "#EF050A12"
+    readonly property color scrimMid: Theme.lightMode ? "#A8F4F7FA" : "#A6050A12"
+    readonly property color scrimFar: Theme.lightMode ? "#2EF6F9FC" : "#2E050A12"
+    readonly property color scrimTop: Theme.lightMode ? "#8CF3F6FA" : "#8C040910"
+    readonly property color scrimBottom: Theme.lightMode ? "#E8F3F6FA" : "#E3040910"
+    // Gameplay settings can be reviewed here instead of only after launching.
+    property bool gameplaySettingsShown: false
+    // A short window keeps the primary action above the fold: the title block,
+    // the eyebrow and the CTA shrink together instead of pushing the action into
+    // the scroll extent, where the layout contract can no longer reach it.
+    readonly property bool compactDetails: maximumDialogHeight < DesktopTokens.px(620)
+    readonly property int heroTitleSize: compactDetails ? DesktopTokens.px(34) : DesktopTokens.px(52)
+    readonly property int heroSpacing: compactDetails ? DesktopTokens.px(8) : DesktopTokens.px(10)
+    readonly property int heroBottomMargin: compactDetails ? DesktopTokens.px(20) : DesktopTokens.px(30)
+    readonly property int heroSlack: compactDetails ? DesktopTokens.px(40) : DesktopTokens.px(56)
+    readonly property int primaryActionHeight: compactDetails ? DesktopTokens.px(52) : DesktopTokens.px(58)
     readonly property var streamSettings: ShellStore.settings || ({})
     readonly property var selectedVariant: {
         const game = root.game
@@ -77,6 +107,21 @@ FocusScope {
         if (store)
             return store.toUpperCase()
         return root.isOwned ? qsTr("IN LIBRARY") : qsTr("NOT OWNED")
+    }
+    readonly property string requirementStoreKey: {
+        const variant = root.selectedVariant
+        const raw = variant && variant.store ? String(variant.store)
+            : String((root.game && root.game.availableStores && root.game.availableStores[0]) || "")
+        return raw.toUpperCase() === "NONE" || raw.toUpperCase() === "UNKNOWN" ? "" : raw
+    }
+    readonly property string requirementStore: root.requirementStoreKey === ""
+        ? "" : DesktopTokens.storeLabel(root.requirementStoreKey)
+    readonly property string requirementText: {
+        if (!root.game || root.requirementStore === "")
+            return ""
+        return root.isOwned
+            ? qsTr("Linked to your %1 account. Ready to play.").arg(root.requirementStore)
+            : qsTr("%1 account required to play this game.").arg(root.requirementStore)
     }
     readonly property string membershipText: {
         const sub = ShellStore.subscription
@@ -215,7 +260,7 @@ FocusScope {
         return value ? qsTr("Selected region") : qsTr("Automatic region")
     }
     Rectangle {
-        anchors.fill: parent; color: "#A6040D10"; opacity: reveal.progress
+        anchors.fill: parent; color: root.scrimBottom; opacity: reveal.progress
         MouseArea {
             anchors.fill: parent; acceptedButtons: Qt.AllButtons
             hoverEnabled: true; preventStealing: true
@@ -223,21 +268,58 @@ FocusScope {
             onWheel: wheel => wheel.accepted = true
         }
     }
+    // Full-bleed backdrop: a blurred cover wash with the key art contained and
+    // pushed right, which keeps the left column clear for the title and actions.
+    Item {
+        id: backdrop
+        anchors.fill: parent
+        opacity: reveal.progress
+        RoundedArtwork {
+            anchors.fill: parent
+            artwork: DesktopTokens.artworkUrl(root.game, true)
+            cornerRadius: 0
+            cinematicFit: true
+            alignArtworkRight: true
+            scrimStart: 1
+            fallbackColor: Theme.shell
+            scale: 1 + 0.035 * (1 - reveal.zoom)
+            transformOrigin: Item.Center
+        }
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: root.scrimNear }
+                GradientStop { position: 0.55; color: root.scrimMid }
+                GradientStop { position: 1; color: root.scrimFar }
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0; color: root.scrimTop }
+                GradientStop { position: 0.18; color: "transparent" }
+                GradientStop { position: 0.58; color: "transparent" }
+                GradientStop { position: 1; color: root.scrimBottom }
+            }
+        }
+    }
     Rectangle {
         id: dialog
         objectName: "gameDetailsDialog"
         opacity: reveal.progress
-        scale: reveal.zoom
-        transformOrigin: Item.Center
         anchors.centerIn: parent
         width: root.dialogWidth; height: root.dialogHeight
-        radius: DesktopTokens.px(24); color: Theme.shell; border.width: 1; border.color: Theme.seam
-        // Swallow blank-space clicks inside the modal, never activate its scrim.
-        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
+        radius: 0; color: "transparent"; border.width: 0
+        // Clicking the artwork still dismisses the view; the flickable below
+        // swallows clicks inside the column so blank space never closes it.
         Flickable {
             id: detailsFlick
             objectName: "gameDetailsScroll"
-            anchors.fill: parent
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            width: root.scrollWidth
             contentWidth: width; contentHeight: detailsColumn.implicitHeight
             clip: true; boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
@@ -252,28 +334,37 @@ FocusScope {
                 Item {
                     objectName: "gameDetailsHero"
                     width: parent.width
-                    height: Math.max(headerInfo.implicitHeight + DesktopTokens.px(48),
-                        Math.min(DesktopTokens.px(280), root.maximumDialogHeight * 0.38))
-                    RoundedArtwork {
-                        anchors.fill: parent; artwork: DesktopTokens.artworkUrl(root.game, true)
-                        cornerRadius: DesktopTokens.px(24); scrimStart: 0.1; fallbackColor: Theme.shell
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        gradient: Gradient {
-                            GradientStop { position: 0.25; color: "transparent" }
-                            GradientStop { position: 1; color: Theme.shell }
-                        }
-                    }
+                    // The backdrop carries the artwork, so the hero is only the
+                    // title block. The proportional term binds on every window
+                    // the details open on, which keeps the height independent of
+                    // the DLSS row: games with and without chips open identically.
+                    height: root.heroHeight
                     Column {
                         id: headerInfo
-                        x: DesktopTokens.px(24); anchors.bottom: parent.bottom; anchors.bottomMargin: DesktopTokens.px(24)
-                        width: parent.width - DesktopTokens.px(48); spacing: DesktopTokens.px(8)
+                        x: root.contentInset; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
+                        width: root.contentWidth; spacing: root.heroSpacing
+                        Text {
+                            width: parent.width
+                            visible: !root.compactDetails && text !== ""
+                            text: [root.game && (root.game.publisherName || root.game.publisher) || "",
+                                root.membershipText].filter(Boolean).join(" · ").toUpperCase()
+                            color: Theme.textFaint
+                            elide: Text.ElideRight
+                            font.family: Theme.monoFont
+                            font.pixelSize: DesktopTokens.smallSize
+                            font.weight: Font.Bold
+                            font.letterSpacing: 1.2
+                        }
                         Text {
                             width: parent.width; text: root.game ? String(root.game.title || qsTr("Game")) : qsTr("Game")
                             color: Theme.label; font.family: Theme.displayFont
-                            font.pixelSize: DesktopTokens.px(34); font.weight: Font.Black
-                            wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
+                            font.pixelSize: root.heroTitleSize; font.weight: Font.Black
+                            // A short window keeps one elided line, so the title
+                            // block can never push the primary action past the
+                            // dialog cap no matter how long the name is.
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: root.compactDetails ? 1 : 2
+                            elide: Text.ElideRight
                         }
                         Flow {
                             width: parent.width; spacing: DesktopTokens.px(10)
@@ -285,7 +376,8 @@ FocusScope {
                             Text {
                                 width: Math.min(implicitWidth, parent.width)
                                 wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
-                                text: [root.game && (root.game.publisherName || root.game.publisher) || "", root.lastPlayedText, root.game && root.game.hoursPlayed ? qsTr("%1 h").arg(root.game.hoursPlayed) : ""].filter(Boolean).join(" · ")
+                                // The eyebrow above already names the publisher.
+                                text: [root.lastPlayedText, root.game && root.game.hoursPlayed ? qsTr("%1 h").arg(root.game.hoursPlayed) : ""].filter(Boolean).join(" · ")
                                 color: Theme.textMuted; font.family: Theme.bodyFont; font.pixelSize: DesktopTokens.captionSize
                             }
                         }
@@ -303,8 +395,8 @@ FocusScope {
                     Column {
                         id: bodyContent
                         objectName: "gameDetailsBody"
-                        x: DesktopTokens.px(24)
-                        width: parent.width - DesktopTokens.px(48)
+                        x: root.contentInset
+                        width: root.contentWidth
                         spacing: DesktopTokens.px(20)
                         DesktopGameDlssPanel {
                             width: parent.width
@@ -462,15 +554,65 @@ FocusScope {
                             DesktopButton {
                                 id: primaryAction
                                 objectName: "desktopGamePlay"
-                                Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredHeight: DesktopTokens.px(52)
-                                font.pixelSize: DesktopTokens.captionSize
-                                leftPadding: DesktopTokens.px(14); rightPadding: DesktopTokens.px(14)
+                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                Layout.preferredHeight: root.primaryActionHeight
+                                font.pixelSize: DesktopTokens.headingSize
+                                glyphSize: DesktopTokens.px(18)
+                                leftPadding: DesktopTokens.px(20); rightPadding: DesktopTokens.px(20)
                                 primary: true; glyph: "desktop-play.svg"; text: ShellStore.selectedGameActionLabel(); shortcutText: qsTr("ENTER"); shortcutSequence: "Enter"
                                 enabled: root.game !== null && !ShellStore.cloudMutationBusy && ShellStore.launchInspectRequestId === ""
                                 onClicked: root.playRequested()
+                                // Hero action: the accent-to-violet sweep the library
+                                // cards use for their PLAY pill, with the fixed dark
+                                // ink that sweep is tuned for.
+                                background: Rectangle {
+                                    radius: height / 2
+                                    gradient: Gradient {
+                                        orientation: Gradient.Horizontal
+                                        GradientStop {
+                                            position: 0
+                                            color: primaryAction.down ? DesktopTokens.actionStartDown
+                                                : primaryAction.hovered || primaryAction.activeFocus
+                                                ? DesktopTokens.actionStartHover : DesktopTokens.actionStart
+                                        }
+                                        GradientStop {
+                                            position: 1
+                                            color: primaryAction.down ? DesktopTokens.actionEndDown
+                                                : primaryAction.hovered || primaryAction.activeFocus
+                                                ? DesktopTokens.actionEndHover : DesktopTokens.actionEnd
+                                        }
+                                    }
+                                    border.width: 1
+                                    border.color: "#2E0A0D14"
+                                    scale: primaryAction.down && !AppController.reducedMotion ? 0.985 : 1
+                                    Behavior on scale {
+                                        NumberAnimation { duration: DesktopTokens.quickDuration; easing.type: Easing.OutCubic }
+                                    }
+                                    Rectangle {
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.margins: 1
+                                        height: parent.height * 0.45
+                                        radius: parent.radius
+                                        gradient: Gradient {
+                                            GradientStop { position: 0; color: "#3DFFFFFF" }
+                                            GradientStop { position: 1; color: "transparent" }
+                                        }
+                                    }
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: -3
+                                        radius: parent.radius + 3
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: DesktopTokens.focus
+                                        visible: primaryAction.activeFocus
+                                    }
+                                }
                             }
                             DesktopButton {
-                                Layout.preferredWidth: DesktopTokens.px(52); Layout.preferredHeight: DesktopTokens.px(52)
+                                Layout.preferredWidth: root.primaryActionHeight; Layout.preferredHeight: root.primaryActionHeight
                                 themedGlyph: "star"; leftPadding: 0; rightPadding: 0
                                 Accessible.name: root.game && ShellStore.isCloudFavorite(root.game) ? qsTr("Remove from GeForce NOW favorites") : qsTr("Add to GeForce NOW favorites")
                                 ToolTip.visible: hovered; ToolTip.text: Accessible.name
@@ -478,7 +620,7 @@ FocusScope {
                                 onClicked: if (root.game) ShellStore.toggleCloudFavorite(root.game)
                             }
                             DesktopButton {
-                                Layout.preferredWidth: DesktopTokens.px(52); Layout.preferredHeight: DesktopTokens.px(52)
+                                Layout.preferredWidth: root.primaryActionHeight; Layout.preferredHeight: root.primaryActionHeight
                                 themedGlyph: "folder"; leftPadding: 0; rightPadding: 0
                                 Accessible.name: qsTr("Collections")
                                 ToolTip.visible: hovered; ToolTip.text: Accessible.name
@@ -489,7 +631,7 @@ FocusScope {
                                 }
                             }
                             DesktopButton {
-                                Layout.preferredWidth: DesktopTokens.px(52); Layout.preferredHeight: DesktopTokens.px(52)
+                                Layout.preferredWidth: root.primaryActionHeight; Layout.preferredHeight: root.primaryActionHeight
                                 themedGlyph: "more"; leftPadding: 0; rightPadding: 0
                                 Accessible.name: qsTr("More game actions")
                                 onClicked: moreMenu.popup()
@@ -497,6 +639,149 @@ FocusScope {
                                     id: moreMenu
                                     MenuItem { text: qsTr("Stream settings"); onTriggered: root.tune() }
                                     MenuItem { text: qsTr("Close details"); onTriggered: root.closeRequested() }
+                                }
+                            }
+                        }
+                        // What still stands between the player and a launch,
+                        // named by the store the license comes from.
+                        Row {
+                            objectName: "gameDetailsStoreRequirement"
+                            width: parent.width
+                            visible: root.requirementText !== ""
+                            spacing: DesktopTokens.px(10)
+                            Rectangle {
+                                y: DesktopTokens.px(1)
+                                width: DesktopTokens.px(28)
+                                height: DesktopTokens.px(28)
+                                radius: DesktopTokens.px(8)
+                                visible: requirementIcon.source.toString() !== ""
+                                color: Theme.lightMode ? "#14080D14" : "#24FFFFFF"
+                                Image {
+                                    id: requirementIcon
+                                    anchors.centerIn: parent
+                                    width: DesktopTokens.px(19)
+                                    height: DesktopTokens.px(19)
+                                    source: DesktopTokens.storeIconUrl(root.requirementStoreKey)
+                                    sourceSize: Qt.size(Math.max(1, Math.round(width * Screen.devicePixelRatio)),
+                                                        Math.max(1, Math.round(height * Screen.devicePixelRatio)))
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                            }
+                            Text {
+                                width: parent.width - DesktopTokens.px(38)
+                                text: root.requirementText
+                                wrapMode: Text.WordWrap
+                                color: root.isOwned ? Theme.textMuted : Theme.label
+                                font.family: Theme.bodyFont
+                                font.pixelSize: DesktopTokens.captionSize
+                                font.weight: root.isOwned ? Font.Normal : Font.Bold
+                            }
+                        }
+                        DesktopButton {
+                            id: gameplaySettingsToggle
+                            objectName: "gameDetailsGameplaySettings"
+                            width: Math.min(parent.width, implicitWidth)
+                            height: DesktopTokens.px(36)
+                            checkable: true
+                            checked: root.gameplaySettingsShown
+                            onToggled: root.gameplaySettingsShown = checked
+                            leftPadding: DesktopTokens.px(10); rightPadding: DesktopTokens.px(16)
+                            implicitWidth: toggleRow.implicitWidth + leftPadding + rightPadding
+                            font.pixelSize: DesktopTokens.captionSize
+                            text: qsTr("Show gameplay settings before launch")
+                            Accessible.name: text
+                            background: Rectangle {
+                                radius: height / 2
+                                color: gameplaySettingsToggle.hovered || gameplaySettingsToggle.activeFocus
+                                    ? DesktopTokens.raisedStrong : "transparent"
+                                border.width: 1
+                                border.color: gameplaySettingsToggle.activeFocus
+                                    ? DesktopTokens.focus : DesktopTokens.seamSoft
+                                Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                                Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                            }
+                            contentItem: Item {
+                                implicitWidth: toggleRow.implicitWidth
+                                implicitHeight: toggleRow.implicitHeight
+                                Row {
+                                    id: toggleRow
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: DesktopTokens.px(9)
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: DesktopTokens.px(19)
+                                        height: DesktopTokens.px(19)
+                                        radius: DesktopTokens.px(6)
+                                        color: gameplaySettingsToggle.checked ? Theme.focus : "transparent"
+                                        border.width: gameplaySettingsToggle.checked ? 0 : 2
+                                        border.color: gameplaySettingsToggle.checked ? Theme.focus : Theme.textFaint
+                                        Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                                        DesktopSettingsIcon {
+                                            anchors.centerIn: parent
+                                            width: DesktopTokens.px(12)
+                                            height: DesktopTokens.px(12)
+                                            glyph: "check"
+                                            ink: Theme.focusText
+                                            visible: gameplaySettingsToggle.checked
+                                        }
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: gameplaySettingsToggle.text
+                                        color: DesktopTokens.textHigh
+                                        font: gameplaySettingsToggle.font
+                                    }
+                                }
+                            }
+                        }
+                        // The stream requests this game would launch with, shown
+                        // before launch instead of only inside the settings page.
+                        Rectangle {
+                            objectName: "gameDetailsGameplaySettingsPanel"
+                            width: parent.width
+                            height: settingsRows.implicitHeight + DesktopTokens.px(24)
+                            radius: DesktopTokens.px(16)
+                            visible: root.gameplaySettingsShown
+                            color: DesktopTokens.raised
+                            border.width: 1
+                            border.color: DesktopTokens.seamSoft
+                            Column {
+                                id: settingsRows
+                                x: DesktopTokens.px(16)
+                                y: DesktopTokens.px(12)
+                                width: parent.width - DesktopTokens.px(32)
+                                spacing: DesktopTokens.px(8)
+                                Repeater {
+                                    model: root.streamRows
+                                    Row {
+                                        required property var modelData
+                                        width: parent.width
+                                        Text {
+                                            width: parent.width * 0.5
+                                            text: modelData.l
+                                            color: Theme.textMuted
+                                            font.family: Theme.bodyFont
+                                            font.pixelSize: DesktopTokens.captionSize
+                                        }
+                                        Text {
+                                            width: parent.width * 0.5
+                                            text: modelData.v
+                                            elide: Text.ElideRight
+                                            horizontalAlignment: Text.AlignRight
+                                            color: Theme.label
+                                            font.family: Theme.monoFont
+                                            font.pixelSize: DesktopTokens.captionSize
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: qsTr("Requests only. The rig decides the final stream.")
+                                    wrapMode: Text.WordWrap
+                                    color: Theme.textFaint
+                                    font.family: Theme.bodyFont
+                                    font.pixelSize: DesktopTokens.smallSize
                                 }
                             }
                         }
@@ -557,9 +842,9 @@ FocusScope {
         }
         DesktopButton {
             objectName: "gameDetailsClose"
-            anchors.right: parent.right; anchors.rightMargin: -width / 2
-            anchors.top: parent.top; anchors.topMargin: -height / 2
-            width: DesktopTokens.px(36); height: DesktopTokens.px(36); themedGlyph: "close"; leftPadding: 0; rightPadding: 0
+            anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(24)
+            anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
+            width: DesktopTokens.px(40); height: DesktopTokens.px(40); themedGlyph: "close"; leftPadding: 0; rightPadding: 0
             cornerRadius: width / 2
             Accessible.name: qsTr("Close details")
             onClicked: root.closeRequested()

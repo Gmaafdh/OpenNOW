@@ -78,6 +78,47 @@ QtObject {
     readonly property int libraryCellHeight: px(214)
     readonly property int libraryArtWidth: px(132)
     readonly property int libraryArtHeight: px(198)
+    // Landscape library cards: 16:9 key art over a title line and a status chip.
+    // The grid and the card share every term of this contract, so a cell can
+    // never clip its card at any UI scale (each px() rounds on its own).
+    readonly property int libraryCardGutter: 6
+    readonly property int libraryCardChipGap: px(12)
+    readonly property int libraryCardChipHeight: px(24)
+    readonly property int libraryCardBottomPad: px(10)
+    readonly property int libraryCardTitleGap: px(11)
+    readonly property int libraryCardTitleHeight: px(20)
+    readonly property int libraryCardTitleSpacing: px(6)
+    readonly property int libraryCardBaseWidth: px(300)
+    function libraryCardArtWidth(cellWidth) {
+        return Math.max(1, Math.round(Number(cellWidth)) - 2 * libraryCardGutter)
+    }
+    function libraryCardArtHeight(cellWidth) {
+        return Math.max(1, Math.round(libraryCardArtWidth(cellWidth) * 9 / 16))
+    }
+    function libraryCardHeight(cellWidth, labelsVisible) {
+        return 2 * libraryCardGutter + libraryCardArtHeight(cellWidth)
+            + libraryCardChipHeight + libraryCardBottomPad
+            + (labelsVisible
+                ? libraryCardTitleGap + libraryCardTitleHeight + libraryCardTitleSpacing
+                : libraryCardChipGap)
+    }
+    // Accent-to-violet sweep for hero actions: the PLAY pill on a library card
+    // and the primary action of the full-screen detail view. Both stops stay
+    // light, so the fixed dark ink keeps its contrast on any user accent.
+    function tintToward(value, amount) {
+        const color = Qt.color(value)
+        const mix = Math.max(0, Math.min(1, Number(amount)))
+        return Qt.rgba(color.r + (1 - color.r) * mix, color.g + (1 - color.g) * mix,
+                       color.b + (1 - color.b) * mix, 1)
+    }
+    readonly property color actionViolet: Theme.mixColors(Theme.focus, Theme.violet, 70)
+    readonly property color actionStart: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.66)
+    readonly property color actionEnd: tintToward(actionViolet, 0.30)
+    readonly property color actionStartHover: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.78)
+    readonly property color actionEndHover: tintToward(actionViolet, 0.42)
+    readonly property color actionStartDown: tintToward(Theme.mixColors(Theme.focus, Theme.violet, 18), 0.52)
+    readonly property color actionEndDown: tintToward(actionViolet, 0.18)
+    readonly property color actionInk: "#0A0D14"
     property FontMetrics storeTitleMetrics: FontMetrics {
         font.family: Theme.bodyFont
         font.pixelSize: tokens.monoSize
