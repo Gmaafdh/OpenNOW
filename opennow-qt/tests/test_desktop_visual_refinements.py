@@ -126,21 +126,20 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # The way back to the library sits where the shell navigation was.
         self.assertIn('objectName: "gameDetailsBack"', details)
         self.assertIn("visible: !root.compactDetails", details)
-        self.assertIn("readonly property int contentInset: DesktopTokens.px(56)", details)
         self.assertIn("id: backdrop", details)
         self.assertIn("anchors.fill: parent", details)
         # The column stops short of the close button, so a corner action can
         # never sit on top of the title.
-        # The whole presentation is centred: one reading column for the title
-        # and actions, and a wider centred stage whose bottom row is the
-        # summary bar.
-        self.assertIn("readonly property int columnX", details)
-        self.assertIn("Math.round((width - contentWidth) / 2)", details)
-        self.assertIn("x: root.columnX", details)
-        self.assertIn("readonly property int stageX", details)
-        self.assertIn("x: root.stageX", details)
-        self.assertIn("x: root.columnInStage", details)
-        self.assertIn("width: root.stageWidth", details)
+        # Split composition: a solid pane carries the reading column and the
+        # actions while the key art keeps its own undimmed share of the
+        # window; narrow windows fall back to a plain solid page.
+        self.assertIn("readonly property bool splitDetails", details)
+        self.assertIn("readonly property int paneWidth", details)
+        self.assertIn("readonly property int panePad", details)
+        self.assertIn("x: root.panePad", details)
+        self.assertIn("width: root.paneWidth", details)
+        self.assertNotIn("columnX", details)
+        self.assertNotIn("scrimFlat", details)
         # A short window shrinks the title block and the CTA together and keeps
         # the hero proportional, so the primary action stays inside the cap.
         self.assertIn("readonly property bool compactDetails: maximumDialogHeight < DesktopTokens.px(620)", details)
@@ -157,7 +156,9 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("property bool gameplaySettingsShown: false", details)
         # The scrims follow the theme, so the existing label colours keep their
         # contrast on top of artwork in Paper as well as in the dark themes.
-        self.assertIn("readonly property color scrimFlat: Theme.lightMode", details)
+        self.assertIn("readonly property color scrimTop: Theme.lightMode", details)
+        # The base layer is the solid shell, not a veil over the art.
+        self.assertIn("anchors.fill: parent; color: Theme.shell; opacity: reveal.progress", details)
 
     def test_home_cards_do_not_double_zoom_artwork(self) -> None:
         poster = qml("desktop/home/DesktopHomePoster.qml")
