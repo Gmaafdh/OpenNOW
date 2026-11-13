@@ -24,23 +24,20 @@ FocusScope {
     // everything a player still needs before launch.
     readonly property int dialogWidth: width
     readonly property int maximumDialogHeight: Math.max(0, height - gutter * 2)
-    readonly property int dialogHeight: Math.min(maximumDialogHeight, Math.ceil(detailsColumn.implicitHeight))
-    // Split composition: a solid pane carries everything the player reads and
-    // clicks, and the key art owns the rest of the window at full vibrancy.
-    // No veil over the art, no text floating over faces. A window too narrow
-    // to give the art an honest share becomes a plain solid page instead.
-    readonly property int artMinimum: DesktopTokens.px(380)
-    readonly property bool splitDetails: width - artMinimum >= DesktopTokens.px(720)
-    readonly property int paneWidth: splitDetails
-        ? Math.min(Math.max(DesktopTokens.px(720), Math.round(width * 0.46)), width - artMinimum)
-        : width
-    readonly property int panePad: DesktopTokens.px(48)
-    readonly property int contentWidth: Math.max(DesktopTokens.px(320), paneWidth - panePad * 2)
+    readonly property int dialogHeight: maximumDialogHeight
+    // The artwork is the background, whole and undimmed; the text docks where
+    // landscape key art always has room - the lower left - over a scrim that is
+    // anchored to exactly that corner instead of veiling the whole screen.
+    readonly property int columnInset: DesktopTokens.px(56)
+    readonly property int contentWidth: Math.max(DesktopTokens.px(320),
+        Math.min(DesktopTokens.px(780), Math.max(0, width - columnInset * 2)))
     readonly property int heroHeight: Math.max(headerInfo.implicitHeight + heroSlack,
         Math.round(maximumDialogHeight * 0.36))
-    // The art pane stays undimmed; only a top shade keeps the close button
-    // readable where it floats over the artwork.
+    // Corner-anchored scrims: dark at the bottom and at the left edge where
+    // the column docks, clear over the subject the artwork leads with.
     readonly property color scrimTop: Theme.lightMode ? "#8CF3F6FA" : "#8C040910"
+    readonly property color scrimBottom: Theme.lightMode ? "#ECF3F6FA" : "#EB040910"
+    readonly property color scrimLeft: Theme.lightMode ? "#D4F3F6FA" : "#D2040910"
     // Gameplay settings can be reviewed here instead of only after launching.
     property bool gameplaySettingsShown: false
     // A short window keeps the primary action above the fold: the title block,
@@ -268,16 +265,11 @@ FocusScope {
             onWheel: wheel => wheel.accepted = true
         }
     }
-    // The key art keeps its own share of the window at full saturation: a
-    // centred cover crop, with a soft blend where it meets the pane and a top
-    // shade under the close button. Nothing is dimmed across the whole screen.
+    // The key art is the whole background: a centred cover crop at full
+    // saturation, edge to edge, with only corner-anchored scrims on top.
     Item {
         id: backdrop
-        x: root.paneWidth
-        width: Math.max(0, root.dialogWidth - root.paneWidth)
-        height: root.dialogHeight
-        anchors.verticalCenter: parent.verticalCenter
-        visible: root.splitDetails
+        anchors.fill: parent
         opacity: reveal.progress
         RoundedArtwork {
             anchors.fill: parent
@@ -290,23 +282,28 @@ FocusScope {
             transformOrigin: Item.Center
         }
         Rectangle {
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: parent.height * 0.22
+            anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0; color: root.scrimTop }
-                GradientStop { position: 1; color: "transparent" }
+                GradientStop { position: 0; color: "transparent" }
+                GradientStop { position: 0.42; color: "transparent" }
+                GradientStop { position: 1; color: root.scrimBottom }
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: root.scrimLeft }
+                GradientStop { position: 0.62; color: "transparent" }
             }
         }
         Rectangle {
             anchors.top: parent.top
-            anchors.bottom: parent.bottom
             anchors.left: parent.left
-            width: DesktopTokens.px(90)
+            anchors.right: parent.right
+            height: parent.height * 0.2
             gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: Theme.shell }
+                GradientStop { position: 0; color: root.scrimTop }
                 GradientStop { position: 1; color: "transparent" }
             }
         }
@@ -318,25 +315,18 @@ FocusScope {
         anchors.centerIn: parent
         width: root.dialogWidth; height: root.dialogHeight
         radius: 0; color: "transparent"; border.width: 0
-        Rectangle {
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            width: root.paneWidth
-            color: Theme.shell
-            border.width: root.splitDetails ? 1 : 0
-            border.color: Theme.seam
-        }
-        // Clicking the artwork still dismisses the view; the flickable below
-        // swallows clicks inside the pane so blank space never closes it.
         Flickable {
             id: detailsFlick
             objectName: "gameDetailsScroll"
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            width: root.paneWidth
-            contentWidth: width; contentHeight: detailsColumn.implicitHeight
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: detailsColumn.y + detailsColumn.implicitHeight
+            // Blank artwork still dismisses; the column sits above this area.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+                onClicked: root.closeRequested()
+            }
             clip: true; boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
             onHeightChanged: Qt.callLater(root.revealFocusedControl)
@@ -353,6 +343,9 @@ FocusScope {
             }
             Column {
                 id: detailsColumn
+                // Docked to the bottom of the view: the title lands mid-left
+                // over the anchored scrim, and short content never floats.
+                y: Math.max(0, detailsFlick.height - implicitHeight)
                 width: parent.width
                 Item {
                     objectName: "gameDetailsHero"
@@ -364,7 +357,7 @@ FocusScope {
                     height: root.heroHeight
                     Column {
                         id: headerInfo
-                        x: root.panePad; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
+                        x: root.columnInset; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
                         width: root.contentWidth; spacing: root.heroSpacing
                         Text {
                             width: parent.width
@@ -418,7 +411,7 @@ FocusScope {
                     Column {
                         id: bodyContent
                         objectName: "gameDetailsBody"
-                        x: root.panePad
+                        x: root.columnInset
                         width: root.contentWidth
                         spacing: DesktopTokens.px(20)
                         DesktopGameDlssPanel {
@@ -818,7 +811,7 @@ FocusScope {
                             id: summaryGrid
                             objectName: "gameDetailsSummary"
                             width: parent.width
-                            columns: width < DesktopTokens.px(660) ? 2 : 4
+                            columns: width < DesktopTokens.px(620) ? 2 : 4
                             uniformCellWidths: columns === 2
                             columnSpacing: DesktopTokens.px(10); rowSpacing: DesktopTokens.px(10)
                             Repeater {

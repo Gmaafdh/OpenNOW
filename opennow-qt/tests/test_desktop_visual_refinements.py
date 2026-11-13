@@ -130,15 +130,14 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("anchors.fill: parent", details)
         # The column stops short of the close button, so a corner action can
         # never sit on top of the title.
-        # Split composition: a solid pane carries the reading column and the
-        # actions while the key art keeps its own undimmed share of the
-        # window; narrow windows fall back to a plain solid page.
-        self.assertIn("readonly property bool splitDetails", details)
-        self.assertIn("readonly property int paneWidth", details)
-        self.assertIn("readonly property int panePad", details)
-        self.assertIn("x: root.panePad", details)
-        self.assertIn("width: root.paneWidth", details)
-        self.assertNotIn("columnX", details)
+        # The artwork is the whole background and the text docks bottom-left,
+        # over scrims anchored to that corner instead of a full-screen veil.
+        self.assertIn("readonly property int columnInset", details)
+        self.assertIn("x: root.columnInset", details)
+        self.assertIn("y: Math.max(0, detailsFlick.height - implicitHeight)", details)
+        self.assertIn("readonly property color scrimLeft: Theme.lightMode", details)
+        self.assertIn("readonly property color scrimBottom: Theme.lightMode", details)
+        self.assertNotIn("paneWidth", details)
         self.assertNotIn("scrimFlat", details)
         # A short window shrinks the title block and the CTA together and keeps
         # the hero proportional, so the primary action stays inside the cap.
@@ -157,8 +156,8 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # The scrims follow the theme, so the existing label colours keep their
         # contrast on top of artwork in Paper as well as in the dark themes.
         self.assertIn("readonly property color scrimTop: Theme.lightMode", details)
-        # The base layer is the solid shell, not a veil over the art.
-        self.assertIn("anchors.fill: parent; color: Theme.shell; opacity: reveal.progress", details)
+        # The dialog spans the full band so the art runs edge to edge.
+        self.assertIn("readonly property int dialogHeight: maximumDialogHeight", details)
 
     def test_home_cards_do_not_double_zoom_artwork(self) -> None:
         poster = qml("desktop/home/DesktopHomePoster.qml")
