@@ -117,6 +117,7 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # the scroll thumb appears only while scrolling instead of drawing a
         # permanent rule across the art.
         self.assertIn("cinematicFit: false", details)
+        self.assertIn("coverAlignRight: true", details)
         self.assertIn("policy: ScrollBar.AsNeeded", details)
         self.assertIn("background: Item {}", details)
         # The way back to the library sits where the shell navigation was.

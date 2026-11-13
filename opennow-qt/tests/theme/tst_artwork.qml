@@ -22,6 +22,7 @@ TestCase {
     function init() {
         artwork.cinematicFit = true
         artwork.alignArtworkRight = true
+        artwork.coverAlignRight = false
     }
 
     function namedChild(item, name) {
@@ -66,6 +67,16 @@ TestCase {
         compare(primary.sourceSize.width, 900)
         compare(primary.sourceSize.height, 400)
         compare(backdrop.visible, false)
+    }
+
+    function test_coverCropCanAlignRightWhenAsked() {
+        artwork.cinematicFit = false
+        artwork.coverAlignRight = true
+        const primary = namedChild(artwork, "roundedArtworkPrimary")
+        const fallback = namedChild(artwork, "roundedArtworkFallback")
+        compare(primary.fillMode, Image.PreserveAspectCrop)
+        compare(primary.horizontalAlignment, Image.AlignRight)
+        compare(fallback.horizontalAlignment, Image.AlignRight)
     }
 
     function test_containedArtworkCanBeCentered() {

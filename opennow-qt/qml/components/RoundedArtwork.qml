@@ -13,6 +13,10 @@ Item {
     // This keeps key art intact instead of enlarging it until faces disappear.
     property bool cinematicFit: false
     property bool alignArtworkRight: false
+    // Opt-in for full-bleed backdrops: a cover crop may anchor right as well.
+    // Regular artwork keeps its centred crop unless this is set, which is what
+    // tst_artwork pins.
+    property bool coverAlignRight: false
 
     property bool loadStarted: false
     readonly property string normalizedArtwork: DesktopTokens.decodeArtworkUrl(root.artwork)
@@ -85,7 +89,8 @@ Item {
             anchors.fill: parent
             source: artworkSource.resolvedUrl
             fillMode: root.cinematicFit ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-            horizontalAlignment: root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
+            horizontalAlignment: (root.cinematicFit || root.coverAlignRight) && root.alignArtworkRight
+                ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
             sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
             asynchronous: true
@@ -99,7 +104,8 @@ Item {
             anchors.fill: parent
             source: fallbackSource.resolvedUrl
             fillMode: root.cinematicFit ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-            horizontalAlignment: root.alignArtworkRight ? Image.AlignRight : Image.AlignHCenter
+            horizontalAlignment: (root.cinematicFit || root.coverAlignRight) && root.alignArtworkRight
+                ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
             sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
             asynchronous: true

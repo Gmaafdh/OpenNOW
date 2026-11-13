@@ -280,6 +280,7 @@ FocusScope {
             cornerRadius: 0
             cinematicFit: false
             alignArtworkRight: true
+            coverAlignRight: true
             scrimStart: 1
             fallbackColor: Theme.shell
             scale: 1 + 0.035 * (1 - reveal.zoom)
