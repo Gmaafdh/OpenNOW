@@ -26,26 +26,23 @@ FocusScope {
     readonly property int maximumDialogHeight: Math.max(0, height - gutter * 2)
     readonly property int dialogHeight: Math.min(maximumDialogHeight, Math.ceil(detailsColumn.implicitHeight))
     readonly property int contentInset: DesktopTokens.px(56)
-    // The column stops short of the close button, so a short, narrow window
-    // never puts a corner action on top of the title.
-    readonly property int cornerReserve: DesktopTokens.px(24) + DesktopTokens.px(40)
-    // A wide window gets a centred stage instead of a column pinned to the left
-    // edge with a thousand pixels of bare artwork beside it: the title, actions
-    // and the summary bar all live inside it. Narrow windows keep the plain
-    // inset, so every suite window renders exactly as before.
-    readonly property int stageWidth: Math.max(DesktopTokens.px(320),
-        Math.min(DesktopTokens.px(1560), Math.max(0, width - contentInset * 2)))
-    readonly property int stageInset: Math.max(contentInset, Math.round((width - stageWidth) / 2))
+    // Everything sits in the middle of the window: the reading column carries
+    // the title and the actions, and a wider centred stage carries the summary
+    // bar so the bottom row anchors the composition instead of trailing off.
     readonly property int contentWidth: Math.max(DesktopTokens.px(320),
-        Math.min(DesktopTokens.px(780), Math.max(0, stageWidth - cornerReserve)))
-    readonly property int scrollWidth: Math.max(1, Math.min(stageInset + stageWidth, width))
+        Math.min(DesktopTokens.px(780), Math.max(0, width - DesktopTokens.px(48))))
+    readonly property int columnX: Math.max(DesktopTokens.px(24),
+        Math.round((width - contentWidth) / 2))
+    readonly property int stageWidth: Math.max(contentWidth,
+        Math.min(DesktopTokens.px(1560), Math.max(0, width - contentInset * 2)))
+    readonly property int stageX: Math.max(0, Math.round((width - stageWidth) / 2))
+    readonly property int columnInStage: Math.round((stageWidth - contentWidth) / 2)
     readonly property int heroHeight: Math.max(headerInfo.implicitHeight + heroSlack,
         Math.round(maximumDialogHeight * 0.36))
-    // The scrims follow the theme, so every existing label colour keeps its
-    // contrast on top of the artwork in Paper and in the dark themes alike.
-    readonly property color scrimNear: Theme.lightMode ? "#F0F3F7FA" : "#EF050A12"
-    readonly property color scrimMid: Theme.lightMode ? "#A8F4F7FA" : "#A6050A12"
-    readonly property color scrimFar: Theme.lightMode ? "#2EF6F9FC" : "#2E050A12"
+    // One even veil over the artwork, theme-aware, so every existing label
+    // colour keeps its contrast no matter where the column sits; the top and
+    // bottom gradients still frame the corner controls and the summary bar.
+    readonly property color scrimFlat: Theme.lightMode ? "#B4F4F7FA" : "#B4050A12"
     readonly property color scrimTop: Theme.lightMode ? "#8CF3F6FA" : "#8C040910"
     readonly property color scrimBottom: Theme.lightMode ? "#E8F3F6FA" : "#E3040910"
     // Gameplay settings can be reviewed here instead of only after launching.
@@ -275,8 +272,8 @@ FocusScope {
             onWheel: wheel => wheel.accepted = true
         }
     }
-    // Full-bleed backdrop: a blurred cover wash with the key art contained and
-    // pushed right, which keeps the left column clear for the title and actions.
+    // Full-bleed backdrop: a centred cover crop of the key art, so the subject
+    // the artists put in the middle of the banner is what fills the window.
     Item {
         id: backdrop
         anchors.fill: parent
@@ -286,8 +283,6 @@ FocusScope {
             artwork: DesktopTokens.artworkUrl(root.game, true)
             cornerRadius: 0
             cinematicFit: false
-            alignArtworkRight: true
-            coverAlignRight: true
             scrimStart: 1
             fallbackColor: Theme.shell
             scale: 1 + 0.035 * (1 - reveal.zoom)
@@ -295,12 +290,7 @@ FocusScope {
         }
         Rectangle {
             anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: root.scrimNear }
-                GradientStop { position: 0.55; color: root.scrimMid }
-                GradientStop { position: 1; color: root.scrimFar }
-            }
+            color: root.scrimFlat
         }
         Rectangle {
             anchors.fill: parent
@@ -324,10 +314,7 @@ FocusScope {
         Flickable {
             id: detailsFlick
             objectName: "gameDetailsScroll"
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            width: root.scrollWidth
+            anchors.fill: parent
             contentWidth: width; contentHeight: detailsColumn.implicitHeight
             clip: true; boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
@@ -356,7 +343,7 @@ FocusScope {
                     height: root.heroHeight
                     Column {
                         id: headerInfo
-                        x: root.stageInset; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
+                        x: root.columnX; anchors.bottom: parent.bottom; anchors.bottomMargin: root.heroBottomMargin
                         width: root.contentWidth; spacing: root.heroSpacing
                         Text {
                             width: parent.width
@@ -410,18 +397,20 @@ FocusScope {
                     Column {
                         id: bodyContent
                         objectName: "gameDetailsBody"
-                        x: root.stageInset
-                        // The action column keeps its reading width; only the
-                        // summary bar spans the whole stage.
+                        x: root.stageX
+                        // The action column keeps its reading width, centred;
+                        // only the summary bar spans the whole stage.
                         width: root.stageWidth
                         spacing: DesktopTokens.px(20)
                         DesktopGameDlssPanel {
+                            x: root.columnInStage
                             width: root.contentWidth
                             info: dlssInfo
                             visible: root.dlssExpanded && (dlssInfo.listed || dlssInfo.notListed)
                         }
                         Column {
                             objectName: "gameDetailsReadiness"
+                            x: root.columnInStage
                             width: root.contentWidth
                             spacing: DesktopTokens.px(8)
                             Row {
@@ -566,6 +555,7 @@ FocusScope {
                         RowLayout {
                             id: actionRow
                             objectName: "gameDetailsPrimaryActions"
+                            x: root.columnInStage
                             width: root.contentWidth
                             spacing: DesktopTokens.px(10)
                             DesktopButton {
@@ -663,6 +653,7 @@ FocusScope {
                         // named by the store the license comes from.
                         Row {
                             objectName: "gameDetailsStoreRequirement"
+                            x: root.columnInStage
                             width: root.contentWidth
                             visible: root.requirementText !== ""
                             spacing: DesktopTokens.px(10)
@@ -697,6 +688,7 @@ FocusScope {
                         DesktopButton {
                             id: gameplaySettingsToggle
                             objectName: "gameDetailsGameplaySettings"
+                            x: root.columnInStage
                             width: Math.min(parent.width, implicitWidth)
                             height: DesktopTokens.px(36)
                             checkable: true
@@ -755,6 +747,7 @@ FocusScope {
                         // before launch instead of only inside the settings page.
                         Rectangle {
                             objectName: "gameDetailsGameplaySettingsPanel"
+                            x: root.columnInStage
                             width: root.contentWidth
                             height: settingsRows.implicitHeight + DesktopTokens.px(24)
                             radius: DesktopTokens.px(16)
@@ -803,6 +796,7 @@ FocusScope {
                             }
                         }
                         CloudLibraryActions {
+                            x: root.columnInStage
                             width: root.contentWidth
                             game: root.game
                             showFavorites: false
@@ -861,7 +855,7 @@ FocusScope {
             objectName: "gameDetailsBack"
             // A short window has no headroom for a top bar above the title.
             visible: !root.compactDetails
-            anchors.left: parent.left; anchors.leftMargin: root.stageInset
+            anchors.left: parent.left; anchors.leftMargin: DesktopTokens.px(24)
             anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
             height: DesktopTokens.px(40)
             font.pixelSize: DesktopTokens.captionSize
@@ -883,7 +877,7 @@ FocusScope {
         }
         DesktopButton {
             objectName: "gameDetailsClose"
-            anchors.right: parent.right; anchors.rightMargin: root.stageInset
+            anchors.right: parent.right; anchors.rightMargin: DesktopTokens.px(24)
             anchors.top: parent.top; anchors.topMargin: DesktopTokens.px(24)
             width: DesktopTokens.px(40); height: DesktopTokens.px(40); themedGlyph: "close"; leftPadding: 0; rightPadding: 0
             cornerRadius: width / 2

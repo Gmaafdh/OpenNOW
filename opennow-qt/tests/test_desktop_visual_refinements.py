@@ -117,7 +117,10 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         # the scroll thumb appears only while scrolling instead of drawing a
         # permanent rule across the art.
         self.assertIn("cinematicFit: false", details)
-        self.assertIn("coverAlignRight: true", details)
+        # The cover crop is centred: key art subjects live in the middle of
+        # the banner, not at its right edge.
+        self.assertNotIn("coverAlignRight", details)
+        self.assertNotIn("alignArtworkRight", details)
         self.assertIn("policy: ScrollBar.AsNeeded", details)
         self.assertIn("background: Item {}", details)
         # The way back to the library sits where the shell navigation was.
@@ -125,16 +128,18 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("visible: !root.compactDetails", details)
         self.assertIn("readonly property int contentInset: DesktopTokens.px(56)", details)
         self.assertIn("id: backdrop", details)
-        self.assertIn("readonly property int scrollWidth", details)
+        self.assertIn("anchors.fill: parent", details)
         # The column stops short of the close button, so a corner action can
         # never sit on top of the title.
-        self.assertIn("readonly property int cornerReserve", details)
-        # Wide windows centre a stage instead of pinning everything to the left
-        # edge; suite windows keep the plain inset and render exactly as before.
-        self.assertIn("readonly property int stageWidth", details)
-        self.assertIn("readonly property int stageInset", details)
-        self.assertIn("Math.max(contentInset, Math.round((width - stageWidth) / 2))", details)
-        self.assertIn("Math.max(0, stageWidth - cornerReserve)", details)
+        # The whole presentation is centred: one reading column for the title
+        # and actions, and a wider centred stage whose bottom row is the
+        # summary bar.
+        self.assertIn("readonly property int columnX", details)
+        self.assertIn("Math.round((width - contentWidth) / 2)", details)
+        self.assertIn("x: root.columnX", details)
+        self.assertIn("readonly property int stageX", details)
+        self.assertIn("x: root.stageX", details)
+        self.assertIn("x: root.columnInStage", details)
         self.assertIn("width: root.stageWidth", details)
         # A short window shrinks the title block and the CTA together and keeps
         # the hero proportional, so the primary action stays inside the cap.
@@ -152,7 +157,7 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("property bool gameplaySettingsShown: false", details)
         # The scrims follow the theme, so the existing label colours keep their
         # contrast on top of artwork in Paper as well as in the dark themes.
-        self.assertIn("readonly property color scrimNear: Theme.lightMode", details)
+        self.assertIn("readonly property color scrimFlat: Theme.lightMode", details)
 
     def test_home_cards_do_not_double_zoom_artwork(self) -> None:
         poster = qml("desktop/home/DesktopHomePoster.qml")
