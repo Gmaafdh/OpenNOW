@@ -273,7 +273,10 @@ FocusScope {
         opacity: reveal.progress
         RoundedArtwork {
             anchors.fill: parent
-            artwork: DesktopTokens.artworkUrl(root.game, true)
+            artwork: DesktopTokens.backdropArtworkUrl(root.game, Math.ceil(width * Screen.devicePixelRatio))
+            // Should the wider request ever fail, the catalog-width hero is
+            // exactly what today's build shows, so the backdrop never empties.
+            fallbackArtwork: DesktopTokens.artworkUrl(root.game, true)
             cornerRadius: 0
             cinematicFit: false
             scrimStart: 1

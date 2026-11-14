@@ -158,6 +158,17 @@ class DesktopVisualRefinementContracts(unittest.TestCase):
         self.assertIn("readonly property color scrimTop: Theme.lightMode", details)
         # The dialog spans the full band so the art runs edge to edge.
         self.assertIn("readonly property int dialogHeight: maximumDialogHeight", details)
+        # The backdrop stops stretching a 1200px download across the window: it
+        # asks the image service for a width step that covers the surface, and
+        # decodes at device pixels so scaled displays do not resample twice.
+        self.assertIn("DesktopTokens.backdropArtworkUrl(root.game", details)
+        self.assertIn("fallbackArtwork: DesktopTokens.artworkUrl(root.game, true)", details)
+        artwork = qml("components/RoundedArtwork.qml")
+        self.assertIn("readonly property real decodeScale: Screen.devicePixelRatio", artwork)
+        self.assertIn("Math.ceil(height * root.decodeScale)", artwork)
+        tokens = qml("desktop/components/DesktopTokens.qml")
+        self.assertIn("function backdropWidthStep(deviceWidth)", tokens)
+        self.assertIn('";w=" + wanted', tokens)
 
     def test_home_cards_do_not_double_zoom_artwork(self) -> None:
         poster = qml("desktop/home/DesktopHomePoster.qml")

@@ -199,17 +199,38 @@ QtObject {
         return String(value).toLowerCase().replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase())
     }
 
-    function artworkUrl(game, preferHero) {
+    function artworkUrl(game, preferHero, wantedWidth) {
         if (!game)
             return ""
         const raw = preferHero
             ? String(game.heroImageUrl || game.imageUrl || game.screenshotUrl || game.boxArtUrl || "")
             : String(game.imageUrl || game.heroImageUrl || game.screenshotUrl || game.boxArtUrl || "")
-        return decodeArtworkUrl(raw)
+        return decodeArtworkUrl(raw, wantedWidth)
     }
 
-    function decodeArtworkUrl(url) {
-        return String(url || "").split(";f=webp").join(";f=jpg")
+    function decodeArtworkUrl(url, wantedWidth) {
+        let out = String(url || "").split(";f=webp").join(";f=jpg")
+        const wanted = Math.round(wantedWidth || 0)
+        if (wanted > 0 && out.indexOf(";w=") >= 0)
+            out = out.replace(/;w=[0-9]+/, ";w=" + wanted)
+        return out
+    }
+
+    // The image service renders whatever width is asked for, up to the native
+    // size of the art. The catalog requests 1200px heroes, which a full-bleed
+    // backdrop then stretches across a 2000px or wider window - exactly the
+    // softness a upscaled download shows. Ask for the smallest standard step
+    // that covers the surface, so the bytes arrive at the size they are shown.
+    function backdropWidthStep(deviceWidth) {
+        const steps = [1280, 1600, 1920, 2240, 2560]
+        for (let i = 0; i < steps.length; ++i)
+            if (deviceWidth <= steps[i])
+                return steps[i]
+        return steps[steps.length - 1]
+    }
+
+    function backdropArtworkUrl(game, deviceWidth) {
+        return artworkUrl(game, true, backdropWidthStep(deviceWidth))
     }
 
     function consoleModeOn(win) {

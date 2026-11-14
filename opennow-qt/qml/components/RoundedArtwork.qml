@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import QtQuick.Window
 import OpenNOW
 
 Item {
@@ -17,6 +18,11 @@ Item {
     // Regular artwork keeps its centred crop unless this is set, which is what
     // tst_artwork pins.
     property bool coverAlignRight: false
+
+    // sourceSize is counted in image pixels while width and height are dip, so
+    // a dip-sized decode is stretched once more by the scene graph on any
+    // scaled display and reads as a soft backdrop. Decode at device pixels.
+    readonly property real decodeScale: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
 
     property bool loadStarted: false
     readonly property string normalizedArtwork: DesktopTokens.decodeArtworkUrl(root.artwork)
@@ -92,7 +98,7 @@ Item {
             horizontalAlignment: (root.cinematicFit || root.coverAlignRight) && root.alignArtworkRight
                 ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
-            sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
+            sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height * root.decodeScale)) : Qt.size(Math.ceil(width * root.decodeScale), Math.ceil(height * root.decodeScale))
             asynchronous: true
             cache: true
             opacity: status === Image.Ready ? 1 : 0
@@ -107,7 +113,7 @@ Item {
             horizontalAlignment: (root.cinematicFit || root.coverAlignRight) && root.alignArtworkRight
                 ? Image.AlignRight : Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
-            sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height)) : Qt.size(Math.ceil(width), Math.ceil(height))
+            sourceSize: root.cinematicFit ? Qt.size(-1, Math.ceil(height * root.decodeScale)) : Qt.size(Math.ceil(width * root.decodeScale), Math.ceil(height * root.decodeScale))
             asynchronous: true
             cache: true
             opacity: status === Image.Ready && artworkImage.status !== Image.Ready ? 1 : 0
