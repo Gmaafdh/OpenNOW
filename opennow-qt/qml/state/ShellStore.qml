@@ -2595,6 +2595,7 @@ QtObject {
     }
 
     function recoverStreamingSession(reason) {
+        clearStaleSessionStopIntent()
         if (!activeSession || sessionClaimRequestId !== "" || recoveryDiscoveryRequestId !== ""
                 || streamerStopRequestId !== "" || sessionStopIntentId === String(activeSession.sessionId))
             return
@@ -2646,6 +2647,7 @@ QtObject {
     function scheduleSessionRecovery(reason) {
         sessionRecoveryPending = false
         streamMessage = reason || qsTr("Connection lost. Waiting to reconnect…")
+        clearStaleSessionStopIntent()
         if (!activeSession || streamStopRequestId !== ""
                 || sessionStopIntentId === String(activeSession.sessionId)) return
         if (sessionReconnectAttempts >= maximumSessionReconnectAttempts) {
@@ -3356,21 +3358,35 @@ QtObject {
         }
     }
 
+    // A stop intent must outlive its stop only while something is still in
+    // flight. Once no stop request, session-end report or shutdown state
+    // remains - and the seat is still waiting rather than live - the intent is
+    // stale: the same seat can be queued or resumed again, and a poll chain
+    // parked on the finished stop would freeze the queue screen on its last
+    // position forever, with the watchdog unable to reach its own recovery.
+    function clearStaleSessionStopIntent() {
+        if (!activeSession || sessionStopIntentId !== String(activeSession.sessionId))
+            return
+        if (coreSessionRestoreId !== "" || streamStopRequestId !== "" || pendingSessionEnd !== null)
+            return
+        if (streamState === "stopping" || streamState === "ready" || streamState === "streaming")
+            return
+        sessionStopIntentId = ""
+    }
+
     // Restarts polling when a waiting seat lost its poll chain without an
     // error. Bounded so a truly broken seat still surfaces through the normal
     // failure budget instead of looping forever.
     function ensureSessionProgressPolling() {
         if (!ready || !sessionProgressPending)
             return
+        // Before the running-timer guard: a parked poll chain keeps the timer
+        // alive every tick, so a clear placed below it could never run.
+        clearStaleSessionStopIntent()
         if (streamPollTimer.running || streamPollRequestId !== "" || streamStopRequestId !== "")
             return
         if (streamStopRequestId !== "" || streamState === "stopping" || pendingSessionEnd !== null)
             return
-        if (sessionStopIntentId === String(activeSession.sessionId) && coreSessionRestoreId === "") {
-            // A stop that already finished cannot be allowed to freeze the
-            // queue when the same seat is launched again.
-            sessionStopIntentId = ""
-        }
         if (streamPollFailureAttempts > 0)
             return
         if (sessionProgressAutoRecoveries >= maximumSessionProgressAutoRecoveries)
@@ -3411,6 +3427,7 @@ QtObject {
     function pollStreamingSession() {
         if (!ready || !activeSession || streamPollRequestId !== "" || streamStopRequestId !== "")
             return
+        clearStaleSessionStopIntent()
         if (sessionStopIntentId === String(activeSession.sessionId) && coreSessionRestoreId === "")
             return
         if (!(activeSession.resumePending && coreSessionRestoreId === "")
