@@ -637,7 +637,7 @@ private slots:
             var streamStopRequestId='',streamerRecoveryExhausted=false,lastError='',streamerRestartAttempts=0;
             var recoveryDiscoveryRequestId='',sessionClaimRequestId='',streamerStopRequestId='',recoverySessionId='';
             var sessionClaimIsRecovery=false,resumePollAttempts=0,resumePollDeadlineMs=0,ready=true;
-            var coreSessionRestoreId='',sessionStopIntentId='',streamPollFailureAttempts=0;
+            var coreSessionRestoreId='',sessionStopIntentId='',streamPollFailureAttempts=0,pendingSessionEnd=null;
             var webrtcSignalingFailures = 0, webrtcSignalingFailureSessionId = '', webrtcSignalingSettled = false;
             var webrtcSignalingRequeued = false;
             var NativeStreamRuntime={running:false},requests=[];
@@ -650,7 +650,7 @@ private slots:
         )JS")).isError());
         for (const auto &name : {"acceptStreamerSnapshot", "isRemoteSessionTermination", "cancelSessionRecovery",
                  "scheduleSessionRecovery", "retryNativeStreamer", "recoverStreamingSession", "discoverRecoverySession",
-                 "sessionOwnerSignedIn"})
+                 "sessionOwnerSignedIn", "clearStaleSessionStopIntent"})
             QVERIFY(loadShellFunction(engine, QString::fromLatin1(name)));
         engine.globalObject().setProperty(QStringLiteral("failureCode"), code);
         if (recoveryPending) {
@@ -2322,7 +2322,7 @@ private slots:
             var streamer = {status: 'starting', sessionId: 'seat'};
             var runtimeStreamProfile = {}, streamMessage = '', streamState = '', lastError = '';
             var streamerRestartAttempts = 0, sessionReconnectAttempts = 0;
-            var coreSessionRestoreId = '', sessionStopIntentId = '', streamPollFailureAttempts = 0;
+            var coreSessionRestoreId = '', sessionStopIntentId = '', streamPollFailureAttempts = 0, pendingSessionEnd = null;
             var streamerRecoveryExhausted = false, streamerRestartRecoveryCount = 0, sessionRecoveryCount = 0;
             var streamerStopExpected = false, streamInputStateKnown = false, streamRecordingActive = false;
             var streamStartedAtMs = 1, desiredStreamInputPaused = false, sessionClaimRequestId = '';
@@ -2365,6 +2365,7 @@ private slots:
                               .arg(limit.captured(1))).isError());
         for (const auto &name : {"acceptStreamerSnapshot", "recoverStreamingSession", "sessionOwnerSignedIn",
                                 "scheduleSessionRecovery", "discoverRecoverySession", "acceptRecoverySessions",
+                                "clearStaleSessionStopIntent",
                                 "normalizedStreamingSession", "acceptStreamingSession",
                                 "isRemoteSessionTermination", "finishRemoteSession", "cancelSessionRecovery",
                                 "startNativeStreamer", "retryNativeStreamer", "acceptNativeEvent",
