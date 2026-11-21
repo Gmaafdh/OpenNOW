@@ -2401,7 +2401,11 @@
     "s_0215": "Linked to your %1 account. Ready to play.",
     "s_0216": "%1 account required to play this game.",
     "s_0217": "Show gameplay settings before launch",
-    "s_0218": "Requests only. The rig decides the final stream."
+    "s_0218": "Requests only. The rig decides the final stream.",
+    "s_0219": "Stops the take and saves it to your media library",
+    "s_0220": "Stop and save the recording",
+    "s_0221": "REC",
+    "s_0222": "Records the stream in source quality"
   },
   "qt": {
       "s_3247a036": "16:19 | 08/27",
