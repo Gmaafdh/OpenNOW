@@ -106,7 +106,7 @@ FocusScope {
         anchors.top: parent.top; anchors.topMargin: 24
         layer.enabled: HdrOutput.chromeRequired
         layer.effect: HdrChromeEffect {}
-        width: recordingTakeLabel.implicitWidth + 28; height: 36; radius: 18; z: 4
+        width: recordingTakeLabel.implicitWidth + 28; height: 36; z: 4
         hoverEnabled: true
         focusPolicy: Qt.NoFocus
         // Idle while the stream is live so the feature is findable over the
