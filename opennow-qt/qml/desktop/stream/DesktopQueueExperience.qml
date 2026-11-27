@@ -26,12 +26,7 @@ FocusScope {
 
     // ambient motion phases (all driven by the animations below)
     property real breath: 0        // 0..1..0 slow pulse
-    property real drift: 0         // 0..1..0 background drift
-    property real floatPhase: 0.5  // 0..1..0 cover levitation
     property real spin: 0          // 0..360 fast spinner
-    property real orbit: 0         // 0..360 slow orbit
-    property real beam: 0          // 0..1 scan beam
-    property real flowPhase: 0     // 0..1 timeline comet
     property int peakPosition: 0
     property string peakSessionId: ""
 
@@ -61,10 +56,6 @@ FocusScope {
     clip: true
 
     // ───────────────────────── helpers ─────────────────────────
-
-    function accentA(alpha) {
-        return Qt.rgba(Theme.mediaAccent.r, Theme.mediaAccent.g, Theme.mediaAccent.b, alpha)
-    }
 
     function restoreFocus() {
         if (root.artworkViewerOpen)
@@ -178,7 +169,7 @@ FocusScope {
     component MorphingText: Item {
         id: morph
         property string text: ""
-        property color ink: Theme.mediaForeground
+        property color ink: DesktopTokens.textHigh
         property string family: DesktopTokens.bodyFont
         property int pixelSize: 14
         property int fontWeight: Font.DemiBold
@@ -284,64 +275,27 @@ FocusScope {
         }
     }
 
-    // Soft radial light used for ambience.
-    component GlowBlob: Shape {
-        id: blob
-        property color tint: "white"
-        property real strength: 0.3
-        ShapePath {
-            strokeColor: "transparent"
-            strokeWidth: -1
-            fillGradient: RadialGradient {
-                centerX: blob.width / 2
-                centerY: blob.height / 2
-                centerRadius: Math.min(blob.width, blob.height) / 2
-                focalX: centerX
-                focalY: centerY
-                GradientStop { position: 0.0; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.strength) }
-                GradientStop { position: 0.55; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, blob.strength * 0.35) }
-                GradientStop { position: 1.0; color: Qt.rgba(blob.tint.r, blob.tint.g, blob.tint.b, 0) }
-            }
-            startX: 0; startY: 0
-            PathLine { x: blob.width; y: 0 }
-            PathLine { x: blob.width; y: blob.height }
-            PathLine { x: 0; y: blob.height }
-            PathLine { x: 0; y: 0 }
-        }
-    }
-
+    // Inner surface: the same raised recipe the home page uses for rows.
     component GlassPanel: Rectangle {
         id: glass
-        radius: 28
+        radius: 16
+        color: DesktopTokens.raised
         border.width: 1
-        border.color: "#2AFFFFFF"
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#20FFFFFF" }
-            GradientStop { position: 1.0; color: "#08FFFFFF" }
-        }
-        Rectangle {
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: glass.radius
-            anchors.rightMargin: glass.radius
-            height: 1
-            color: "#40FFFFFF"
-        }
+        border.color: DesktopTokens.seamSoft
     }
 
     component Pill: Rectangle {
         id: pill
         property string label: ""
-        property color tint: Theme.mediaAccent
+        property color tint: DesktopTokens.mint
         property bool showDot: false
         property real pulse: 0
         implicitWidth: pillRow.implicitWidth + 26
         implicitHeight: 30
         radius: height / 2
-        color: Qt.rgba(tint.r, tint.g, tint.b, 0.14)
+        color: Qt.rgba(tint.r, tint.g, tint.b, Theme.lightMode ? 0.10 : 0.14)
         border.width: 1
-        border.color: Qt.rgba(tint.r, tint.g, tint.b, 0.42)
+        border.color: Qt.rgba(tint.r, tint.g, tint.b, 0.35)
         Row {
             id: pillRow
             anchors.centerIn: parent
@@ -383,14 +337,14 @@ FocusScope {
         id: stat
         property string label: ""
         property string value: ""
-        property color valueColor: Theme.mediaForeground
+        property color valueColor: DesktopTokens.textHigh
         height: 56
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             width: 2
             height: parent.height - 18
             radius: 1
-            color: Qt.rgba(stat.valueColor.r, stat.valueColor.g, stat.valueColor.b, 0.75)
+            color: DesktopTokens.mint
         }
         Column {
             x: 16
@@ -398,7 +352,7 @@ FocusScope {
             spacing: 3
             Text {
                 text: stat.label
-                color: Theme.mediaMuted
+                color: DesktopTokens.textMuted
                 font.family: DesktopTokens.monoFont
                 font.pixelSize: 9
                 font.weight: Font.Bold
@@ -418,13 +372,13 @@ FocusScope {
         id: tile
         property string label: ""
         property string value: ""
-        property color tint: Theme.mediaAccent
+        property color tint: DesktopTokens.mint
         property int maxLines: 2
         implicitHeight: Math.max(68, tileColumn.implicitHeight + 26)
-        radius: 18
-        color: "#10FFFFFF"
+        radius: 16
+        color: DesktopTokens.raised
         border.width: 1
-        border.color: "#1CFFFFFF"
+        border.color: DesktopTokens.seamSoft
         Column {
             id: tileColumn
             x: 16
@@ -443,7 +397,7 @@ FocusScope {
                 }
                 Text {
                     text: tile.label
-                    color: Theme.mediaMuted
+                    color: DesktopTokens.textMuted
                     font.family: DesktopTokens.monoFont
                     font.pixelSize: 9
                     font.weight: Font.Bold
@@ -453,7 +407,7 @@ FocusScope {
             Text {
                 width: parent.width
                 text: tile.value
-                color: Theme.mediaForeground
+                color: DesktopTokens.textHigh
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: 13
                 font.weight: Font.Bold
@@ -496,36 +450,9 @@ FocusScope {
         NumberAnimation { target: root; property: "breath"; from: 0; to: 1; duration: 2200; easing.type: Easing.InOutSine }
         NumberAnimation { target: root; property: "breath"; from: 1; to: 0; duration: 2200; easing.type: Easing.InOutSine }
     }
-    SequentialAnimation {
-        running: root.animating
-        loops: Animation.Infinite
-        NumberAnimation { target: root; property: "drift"; from: 0; to: 1; duration: 20000; easing.type: Easing.InOutSine }
-        NumberAnimation { target: root; property: "drift"; from: 1; to: 0; duration: 20000; easing.type: Easing.InOutSine }
-    }
-    SequentialAnimation {
-        running: root.animating
-        loops: Animation.Infinite
-        NumberAnimation { target: root; property: "floatPhase"; from: 0; to: 1; duration: 3400; easing.type: Easing.InOutSine }
-        NumberAnimation { target: root; property: "floatPhase"; from: 1; to: 0; duration: 3400; easing.type: Easing.InOutSine }
-    }
     NumberAnimation {
         target: root; property: "spin"; from: 0; to: 360
         duration: 1500; loops: Animation.Infinite; running: root.animating && root.indeterminate
-    }
-    NumberAnimation {
-        target: root; property: "orbit"; from: 0; to: 360
-        duration: 48000; loops: Animation.Infinite; running: root.animating
-    }
-    SequentialAnimation {
-        running: root.animating
-        loops: Animation.Infinite
-        NumberAnimation { target: root; property: "beam"; from: 0; to: 1; duration: 8000 }
-        PauseAnimation { duration: 3500 }
-    }
-    NumberAnimation {
-        target: root; property: "flowPhase"; from: 0; to: 1
-        duration: 1800; loops: Animation.Infinite; easing.type: Easing.InOutQuad
-        running: root.animating
     }
     Connections {
         target: AppController
@@ -582,108 +509,33 @@ FocusScope {
         Qt.callLater(root.playEntrance)
     }
 
-    // ───────────────────────── ambient backdrop ─────────────────────────
+    // ───────────────────────── backdrop ─────────────────────────
 
     Item {
         id: backdrop
         anchors.fill: parent
 
-        Rectangle { anchors.fill: parent; color: "#06080E" }
+        Rectangle { anchors.fill: parent; color: DesktopTokens.shell }
 
-        // Artwork, downsampled hard and stretched => colour wash of the game's palette.
+        // The game's key art cropped edge to edge, exactly like the home
+        // backdrop - no downsampled wash, no glow, no particles.
         Image {
-            anchors.centerIn: parent
-            width: parent.width * 1.3
-            height: parent.height * 1.3
+            anchors.fill: parent
             source: coverArtwork.resolvedUrl
             fillMode: Image.PreserveAspectCrop
-            sourceSize: Qt.size(48, 48)
+            sourceSize: Qt.size(1440, 900)
             smooth: true
             asynchronous: true
-            opacity: status === Image.Ready ? 0.55 : 0
+            opacity: status === Image.Ready ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.duration(900) } }
-            transform: Translate { x: (root.drift - 0.5) * 70; y: (0.5 - root.drift) * 30 }
         }
 
+        // Theme-aware wash so the shell surfaces sit on a calmed backdrop,
+        // the way the home rail and top bar tint their art.
         Rectangle {
             anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#B0060810" }
-                GradientStop { position: 0.55; color: "#D9060810" }
-                GradientStop { position: 1.0; color: "#F5060810" }
-            }
-        }
-
-        GlowBlob {
-            x: parent.width - width * 0.62
-            y: -height * 0.32
-            width: Math.max(600, parent.width * 0.85)
-            height: width
-            tint: Theme.mediaAccent
-            strength: 0.22 + root.breath * 0.07
-        }
-        GlowBlob {
-            x: -width * 0.38
-            y: parent.height - height * 0.62
-            width: Math.max(520, parent.width * 0.7)
-            height: width
-            tint: Theme.mediaAccent
-            strength: 0.14 + (1 - root.breath) * 0.06
-        }
-
-        // Faint scan beam
-        Rectangle {
-            visible: root.animating
-            width: parent.width
-            height: 200
-            y: -height + root.beam * (parent.height + height)
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: root.accentA(0) }
-                GradientStop { position: 0.5; color: root.accentA(0.06) }
-                GradientStop { position: 1.0; color: root.accentA(0) }
-            }
-        }
-
-        // Rising motes
-        Repeater {
-            model: 18
-            delegate: Rectangle {
-                id: mote
-                required property int index
-                readonly property real seed: ((index * 37) % 17) / 17
-                readonly property real travelTime: 14000 + seed * 16000
-                visible: root.animating
-                width: 2 + (index % 3)
-                height: width
-                radius: width / 2
-                x: ((index * 61) % 100) / 100 * backdrop.width
-                color: index % 4 === 0 ? "#FFFFFF" : Theme.mediaAccent
-                opacity: 0.10 + seed * 0.25
-                SequentialAnimation on y {
-                    running: root.animating
-                    NumberAnimation {
-                        from: backdrop.height * (1 - mote.seed)
-                        to: -10
-                        duration: Math.max(1, mote.travelTime * (1 - mote.seed))
-                    }
-                    SequentialAnimation {
-                        loops: Animation.Infinite
-                        NumberAnimation { from: backdrop.height + 10; to: -10; duration: mote.travelTime }
-                    }
-                }
-            }
-        }
-
-        // Edge vignette
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: "#70000000" }
-                GradientStop { position: 0.22; color: "#00000000" }
-                GradientStop { position: 0.78; color: "#00000000" }
-                GradientStop { position: 1.0; color: "#70000000" }
-            }
+            color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b,
+                Theme.lightMode ? 0.80 : 0.60)
         }
     }
 
@@ -724,16 +576,7 @@ FocusScope {
                 opacity: root.sectionOpacity(0)
                 transform: Translate {
                     x: -root.sectionOffset(0, 32)
-                    y: root.stacked ? queuePass.height + layoutGrid.rowSpacing : 0
-                }
-
-                GlowBlob {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: artFrame.y + artFrame.height / 2 - height / 2
-                    width: artworkPanel.cardWidth * 2
-                    height: width
-                    tint: Theme.mediaAccent
-                    strength: 0.24 + root.breath * 0.12
+                    y: root.stacked ? queuePassPanel.height + layoutGrid.rowSpacing : 0
                 }
 
                 Column {
@@ -746,35 +589,12 @@ FocusScope {
                         id: artFrame
                         width: parent.width
                         height: artworkPanel.cardHeight
-                        radius: 26
-                        color: "#0D1220"
+                        radius: 16
+                        color: Theme.lightMode ? "#F0F3F8" : "#E617202D"
                         border.width: 1
-                        border.color: root.accentA(artworkHover.hovered ? 0.75 : 0.38)
-                        Behavior on border.color { ColorAnimation { duration: DesktopTokens.quickDuration } }
+                        border.color: artworkHover.hovered ? DesktopTokens.focus : DesktopTokens.cardOutlineIdle
+                        Behavior on border.color { ColorAnimation { duration: Theme.focusDuration } }
                         clip: true
-
-                        readonly property real hx: artworkHover.hovered ? artworkHover.point.position.x / Math.max(1, width) : 0.5
-                        readonly property real hy: artworkHover.hovered ? artworkHover.point.position.y / Math.max(1, height) : 0.5
-                        property real tiltY: AppController.reducedMotion ? 0 : (hx - 0.5) * 14
-                        property real tiltX: AppController.reducedMotion ? 0 : -(hy - 0.5) * 14
-                        Behavior on tiltY { NumberAnimation { duration: Theme.duration(140); easing.type: Easing.OutCubic } }
-                        Behavior on tiltX { NumberAnimation { duration: Theme.duration(140); easing.type: Easing.OutCubic } }
-
-                        transform: [
-                            Translate { y: AppController.reducedMotion ? 0 : (root.floatPhase - 0.5) * 12 },
-                            Rotation {
-                                origin.x: artFrame.width / 2
-                                origin.y: artFrame.height / 2
-                                axis { x: 0; y: 1; z: 0 }
-                                angle: artFrame.tiltY
-                            },
-                            Rotation {
-                                origin.x: artFrame.width / 2
-                                origin.y: artFrame.height / 2
-                                axis { x: 1; y: 0; z: 0 }
-                                angle: artFrame.tiltX
-                            }
-                        ]
 
                         Image {
                             id: coverImage
@@ -786,8 +606,7 @@ FocusScope {
                             cache: true
                             sourceSize: Qt.size(Math.max(1, Math.ceil(width * 2)), Math.max(1, Math.ceil(height * 2)))
                             opacity: status === Image.Ready ? 1 : 0
-                            scale: status === Image.Ready
-                                ? (artworkHover.hovered && !AppController.reducedMotion ? 1.03 : 1) : 1.05
+                            scale: status === Image.Ready ? 1 : 1.02
                             Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration } }
                             Behavior on scale { NumberAnimation { duration: Theme.duration(420); easing.type: Easing.OutCubic } }
                         }
@@ -796,51 +615,12 @@ FocusScope {
                             width: parent.width - 48
                             visible: coverImage.status !== Image.Ready
                             text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: Theme.mediaForeground
+                            color: DesktopTokens.textHigh
                             font.family: DesktopTokens.displayFont
                             font.pixelSize: 24
                             font.weight: Font.Black
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
-                        }
-                        // Light sheen following the cursor
-                        Rectangle {
-                            width: parent.width * 0.55
-                            height: parent.height * 1.8
-                            anchors.verticalCenter: parent.verticalCenter
-                            x: artFrame.hx * parent.width - width / 2
-                            rotation: 16
-                            opacity: artworkHover.hovered ? 1 : 0
-                            Behavior on opacity { NumberAnimation { duration: Theme.duration(220) } }
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: "#00FFFFFF" }
-                                GradientStop { position: 0.5; color: "#1EFFFFFF" }
-                                GradientStop { position: 1.0; color: "#00FFFFFF" }
-                            }
-                        }
-                        Rectangle {
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            anchors.margins: 16
-                            width: viewHint.implicitWidth + 24
-                            height: 28
-                            radius: 14
-                            color: "#CC0A0D14"
-                            border.width: 1
-                            border.color: root.accentA(0.5)
-                            opacity: artworkHover.hovered && coverImage.status === Image.Ready ? 1 : 0
-                            Behavior on opacity { NumberAnimation { duration: Theme.duration(180) } }
-                            Text {
-                                id: viewHint
-                                anchors.centerIn: parent
-                                text: qsTr("VIEW")
-                                color: Theme.mediaAccent
-                                font.family: DesktopTokens.monoFont
-                                font.pixelSize: 10
-                                font.weight: Font.Bold
-                                font.letterSpacing: 1.5
-                            }
                         }
                         HoverHandler {
                             id: artworkHover
@@ -859,7 +639,7 @@ FocusScope {
                         Text {
                             width: parent.width
                             text: String(root.game.title || qsTr("GeForce NOW"))
-                            color: Theme.mediaForeground
+                            color: DesktopTokens.textHigh
                             font.family: DesktopTokens.displayFont
                             font.pixelSize: 24
                             font.weight: Font.Black
@@ -871,7 +651,7 @@ FocusScope {
                             width: parent.width
                             visible: text !== ""
                             text: root.gameSubtitle()
-                            color: Theme.mediaMuted
+                            color: DesktopTokens.textMuted
                             font.family: DesktopTokens.bodyFont
                             font.pixelSize: 12
                             font.weight: Font.DemiBold
@@ -883,7 +663,6 @@ FocusScope {
                     DesktopButton {
                         id: viewArtworkButton
                         visible: coverImage.status === Image.Ready
-                        onMediaBackground: true
                         text: qsTr("View artwork")
                         onClicked: root.artworkViewerOpen = true
                     }
@@ -891,17 +670,30 @@ FocusScope {
             }
 
             // ───── Right: mission control ─────
-            Column {
-                id: queuePass
-                objectName: "desktopQueuePass"
+            // One shell panel with the home showcase card's surface recipe,
+            // so the queue reads as part of the same app as the home page.
+            Rectangle {
+                id: queuePassPanel
                 width: root.stacked ? layoutGrid.width
                     : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
-                spacing: root.veryCompact ? 6 : root.compact ? 12 : 20
+                height: queuePass.implicitHeight + 56
+                radius: 24
+                color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"
+                border.width: 1
+                border.color: DesktopTokens.seam
                 // On narrow screens, keep queue state and actions first. The
                 // artwork remains available below them in the same flickable.
                 transform: Translate {
                     y: root.stacked ? -artworkPanel.height - layoutGrid.rowSpacing : 0
                 }
+
+            Column {
+                id: queuePass
+                objectName: "desktopQueuePass"
+                x: 28
+                y: 28
+                width: parent.width - 56
+                spacing: root.veryCompact ? 6 : root.compact ? 12 : 20
 
                 // Eyebrow
                 Flow {
@@ -916,14 +708,14 @@ FocusScope {
                     }
                     Pill {
                         label: root.regionText().toUpperCase()
-                        tint: Theme.mediaMuted
+                        tint: DesktopTokens.textMuted
                     }
                     Text {
                         visible: root.stacked
                         width: Math.min(implicitWidth, Math.max(120, parent.width - 320))
                         height: 30
                         text: String(root.game.title || qsTr("GeForce NOW"))
-                        color: Theme.mediaForeground
+                        color: DesktopTokens.textHigh
                         font.family: DesktopTokens.bodyFont
                         font.pixelSize: 13
                         font.weight: Font.DemiBold
@@ -940,7 +732,7 @@ FocusScope {
                         width: parent.width
                         contentObjectName: "sessionQueueStatus"
                         text: root.statusText
-                        ink: Theme.mediaForeground
+                        ink: DesktopTokens.textHigh
                         family: DesktopTokens.displayFont
                         pixelSize: root.veryCompact ? 28 : root.compact ? 34 : 40
                         fontWeight: Font.Black
@@ -953,7 +745,7 @@ FocusScope {
                     MorphingText {
                         width: parent.width
                         text: root.detailText
-                        ink: Theme.mediaMuted
+                        ink: DesktopTokens.textMuted
                         family: DesktopTokens.bodyFont
                         pixelSize: 15
                         lineHeight: 1.35
@@ -987,15 +779,6 @@ FocusScope {
                             height: root.ringSize
                             readonly property real c: width / 2
                             readonly property real r: width / 2 - 22
-                            readonly property real tipAngle: (-90 + 360 * root.shownProgress) * Math.PI / 180
-
-                            GlowBlob {
-                                anchors.centerIn: parent
-                                width: parent.width * 1.6
-                                height: width
-                                tint: Theme.mediaAccent
-                                strength: 0.12 + root.breath * 0.10
-                            }
 
                             Rectangle {
                                 id: ripple
@@ -1005,31 +788,8 @@ FocusScope {
                                 radius: width / 2
                                 color: "transparent"
                                 border.width: 2
-                                border.color: Theme.mediaAccent
+                                border.color: DesktopTokens.mint
                                 opacity: 0
-                            }
-
-                            // slow dotted orbit
-                            Item {
-                                anchors.fill: parent
-                                rotation: root.orbit
-                                Shape {
-                                    anchors.fill: parent
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: "#38FFFFFF"
-                                        strokeWidth: 1.5
-                                        strokeStyle: ShapePath.DashLine
-                                        dashPattern: [1, 6]
-                                        fillColor: "transparent"
-                                        PathAngleArc {
-                                            centerX: ringBox.c; centerY: ringBox.c
-                                            radiusX: ringBox.c - 3; radiusY: ringBox.c - 3
-                                            startAngle: 0; sweepAngle: 359.9
-                                        }
-                                    }
-                                }
                             }
 
                             // track
@@ -1038,7 +798,7 @@ FocusScope {
                                 layer.enabled: true
                                 layer.samples: 4
                                 ShapePath {
-                                    strokeColor: "#18FFFFFF"
+                                    strokeColor: DesktopTokens.seamSoft
                                     strokeWidth: 10
                                     fillColor: "transparent"
                                     PathAngleArc {
@@ -1058,19 +818,7 @@ FocusScope {
                                     layer.enabled: true
                                     layer.samples: 4
                                     ShapePath {
-                                        strokeColor: root.accentA(0.22)
-                                        strokeWidth: 20
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        PathAngleArc {
-                                            centerX: ringBox.c; centerY: ringBox.c
-                                            radiusX: ringBox.r; radiusY: ringBox.r
-                                            startAngle: -90
-                                            sweepAngle: root.indeterminate ? 100 : Math.max(2, 359.9 * root.shownProgress)
-                                        }
-                                    }
-                                    ShapePath {
-                                        strokeColor: Theme.mediaAccent
+                                        strokeColor: DesktopTokens.mint
                                         strokeWidth: 10
                                         fillColor: "transparent"
                                         capStyle: ShapePath.RoundCap
@@ -1084,19 +832,6 @@ FocusScope {
                                 }
                             }
 
-                            // glowing tip
-                            Rectangle {
-                                visible: !root.indeterminate
-                                width: 14
-                                height: 14
-                                radius: 7
-                                x: ringBox.c + ringBox.r * Math.cos(ringBox.tipAngle) - 7
-                                y: ringBox.c + ringBox.r * Math.sin(ringBox.tipAngle) - 7
-                                color: "#FFFFFF"
-                                border.width: 3
-                                border.color: root.accentA(0.55)
-                            }
-
                             Column {
                                 anchors.centerIn: parent
                                 width: ringBox.width - 64
@@ -1105,7 +840,7 @@ FocusScope {
                                     width: parent.width
                                     text: qsTr("YOUR PLACE")
                                     horizontalAlignment: Text.AlignHCenter
-                                    color: Theme.mediaMuted
+                                    color: DesktopTokens.textMuted
                                     font.family: DesktopTokens.monoFont
                                     font.pixelSize: 9
                                     font.weight: Font.Bold
@@ -1117,7 +852,7 @@ FocusScope {
                                     text: root.queuePosition > 0 ? String(root.queuePosition) : "—"
                                     accessibleText: root.statusText
                                     horizontalAlignment: Text.AlignHCenter
-                                    ink: Theme.mediaForeground
+                                    ink: DesktopTokens.textHigh
                                     family: DesktopTokens.displayFont
                                     pixelSize: Math.round(ringBox.width * (root.queuePosition > 999 ? 0.24
                                         : root.queuePosition > 99 ? 0.30 : 0.38))
@@ -1129,7 +864,7 @@ FocusScope {
                                     width: parent.width
                                     text: root.aheadCaption()
                                     horizontalAlignment: Text.AlignHCenter
-                                    color: Theme.mediaAccent
+                                    color: DesktopTokens.mint
                                     font.family: DesktopTokens.bodyFont
                                     font.pixelSize: 11
                                     font.weight: Font.Bold
@@ -1148,7 +883,7 @@ FocusScope {
                                 width: parent.width
                                 label: qsTr("QUEUE PROGRESS")
                                 value: root.progressText()
-                                valueColor: Theme.mediaAccent
+                                valueColor: DesktopTokens.mint
                             }
                             StatLine {
                                 width: parent.width
@@ -1173,7 +908,7 @@ FocusScope {
 
                     Text {
                         text: qsTr("WHAT HAPPENS NEXT")
-                        color: Theme.mediaMuted
+                        color: DesktopTokens.textMuted
                         font.family: DesktopTokens.monoFont
                         font.pixelSize: 10
                         font.weight: Font.Bold
@@ -1194,7 +929,7 @@ FocusScope {
                             width: stepper.colW * 2
                             height: 2
                             radius: 1
-                            color: "#24FFFFFF"
+                            color: DesktopTokens.seam
                         }
                         Rectangle {
                             x: trackLine.x
@@ -1202,24 +937,8 @@ FocusScope {
                             width: trackLine.width * 0.5
                             height: 2
                             radius: 1
-                            color: Theme.mediaAccent
+                            color: DesktopTokens.mint
                         }
-                        Rectangle {
-                            visible: root.animating
-                            readonly property real segment: trackLine.width * 0.5
-                            width: 44
-                            height: 4
-                            radius: 2
-                            y: 12
-                            x: trackLine.x + segment + root.flowPhase * (segment - width)
-                            opacity: 1 - Math.abs(root.flowPhase * 2 - 1)
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: root.accentA(0) }
-                                GradientStop { position: 1.0; color: root.accentA(1) }
-                            }
-                        }
-
                         Repeater {
                             model: 3
                             delegate: Item {
@@ -1237,7 +956,7 @@ FocusScope {
                                     width: 28
                                     height: 28
                                     radius: 14
-                                    color: "#0B0F18"
+                                    color: DesktopTokens.raised
                                 }
                                 Rectangle {
                                     visible: step.active
@@ -1245,21 +964,22 @@ FocusScope {
                                     width: 28 + root.breath * 18
                                     height: width
                                     radius: width / 2
-                                    color: Theme.mediaAccent
+                                    color: DesktopTokens.mint
                                     opacity: 0.35 * (1 - root.breath)
                                 }
                                 Rectangle {
                                     anchors.fill: nodeBase
                                     radius: 14
-                                    color: step.done ? Theme.mediaAccent
-                                        : step.active ? root.accentA(0.2) : "#0DFFFFFF"
+                                    color: step.done ? DesktopTokens.mint
+                                        : step.active ? Qt.rgba(DesktopTokens.mint.r, DesktopTokens.mint.g, DesktopTokens.mint.b, 0.16)
+                                        : DesktopTokens.raised
                                     border.width: step.done || step.active ? 2 : 1
-                                    border.color: step.done || step.active ? Theme.mediaAccent : "#40FFFFFF"
+                                    border.color: step.done || step.active ? DesktopTokens.mint : DesktopTokens.seam
                                     Behavior on color { ColorAnimation { duration: DesktopTokens.quickDuration } }
                                     Text {
                                         anchors.centerIn: parent
                                         text: step.done ? "✓" : String(step.index + 1)
-                                        color: step.done ? "#0A0D14" : step.active ? Theme.mediaAccent : Theme.mediaMuted
+                                        color: step.done ? "#0A0D14" : step.active ? DesktopTokens.mint : DesktopTokens.textMuted
                                         font.family: DesktopTokens.monoFont
                                         font.pixelSize: 11
                                         font.weight: Font.Bold
@@ -1274,7 +994,7 @@ FocusScope {
                                     wrapMode: Text.WordWrap
                                     maximumLineCount: 2
                                     elide: Text.ElideRight
-                                    color: step.active || step.done ? Theme.mediaForeground : Theme.mediaMuted
+                                    color: step.active || step.done ? DesktopTokens.textHigh : DesktopTokens.textMuted
                                     font.family: DesktopTokens.bodyFont
                                     font.pixelSize: 12
                                     font.weight: step.active ? Font.ExtraBold : Font.DemiBold
@@ -1312,7 +1032,7 @@ FocusScope {
                         width: tileGrid.tileWidth
                         label: qsTr("QUEUE UPDATES")
                         value: root.activityText
-                        tint: root.queueStalled ? DesktopTokens.amber : Theme.mediaAccent
+                        tint: root.queueStalled ? DesktopTokens.amber : DesktopTokens.mint
                     }
                     InfoTile {
                         width: tileGrid.tileWidth
@@ -1328,9 +1048,9 @@ FocusScope {
                     width: parent.width
                     height: stallColumn.implicitHeight + 32
                     radius: 20
-                    color: Qt.rgba(DesktopTokens.amber.r, DesktopTokens.amber.g, DesktopTokens.amber.b, 0.10)
+                    color: Qt.rgba(DesktopTokens.flightWarning.r, DesktopTokens.flightWarning.g, DesktopTokens.flightWarning.b, 0.10)
                     border.width: 1
-                    border.color: Qt.rgba(DesktopTokens.amber.r, DesktopTokens.amber.g, DesktopTokens.amber.b, 0.5)
+                    border.color: Qt.rgba(DesktopTokens.flightWarning.r, DesktopTokens.flightWarning.g, DesktopTokens.flightWarning.b, 0.45)
                     opacity: root.sectionOpacity(5)
                     Column {
                         id: stallColumn
@@ -1341,7 +1061,7 @@ FocusScope {
                         Text {
                             width: parent.width
                             text: qsTr("This is taking longer than usual")
-                            color: DesktopTokens.amber
+                            color: DesktopTokens.flightWarning
                             font.family: DesktopTokens.displayFont
                             font.pixelSize: 15
                             font.weight: Font.Black
@@ -1350,7 +1070,7 @@ FocusScope {
                             width: parent.width
                             visible: root.requeueAvailable
                             text: qsTr("The queue has slowed down. You can keep waiting, or ask for a fresh rig.")
-                            color: Theme.mediaMuted
+                            color: DesktopTokens.textMuted
                             font.family: DesktopTokens.bodyFont
                             font.pixelSize: 12
                             font.weight: Font.DemiBold
@@ -1359,7 +1079,6 @@ FocusScope {
                         DesktopButton {
                             id: requeueButton
                             objectName: "desktopQueueRequeue"
-                            onMediaBackground: true
                             visible: root.queueStalled && root.requeueAvailable
                             enabled: !root.streamBusy && !root.requeueInProgress
                             primary: true
@@ -1377,7 +1096,6 @@ FocusScope {
                     transform: Translate { y: root.sectionOffset(5, 14) }
                     DesktopButton {
                         objectName: "desktopQueueRefresh"
-                        onMediaBackground: true
                         enabled: !root.streamBusy && !root.requeueInProgress
                         text: qsTr("Refresh status")
                         onClicked: root.refreshRequested()
@@ -1385,13 +1103,13 @@ FocusScope {
                     DesktopButton {
                         id: cancelButton
                         objectName: "desktopQueueCancel"
-                        onMediaBackground: true
                         enabled: !root.requeueInProgress
                         text: qsTr("Cancel session")
                         shortcutText: qsTr("Esc")
                         onClicked: root.cancelRequested()
                     }
                 }
+            }
             }
         }
     }
@@ -1404,18 +1122,10 @@ FocusScope {
         z: 50
         visible: root.artworkViewerOpen || opacity > 0.001
         opacity: root.artworkViewerOpen ? 1 : 0
-        color: "#F2060810"
+        color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b, 0.96)
         Behavior on opacity { NumberAnimation { duration: Theme.duration(220); easing.type: Easing.OutCubic } }
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("View artwork")
-
-        GlowBlob {
-            anchors.centerIn: parent
-            width: Math.min(parent.width, parent.height) * 1.5
-            height: width
-            tint: Theme.mediaAccent
-            strength: 0.16
-        }
 
         MouseArea {
             anchors.fill: parent
@@ -1443,7 +1153,7 @@ FocusScope {
             Text {
                 width: parent.width
                 text: String(root.game.title || qsTr("GeForce NOW"))
-                color: Theme.mediaForeground
+                color: DesktopTokens.textHigh
                 font.family: DesktopTokens.displayFont
                 font.pixelSize: 24
                 font.weight: Font.Black
@@ -1453,7 +1163,7 @@ FocusScope {
                 width: parent.width
                 visible: text !== ""
                 text: root.gameSubtitle()
-                color: Theme.mediaMuted
+                color: DesktopTokens.textMuted
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
@@ -1465,7 +1175,6 @@ FocusScope {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: 24
-            onMediaBackground: true
             text: qsTr("Close")
             shortcutText: qsTr("Esc")
             onClicked: root.artworkViewerOpen = false
