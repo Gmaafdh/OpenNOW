@@ -36,7 +36,11 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 760
+    // Short windows cannot carry the side-by-side mission column: below 760 px
+    // tall the queue panel takes the full width and the artwork drops beneath
+    // it, which keeps the actions inside the first viewport.
     readonly property bool stacked: width < 1000 || height < 650
+        || (height < 760 && width < 1200)
     readonly property bool animating: root.visible && !AppController.reducedMotion
     readonly property int elapsedSeconds: queueVisibleSinceMs > 0
         ? Math.max(0, Math.floor((queueClockMs - queueVisibleSinceMs) / 1000)) : 0
@@ -680,7 +684,7 @@ FocusScope {
                 objectName: "desktopQueuePass"
                 width: root.stacked ? layoutGrid.width
                     : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
-                height: queuePass.implicitHeight + 56
+                height: queuePass.implicitHeight + (root.veryCompact ? 46 : 56)
                 radius: 24
                 color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"
                 border.width: 1
@@ -694,7 +698,7 @@ FocusScope {
             Column {
                 id: queuePass
                 x: 28
-                y: 28
+                y: root.veryCompact ? 18 : 28
                 width: parent.width - 56
                 spacing: root.veryCompact ? 6 : root.compact ? 12 : 20
 

@@ -207,10 +207,10 @@ TestCase {
         ShellStore.streamState = "failed"
         compare(textItem("Session could not start").color, DesktopTokens.danger)
         compare(textItem("Try again").color, Qt.color("#0A0D14"))
-        compare(textItem("Cancel session").color, Theme.mediaForeground)
+        compare(textItem("Cancel session").color, DesktopTokens.textHigh)
         ShellStore.streamState = "reconnecting"
-        compare(textItem("Reconnecting to your session").color, Theme.mediaForeground)
+        compare(textItem("Reconnecting to your session").color, DesktopTokens.textHigh)
         ShellStore.streamState = "stopping"
-        compare(textItem("Closing your session").color, Theme.mediaForeground)
+        compare(textItem("Closing your session").color, DesktopTokens.textHigh)
     }
 }
