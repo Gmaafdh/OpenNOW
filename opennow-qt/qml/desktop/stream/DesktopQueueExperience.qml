@@ -290,6 +290,9 @@ FocusScope {
         property color tint: DesktopTokens.mint
         property bool showDot: false
         property real pulse: 0
+        // Mint reads on dark panels; the light panel needs the deep variant.
+        readonly property color ink: Theme.lightMode && tint === DesktopTokens.mint
+            ? DesktopTokens.flightReady : tint
         implicitWidth: pillRow.implicitWidth + 26
         implicitHeight: 30
         radius: height / 2
@@ -318,13 +321,13 @@ FocusScope {
                     width: 6
                     height: 6
                     radius: 3
-                    color: pill.tint
+                    color: pill.ink
                 }
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: pill.label
-                color: pill.tint
+                color: pill.ink
                 font.family: DesktopTokens.monoFont
                 font.pixelSize: 10
                 font.weight: Font.Bold
@@ -674,6 +677,7 @@ FocusScope {
             // so the queue reads as part of the same app as the home page.
             Rectangle {
                 id: queuePassPanel
+                objectName: "desktopQueuePass"
                 width: root.stacked ? layoutGrid.width
                     : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
                 height: queuePass.implicitHeight + 56
@@ -689,7 +693,6 @@ FocusScope {
 
             Column {
                 id: queuePass
-                objectName: "desktopQueuePass"
                 x: 28
                 y: 28
                 width: parent.width - 56
@@ -864,7 +867,7 @@ FocusScope {
                                     width: parent.width
                                     text: root.aheadCaption()
                                     horizontalAlignment: Text.AlignHCenter
-                                    color: DesktopTokens.mint
+                                    color: Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint
                                     font.family: DesktopTokens.bodyFont
                                     font.pixelSize: 11
                                     font.weight: Font.Bold
@@ -883,7 +886,7 @@ FocusScope {
                                 width: parent.width
                                 label: qsTr("QUEUE PROGRESS")
                                 value: root.progressText()
-                                valueColor: DesktopTokens.mint
+                                valueColor: Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint
                             }
                             StatLine {
                                 width: parent.width
@@ -979,7 +982,9 @@ FocusScope {
                                     Text {
                                         anchors.centerIn: parent
                                         text: step.done ? "✓" : String(step.index + 1)
-                                        color: step.done ? "#0A0D14" : step.active ? DesktopTokens.mint : DesktopTokens.textMuted
+                                        color: step.done ? "#0A0D14"
+                                            : step.active ? (Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint)
+                                            : DesktopTokens.textMuted
                                         font.family: DesktopTokens.monoFont
                                         font.pixelSize: 11
                                         font.weight: Font.Bold

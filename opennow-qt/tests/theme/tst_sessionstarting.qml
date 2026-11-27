@@ -56,8 +56,18 @@ TestCase {
         return item
     }
 
-    function contrastOnDark(color) {
-        const background = Qt.color("#04060A")
+    // The launch and queue surfaces now speak the shell language: every
+    // asserted text sits on a theme-aware shell card (the library poster fill
+    // is the lightest of them), composited over the shell colour.
+    function surfaceBackground() {
+        const card = Theme.lightMode ? Qt.color("#F0F3F8") : Qt.color("#E617202D")
+        return Qt.rgba(card.r * card.a + Theme.shell.r * (1 - card.a),
+                       card.g * card.a + Theme.shell.g * (1 - card.a),
+                       card.b * card.a + Theme.shell.b * (1 - card.a), 1)
+    }
+
+    function contrastOnSurface(color) {
+        const background = surfaceBackground()
         const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
         const luminance = value => linear(value.r) * 0.2126 + linear(value.g) * 0.7152 + linear(value.b) * 0.0722
         const composited = Qt.rgba(color.r * color.a + background.r * (1 - color.a),
@@ -80,25 +90,26 @@ TestCase {
     function test_launchPalette(data) {
         ShellStore.settings = {themePack: data.pack, appTheme: data.mode,
             appAccentColor: data.accent, themeAccentOverride: data.accent !== "pack"}
-        compare(textItem("Dead by Daylight").color, Theme.mediaForeground)
-        compare(textItem("Queue position 21").color, Theme.mediaForeground)
-        compare(textItem("OpenNOW").color, Theme.mediaForeground)
-        compare(textItem(screen.detailText).color.toString(), Theme.mediaMuted.toString())
-        compare(textItem("STARTING SESSION").color, Theme.mediaAccent)
-        compare(textItem("Cancel session").color, Theme.mediaForeground)
+        const accentInk = Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint
+        compare(textItem("Dead by Daylight").color, DesktopTokens.textHigh)
+        compare(textItem("Queue position 21").color, DesktopTokens.textHigh)
+        compare(textItem("OpenNOW").color, DesktopTokens.textHigh)
+        compare(textItem(screen.detailText).color.toString(), DesktopTokens.textMuted.toString())
+        compare(textItem("STARTING SESSION").color, accentInk)
+        compare(textItem("Cancel session").color, DesktopTokens.textHigh)
         for (const text of ["Dead by Daylight", "Queue position 21", "OpenNOW",
                             screen.detailText, "STARTING SESSION", "Cancel session"])
-            verify(contrastOnDark(textItem(text).color) >= 4.5, "Insufficient contrast: " + text)
+            verify(contrastOnSurface(textItem(text).color) >= 4.5, "Insufficient contrast: " + text)
 
         const shortcut = descendants(screen).find(item => item.shortcut === "Esc")
         verify(shortcut !== undefined)
-        compare(shortcut.ink, Theme.mediaMuted)
-        verify(contrastOnDark(shortcut.ink) >= 4.5)
+        compare(shortcut.ink, DesktopTokens.textMuted)
+        verify(contrastOnSurface(shortcut.ink) >= 4.5)
 
-        const cancel = descendants(screen).find(item => item.text === "Cancel session" && item.onMediaBackground !== undefined)
+        const cancel = descendants(screen).find(item => item.objectName === "desktopQueueCancel")
         cancel.forceActiveFocus()
         verify(descendants(cancel.background).some(item => item.visible && item.border
-            && item.border.width === 2 && item.border.color.toString() === Theme.mediaAccent.toString()))
+            && item.border.width === 2 && item.border.color.toString() === DesktopTokens.focus.toString()))
 
         const shellText = descendants(shellButton).find(item => item.text === shellButton.text && item.color !== undefined)
         compare(shellText.color, DesktopTokens.textHigh)

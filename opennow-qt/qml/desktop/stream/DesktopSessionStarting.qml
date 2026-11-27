@@ -100,23 +100,23 @@ FocusScope {
         active: root.visible
     }
 
-    Rectangle { anchors.fill: parent; color: "#04060A" }
+    Rectangle { anchors.fill: parent; color: DesktopTokens.shell }
     Image {
         anchors.fill: parent
         source: artwork.resolvedUrl
         fillMode: Image.PreserveAspectCrop
+        sourceSize: Qt.size(1440, 900)
         asynchronous: true
         cache: true
-        opacity: status === Image.Ready ? (root.queueVisible ? 0.52 : 0.36) : 0
+        opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: DesktopTokens.revealDuration; easing.type: Easing.OutCubic } }
     }
+    // Theme-aware wash, the same chrome tint the home rail and top bar lay
+    // over their art, instead of a fixed dark veil.
     Rectangle {
         anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0; color: "#C004060A" }
-            GradientStop { position: 0.5; color: "#AC04060A" }
-            GradientStop { position: 1; color: "#F204060A" }
-        }
+        color: Qt.rgba(Theme.shell.r, Theme.shell.g, Theme.shell.b,
+            Theme.lightMode ? 0.82 : 0.78)
     }
 
     Row {
@@ -130,18 +130,7 @@ FocusScope {
             markHeight: 12
             fontPixelSize: 16
             spacing: 10
-            ink: Theme.mediaForeground
-        }
-    }
-
-    Rectangle {
-        anchors.fill: parent
-        visible: root.queueVisible
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: "#B804060A" }
-            GradientStop { position: 0.55; color: "#5004060A" }
-            GradientStop { position: 1; color: "#1604060A" }
+            ink: DesktopTokens.textHigh
         }
     }
 
@@ -164,16 +153,28 @@ FocusScope {
         onRequeueRequested: ShellStore.requeueSession()
     }
 
-    Column {
+    Rectangle {
         anchors.centerIn: parent
         visible: !root.queueVisible
-        width: Math.min(560, root.width - 64)
+        width: launchColumn.width + 64
+        height: launchColumn.height + 56
+        radius: 24
+        color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"
+        border.width: 1
+        border.color: DesktopTokens.seam
+
+    Column {
+        id: launchColumn
+        x: 32
+        y: 28
+        width: Math.min(560, root.width - 128)
         spacing: 0
 
         Text {
             text: root.stopping ? qsTr("ENDING SESSION")
                 : root.failed ? qsTr("SESSION INTERRUPTED") : qsTr("STARTING SESSION")
-            color: root.failed ? DesktopTokens.danger : Theme.mediaAccent
+            color: root.failed ? DesktopTokens.danger
+                : (Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint)
             font.family: DesktopTokens.monoFont
             font.pixelSize: 11
             font.weight: Font.Bold
@@ -183,7 +184,7 @@ FocusScope {
             width: parent.width
             topPadding: 10
             text: String(root.game.title || qsTr("GeForce NOW"))
-            color: Theme.mediaForeground
+            color: DesktopTokens.textHigh
             font.family: DesktopTokens.displayFont
             font.pixelSize: root.width < 800 ? 34 : 44
             font.weight: Font.Black
@@ -204,12 +205,12 @@ FocusScope {
                     width: 18; height: 18; radius: 9
                     color: "transparent"
                     border.width: 2
-                    border.color: "#35FFFFFF"
+                    border.color: DesktopTokens.seam
                     Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: -1
                         width: 6; height: 6; radius: 3
-                        color: Theme.mediaAccent
+                        color: Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint
                     }
                     RotationAnimation on rotation {
                         from: 0; to: 360; duration: 1400; loops: Animation.Infinite
@@ -221,7 +222,7 @@ FocusScope {
                 objectName: "sessionLaunchStatus"
                 width: parent.width - (root.failed ? 0 : 32)
                 text: root.statusText
-                color: root.failed ? DesktopTokens.danger : Theme.mediaForeground
+                color: root.failed ? DesktopTokens.danger : DesktopTokens.textHigh
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: 19
                 font.weight: Font.DemiBold
@@ -232,7 +233,7 @@ FocusScope {
             width: parent.width
             topPadding: 10
             text: root.detailText
-            color: Theme.mediaMuted
+            color: DesktopTokens.textMuted
             font.family: DesktopTokens.bodyFont
             font.pixelSize: 14
             lineHeight: 1.4
@@ -245,7 +246,6 @@ FocusScope {
             width: parent.width
             spacing: 12
             DesktopButton {
-                onMediaBackground: true
                 visible: root.failed && (root.connecting || ShellStore.activeSession !== null
                     || ShellStore.pendingLaunchParams !== null || ShellStore.conflictSession !== null)
                 enabled: !ShellStore.streamBusy
@@ -255,13 +255,13 @@ FocusScope {
             }
             DesktopButton {
                 id: cancelButton
-                onMediaBackground: true
                 enabled: !root.stopping
                 text: root.failed && !ShellStore.activeSession ? qsTr("Back") : qsTr("Cancel session")
                 shortcutText: qsTr("Esc")
                 onClicked: root.cancelRequested()
             }
         }
+    }
     }
 
     onVisibleChanged: if (visible) Qt.callLater(root.restoreFocus)

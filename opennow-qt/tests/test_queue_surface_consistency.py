@@ -13,6 +13,7 @@ import unittest
 
 QT_ROOT = Path(__file__).resolve().parents[1]
 QUEUE = (QT_ROOT / "qml" / "desktop" / "stream" / "DesktopQueueExperience.qml").read_text(encoding="utf-8")
+STARTING = (QT_ROOT / "qml" / "desktop" / "stream" / "DesktopSessionStarting.qml").read_text(encoding="utf-8")
 BACKDROP = (QT_ROOT / "qml" / "desktop" / "components" / "DesktopBackdrop.qml").read_text(encoding="utf-8")
 
 
@@ -37,6 +38,17 @@ class QueueSurfaceConsistencyContracts(unittest.TestCase):
         self.assertIn("sourceSize: Qt.size(1440, 900)", QUEUE)
         self.assertIn("sourceSize: Qt.size(1440, 900)", BACKDROP)
         self.assertIn("Rectangle { anchors.fill: parent; color: DesktopTokens.shell }", QUEUE)
+
+    def test_launch_wrapper_speaks_shell_too(self) -> None:
+        # The wrapper around the queue is the page the player actually sees:
+        # shell base, edge-to-edge art, theme wash - no fixed dark veil.
+        self.assertIn("Rectangle { anchors.fill: parent; color: DesktopTokens.shell }", STARTING)
+        self.assertIn("sourceSize: Qt.size(1440, 900)", STARTING)
+        self.assertIn("Theme.lightMode ? 0.82 : 0.78", STARTING)
+        self.assertNotIn("#04060A", STARTING)
+        self.assertNotIn("onMediaBackground", STARTING)
+        # The non-queue launch column sits in a home-style panel.
+        self.assertIn('color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"', STARTING)
 
     def test_behavioural_hooks_survive_the_restyle(self) -> None:
         for name in ("desktopQueueExperience", "desktopQueuePass",
