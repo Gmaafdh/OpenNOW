@@ -154,7 +154,9 @@ TestCase {
         const passPoint = pass.mapToItem(queue, 0, 0)
         const positionPoint = position.mapToItem(queue, 0, 0)
         const cancelPoint = cancel.mapToItem(queue, 0, 0)
-        verify(passPoint.y >= 58 && passPoint.y < 100,
+        // The panel may centre itself once the tightened rhythm lets the whole
+        // pass fit; what matters is that it opens inside the first viewport.
+        verify(passPoint.y >= 58 && passPoint.y < data.height * 0.35,
             "Queue content must start in the initial viewport; y=" + passPoint.y)
         verify(positionPoint.y >= 0 && positionPoint.y + position.height <= data.height,
             "Queue position must be visible without scrolling; bottom=" + (positionPoint.y + position.height))

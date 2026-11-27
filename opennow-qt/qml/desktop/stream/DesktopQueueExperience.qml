@@ -36,6 +36,12 @@ FocusScope {
 
     readonly property bool compact: height < 820
     readonly property bool veryCompact: height < 760
+    // Windows between the compact band and a genuinely tall window still
+    // cannot carry the roomy rhythm: below 1000 px the column tightens its
+    // padding, spacing, ring and tiles so the whole pass - actions included -
+    // stays inside the first viewport instead of falling under the fold.
+    readonly property bool snug: height < 1000
+    readonly property real panelPad: root.veryCompact ? 18 : root.snug ? 20 : 28
     // Short windows cannot carry the side-by-side mission column: below 760 px
     // tall the queue panel takes the full width and the artwork drops beneath
     // it, which keeps the actions inside the first viewport.
@@ -53,7 +59,8 @@ FocusScope {
     property real shownProgress: root.ringProgress
     Behavior on shownProgress { NumberAnimation { duration: Theme.duration(900); easing.type: Easing.OutCubic } }
 
-    readonly property real ringSize: Math.max(150, Math.min(root.veryCompact ? 176 : 224, queuePass.width - 48))
+    readonly property real ringSize: Math.max(150,
+        Math.min(root.veryCompact ? 176 : root.snug ? 192 : 224, queuePass.width - 48))
 
     Accessible.role: Accessible.Pane
     Accessible.name: root.statusText
@@ -684,7 +691,7 @@ FocusScope {
                 objectName: "desktopQueuePass"
                 width: root.stacked ? layoutGrid.width
                     : layoutGrid.width - artworkPanel.width - layoutGrid.columnSpacing
-                height: queuePass.implicitHeight + (root.veryCompact ? 46 : 56)
+                height: queuePass.implicitHeight + 2 * root.panelPad
                 radius: 24
                 color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"
                 border.width: 1
@@ -697,10 +704,10 @@ FocusScope {
 
             Column {
                 id: queuePass
-                x: 28
-                y: root.veryCompact ? 18 : 28
-                width: parent.width - 56
-                spacing: root.veryCompact ? 6 : root.compact ? 12 : 20
+                x: root.panelPad
+                y: root.panelPad
+                width: parent.width - 2 * root.panelPad
+                spacing: root.veryCompact ? 6 : root.compact ? 12 : root.snug ? 12 : 20
 
                 // Eyebrow
                 Flow {
@@ -734,7 +741,7 @@ FocusScope {
                 // Headline + detail
                 Column {
                     width: parent.width
-                    spacing: 10
+                    spacing: root.snug ? 8 : 10
                     MorphingText {
                         width: parent.width
                         contentObjectName: "sessionQueueStatus"
@@ -768,7 +775,7 @@ FocusScope {
                     id: positionBlock
                     objectName: "sessionQueuePositionBlock"
                     width: parent.width
-                    height: heroFlow.implicitHeight + 44
+                    height: heroFlow.implicitHeight + (root.snug ? 26 : 44)
                     opacity: root.sectionOpacity(2)
                     transformOrigin: Item.Center
                     transform: Translate { y: root.sectionOffset(2, 20) }
@@ -776,7 +783,7 @@ FocusScope {
                     Flow {
                         id: heroFlow
                         x: 24
-                        y: 22
+                        y: root.snug ? 13 : 22
                         width: parent.width - 48
                         spacing: 28
 
@@ -909,7 +916,7 @@ FocusScope {
                 // Journey
                 Column {
                     width: parent.width
-                    spacing: 12
+                    spacing: root.snug ? 10 : 12
                     opacity: root.sectionOpacity(3)
                     transform: Translate { y: root.sectionOffset(3, 16) }
 
@@ -925,7 +932,7 @@ FocusScope {
                     Item {
                         id: stepper
                         width: parent.width
-                        height: 80
+                        height: root.snug ? 66 : 80
                         readonly property int currentStep: 1
                         readonly property real colW: width / 3
 
@@ -995,7 +1002,7 @@ FocusScope {
                                     }
                                 }
                                 Text {
-                                    y: 40
+                                    y: root.snug ? 32 : 40
                                     width: parent.width - 12
                                     x: 6
                                     text: root.stepLabel(step.index)
@@ -1018,9 +1025,10 @@ FocusScope {
                     id: tileGrid
                     visible: !root.stacked || root.height >= 680
                     width: parent.width
-                    columns: root.compact && width >= 600 ? 4 : width >= 440 ? 2 : 1
+                    columns: (root.compact || root.snug) && width >= 640 ? 4
+                        : width >= 440 ? 2 : 1
                     columnSpacing: 12
-                    rowSpacing: 12
+                    rowSpacing: root.snug ? 10 : 12
                     opacity: root.sectionOpacity(4)
                     transform: Translate { y: root.sectionOffset(4, 16) }
                     readonly property real tileWidth: (width - (columns - 1) * columnSpacing) / columns
