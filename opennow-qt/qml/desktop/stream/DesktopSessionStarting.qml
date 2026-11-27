@@ -173,7 +173,7 @@ FocusScope {
         Text {
             text: root.stopping ? qsTr("ENDING SESSION")
                 : root.failed ? qsTr("SESSION INTERRUPTED") : qsTr("STARTING SESSION")
-            color: root.failed ? DesktopTokens.danger
+            color: root.failed ? DesktopTokens.flightDeclined
                 : (Theme.lightMode ? DesktopTokens.flightReady : DesktopTokens.mint)
             font.family: DesktopTokens.monoFont
             font.pixelSize: 11
@@ -222,7 +222,7 @@ FocusScope {
                 objectName: "sessionLaunchStatus"
                 width: parent.width - (root.failed ? 0 : 32)
                 text: root.statusText
-                color: root.failed ? DesktopTokens.danger : DesktopTokens.textHigh
+                color: root.failed ? DesktopTokens.flightDeclined : DesktopTokens.textHigh
                 font.family: DesktopTokens.bodyFont
                 font.pixelSize: 19
                 font.weight: Font.DemiBold

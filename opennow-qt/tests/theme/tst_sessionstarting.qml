@@ -73,7 +73,13 @@ TestCase {
         const composited = Qt.rgba(color.r * color.a + background.r * (1 - color.a),
                                   color.g * color.a + background.g * (1 - color.a),
                                   color.b * color.a + background.b * (1 - color.a), 1)
-        return (luminance(composited) + 0.05) / (luminance(background) + 0.05)
+        // WCAG contrast is symmetric: the shell surfaces are light in light
+        // mode, so the ratio has to be lighter over darker rather than ink
+        // over background.
+        const inkLuminance = luminance(composited)
+        const surfaceLuminance = luminance(background)
+        return (Math.max(inkLuminance, surfaceLuminance) + 0.05)
+            / (Math.min(inkLuminance, surfaceLuminance) + 0.05)
     }
 
     function test_launchPalette_data() {
@@ -98,13 +104,19 @@ TestCase {
         compare(textItem("STARTING SESSION").color, accentInk)
         compare(textItem("Cancel session").color, DesktopTokens.textHigh)
         for (const text of ["Dead by Daylight", "Queue position 21", "OpenNOW",
-                            screen.detailText, "STARTING SESSION", "Cancel session"])
-            verify(contrastOnSurface(textItem(text).color) >= 4.5, "Insufficient contrast: " + text)
+                            screen.detailText, "STARTING SESSION", "Cancel session"]) {
+            const ink = textItem(text).color
+            verify(contrastOnSurface(ink) >= 4.5, "Insufficient contrast: " + text
+                + " ink " + ink + " on " + surfaceBackground()
+                + " ratio " + contrastOnSurface(ink).toFixed(2))
+        }
 
         const shortcut = descendants(screen).find(item => item.shortcut === "Esc")
         verify(shortcut !== undefined)
         compare(shortcut.ink, DesktopTokens.textMuted)
-        verify(contrastOnSurface(shortcut.ink) >= 4.5)
+        verify(contrastOnSurface(shortcut.ink) >= 4.5, "Insufficient contrast: Esc ink "
+            + shortcut.ink + " on " + surfaceBackground()
+            + " ratio " + contrastOnSurface(shortcut.ink).toFixed(2))
 
         const cancel = descendants(screen).find(item => item.objectName === "desktopQueueCancel")
         cancel.forceActiveFocus()
@@ -205,7 +217,7 @@ TestCase {
     function test_failureAndReconnect() {
         ShellStore.settings = {themePack: "nocturne", appTheme: "light"}
         ShellStore.streamState = "failed"
-        compare(textItem("Session could not start").color, DesktopTokens.danger)
+        compare(textItem("Session could not start").color, DesktopTokens.flightDeclined)
         compare(textItem("Try again").color, Qt.color("#0A0D14"))
         compare(textItem("Cancel session").color, DesktopTokens.textHigh)
         ShellStore.streamState = "reconnecting"

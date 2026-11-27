@@ -47,6 +47,10 @@ class QueueSurfaceConsistencyContracts(unittest.TestCase):
         self.assertIn("Theme.lightMode ? 0.82 : 0.78", STARTING)
         self.assertNotIn("#04060A", STARTING)
         self.assertNotIn("onMediaBackground", STARTING)
+        # Failure ink has to be the theme-aware decline colour: the fixed
+        # coral only clears 2.1:1 on a light panel.
+        self.assertNotIn("DesktopTokens.danger", STARTING)
+        self.assertIn("DesktopTokens.flightDeclined", STARTING)
         # The non-queue launch column sits in a home-style panel.
         self.assertIn('color: Theme.lightMode ? "#F2F5FA" : "#E60B1320"', STARTING)
 
