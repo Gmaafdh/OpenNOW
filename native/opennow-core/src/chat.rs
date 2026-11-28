@@ -824,8 +824,7 @@ fn beacon_tick(
                                 let mine = message["mine"] == json!(true);
                                 let undelivered = message["delivered"] != json!(true);
                                 let stamp = message["tsMs"].as_u64().unwrap_or(now);
-                                mine && undelivered
-                                    && now.saturating_sub(stamp) < PENDING_TTL_MS
+                                mine && undelivered && now.saturating_sub(stamp) < PENDING_TTL_MS
                             })
                             .cloned()
                             .collect::<Vec<Value>>()
@@ -851,17 +850,13 @@ fn beacon_tick(
                 "tsMs": message["tsMs"],
             });
             let delivered = talk_to(&peer, &envelope)
-                .map(|reply| {
-                    reply["t"].as_str() == Some("ack") && reply["id"] == message["id"]
-                })
+                .map(|reply| reply["t"].as_str() == Some("ack") && reply["id"] == message["id"])
                 .unwrap_or(false);
             if delivered {
                 flushed += 1;
                 let mut store = store.lock().expect("chat store poisoned");
                 if let Some(list) = store.threads.get_mut(&peer.id) {
-                    if let Some(entry) = list
-                        .iter_mut()
-                        .find(|entry| entry["id"] == message["id"])
+                    if let Some(entry) = list.iter_mut().find(|entry| entry["id"] == message["id"])
                     {
                         entry["delivered"] = json!(true);
                     }
@@ -908,21 +903,20 @@ fn merge_peer(store: &Arc<Mutex<Store>>, raw: &Value, host: &str, now: u64, lan:
 fn talk_to(peer: &Peer, payload: &Value) -> Result<Value, (String, String)> {
     let address = resolve_address(&peer.host, peer.port)
         .map_err(|_| ("chat_bad_host".to_owned(), "Unreachable host".to_owned()))?;
-    let mut stream = TcpStream::connect_timeout(
-        &address,
-        Duration::from_millis(CONNECT_TIMEOUT_MS),
-    )
-    .map_err(|_| {
-        (
-            "chat_offline".to_owned(),
-            "That OpenNOW is not reachable right now".to_owned(),
-        )
-    })?;
+    let mut stream =
+        TcpStream::connect_timeout(&address, Duration::from_millis(CONNECT_TIMEOUT_MS)).map_err(
+            |_| {
+                (
+                    "chat_offline".to_owned(),
+                    "That OpenNOW is not reachable right now".to_owned(),
+                )
+            },
+        )?;
     stream
         .set_read_timeout(Some(Duration::from_millis(ACK_TIMEOUT_MS)))
         .map_err(|error| (error.to_string(), error.to_string()))?;
-    let mut line = serde_json::to_string(payload)
-        .map_err(|error| (error.to_string(), error.to_string()))?;
+    let mut line =
+        serde_json::to_string(payload).map_err(|error| (error.to_string(), error.to_string()))?;
     line.push('\n');
     stream.write_all(line.as_bytes()).map_err(|_| {
         (
@@ -967,8 +961,7 @@ mod tests {
 
     #[test]
     fn store_round_trips_through_chat_json() {
-        let directory =
-            std::env::temp_dir().join(format!("opennow-chat-test-{}", now_ms()));
+        let directory = std::env::temp_dir().join(format!("opennow-chat-test-{}", now_ms()));
         std::fs::create_dir_all(&directory).expect("test directory");
         let path = directory.join("chat.json");
         {
