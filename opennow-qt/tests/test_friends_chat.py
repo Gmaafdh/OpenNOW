@@ -65,6 +65,24 @@ class FriendsChatCoreTest(unittest.TestCase):
         self.assertIn("PENDING_TTL_MS", CORE_CHAT)
         self.assertIn('json!({"t":"ack"', CORE_CHAT)
 
+    def test_incoming_frames_name_their_sender(self) -> None:
+        # A "msg" frame carries the message id in "id" and the sender in "from";
+        # keying the thread off "id" made every message from a real friend look
+        # like a stranger, so the listener declined all of them.
+        self.assertIn('let peer_id = if kind == "msg" {', CORE_CHAT)
+        self.assertIn('payload["from"].as_str()', CORE_CHAT)
+        # Frames announce the listening port, and the listener records where the
+        # frame came from, so a peer that only ever receives from us still learns
+        # how to dial back and accept a friend request.
+        self.assertIn('"port": self.port,', CORE_CHAT)
+        self.assertIn("remote: &str,", CORE_CHAT)
+        self.assertIn(".peer_addr()", CORE_CHAT)
+        self.assertIn("fn merge_peer(", CORE_CHAT)
+
+    def test_pending_requests_survive_a_restart(self) -> None:
+        self.assertIn('"pending": self.pending.clone(),', CORE_CHAT)
+        self.assertIn('raw["pending"].as_array()', CORE_CHAT)
+
     def test_chat_strings_are_translated(self) -> None:
         values = set(LOCALES["desktopQt"].values())
         for text in ["Write a message…", "Message from %1", "Add a friend",

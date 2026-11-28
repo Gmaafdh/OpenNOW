@@ -11,7 +11,7 @@ use rand::RngCore;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -35,7 +35,7 @@ fn now_ms() -> u64 {
 }
 
 fn new_id(prefix: &str) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     format!("{prefix}-{:08x}{:08x}", rng.next_u32(), rng.next_u32())
 }
 
@@ -91,6 +91,18 @@ impl Store {
                         .cloned()
                         .collect();
                 }
+                if let Some(pending) = raw["pending"].as_array() {
+                    let now = now_ms();
+                    store.pending = pending
+                        .iter()
+                        .filter(|entry| !entry["id"].as_str().unwrap_or("").is_empty())
+                        .filter(|entry| {
+                            let stamp = entry["tsMs"].as_u64().unwrap_or(now);
+                            now.saturating_sub(stamp) < PENDING_TTL_MS
+                        })
+                        .cloned()
+                        .collect();
+                }
                 if let Some(threads) = raw["threads"].as_object() {
                     for (peer, messages) in threads {
                         let kept = messages
@@ -127,6 +139,7 @@ impl Store {
             "selfId": self.self_id,
             "selfName": self.self_name,
             "friends": self.friends.clone(),
+            "pending": self.pending.clone(),
             "threads": threads,
             "lastIncoming": self.last_incoming.clone(),
         });
@@ -345,7 +358,12 @@ impl ChatService {
         if already {
             return Ok(self.state());
         }
-        let request = json!({"t":"req", "id": self.self_id(), "name": self.self_name()});
+        let request = json!({
+            "t": "req",
+            "id": self.self_id(),
+            "name": self.self_name(),
+            "port": self.port,
+        });
         let reply = self.talk(&peer, &request)?;
         match reply["t"].as_str().unwrap_or("") {
             "accept" => self.apply_accept(&peer),
@@ -398,11 +416,21 @@ impl ChatService {
         if accept {
             self.apply_accept(&peer);
             if peer.port != 0 {
-                let accept = json!({"t":"accept", "id": self.self_id(), "name": self.self_name()});
+                let accept = json!({
+                    "t": "accept",
+                    "id": self.self_id(),
+                    "name": self.self_name(),
+                    "port": self.port,
+                });
                 let _ = self.talk(&peer, &accept);
             }
         } else if peer.port != 0 {
-            let decline = json!({"t":"decline", "id": self.self_id(), "name": self.self_name()});
+            let decline = json!({
+                "t": "decline",
+                "id": self.self_id(),
+                "name": self.self_name(),
+                "port": self.port,
+            });
             let _ = self.talk(&peer, &decline);
         }
         self.persist();
@@ -495,7 +523,7 @@ impl ChatService {
                 .as_str()
                 .unwrap_or("OpenNOW friend")
                 .to_owned(),
-            host,
+            host: host.to_owned(),
             port,
             seen_ms: now_ms(),
             lan: true,
@@ -511,6 +539,7 @@ impl ChatService {
             "id": message["id"],
             "from": self.self_id(),
             "name": self.self_name(),
+            "port": self.port,
             "text": message["text"],
             "tsMs": message["tsMs"],
         });
@@ -550,7 +579,11 @@ impl ChatService {
                     let Ok(payload) = serde_json::from_str::<Value>(line.trim()) else {
                         continue;
                     };
-                    let reply = handle_incoming(&store, &path, &events, port, &payload);
+                    let remote = stream
+                        .peer_addr()
+                        .map(|address| address.ip().to_string())
+                        .unwrap_or_else(|_| "127.0.0.1".to_owned());
+                    let reply = handle_incoming(&store, &path, &events, port, &payload, &remote);
                     if let Ok(mut encoded) = serde_json::to_string(&reply) {
                         encoded.push('\n');
                         let _ = stream.write_all(encoded.as_bytes());
@@ -607,17 +640,40 @@ fn handle_incoming(
     events: &mpsc::Sender<Value>,
     port: u16,
     payload: &Value,
+    remote: &str,
 ) -> Value {
     let kind = payload["t"].as_str().unwrap_or("");
-    let peer_id = payload["id"].as_str().unwrap_or("");
+    let peer_id = if kind == "msg" {
+        payload["from"].as_str().unwrap_or("")
+    } else {
+        payload["id"].as_str().unwrap_or("")
+    };
     let peer_name = payload["name"].as_str().unwrap_or("OpenNOW friend");
     if peer_id.is_empty() && kind != "who" {
         return json!({"t":"error"});
     }
+    if kind != "who" {
+        if let Some(remote_port) = payload["port"].as_u64() {
+            if remote_port > 0 && remote_port < 65_536 {
+                merge_peer(
+                    store,
+                    &json!({"id": peer_id, "name": peer_name, "port": remote_port}),
+                    remote,
+                    now_ms(),
+                    true,
+                );
+            }
+        }
+    }
     match kind {
         "who" => {
             let store = store.lock().expect("chat store poisoned");
-            json!({"t":"who", "id": store.self_id, "name": store.self_name})
+            json!({
+                "t": "who",
+                "id": store.self_id,
+                "name": store.self_name,
+                "port": port,
+            })
         }
         "req" => {
             let reply = {
@@ -846,6 +902,7 @@ fn beacon_tick(
                 "id": message["id"],
                 "from": self_id,
                 "name": self_name,
+                "port": port,
                 "text": message["text"],
                 "tsMs": message["tsMs"],
             });
@@ -1036,6 +1093,7 @@ mod tests {
                 "text": "hey",
                 "tsMs": 1,
             }),
+            "127.0.0.1",
         );
         assert_eq!(reply["t"], json!("decline"));
     }

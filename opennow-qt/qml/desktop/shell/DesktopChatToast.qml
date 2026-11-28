@@ -17,7 +17,7 @@ Rectangle {
     visible: active && currentTitle !== ""
     opacity: visible ? 1 : 0
     Accessible.name: currentTitle === "" ? "" : currentTitle + " " + currentPreview
-    Accessible.role: Accessible.Notification
+    Accessible.role: Accessible.AlertMessage
 
     function shortPreview(text) {
         const oneLine = String(text || "").replace(/\s+/g, " ").trim()
