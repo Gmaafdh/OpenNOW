@@ -5,6 +5,7 @@ mod analytics;
 mod artwork_cache;
 mod bug_reports;
 mod catalog_types;
+mod chat;
 mod cloudmatch;
 mod community;
 mod console_profiles;
@@ -72,6 +73,7 @@ struct AppCore {
     analytics: Arc<analytics::AnalyticsService>,
     pending_reports_retried: AtomicBool,
     bug_reports: bug_reports::BugReporter,
+    chat: chat::ChatService,
 }
 
 fn main() {
@@ -158,6 +160,8 @@ fn run() -> Result<(), String> {
         ),
         pending_reports_retried: AtomicBool::new(false),
         bug_reports: bug_reports::BugReporter::default(),
+        chat: chat::ChatService::new(&data_dir, output_tx.clone())
+            .map_err(|error| format!("Could not initialize chat: {error}"))?,
     });
     if !reporting_enabled(&core) {
         core.analytics.wipe();
@@ -432,10 +436,40 @@ fn dispatch(
                 ));
             }
             Ok((
-                json!({"protocolVersion":PROTOCOL_VERSION, "coreVersion":version::APPLICATION_VERSION, "capabilities":["settings", "gfn.deviceAuth", "gfn.providers", "gfn.publicCatalog", "catalog.storePages.v1", "catalog.libraryPages.v1", "catalog.metadata.v1", "account.syncObservation.v1", "account.pushInvalidation.v1", "catalog.languages.v1", "queue.servers.v1", "auth.accountPicker.v1", "catalog.storeLocal.v1", "gfn.accountLibrary", "gfn.regions", "gfn.subscription", "gfn.cloudmatch", "sessionProxy", "session.terminalCleanup.v1", "catalogArtworkCache.v1", "nativeStreamer.v7", "nativeStreamer.ownedNvstNegotiation", "nativeStreamer.dynamicSurface", "nativeStreamer.acceptanceEvidence", "liveAcceptance.v1", "osCredentialStore", "electronAccountMigration", "redactedDiagnostics", "mediaLibrary", "githubUpdateDiscovery", "discordRpc", "feedback", "bugReports", "automaticBugReports.v2", "social.capabilitySurface"]}),
+                json!({"protocolVersion":PROTOCOL_VERSION, "coreVersion":version::APPLICATION_VERSION, "capabilities":["settings", "gfn.deviceAuth", "gfn.providers", "gfn.publicCatalog", "catalog.storePages.v1", "catalog.libraryPages.v1", "catalog.metadata.v1", "account.syncObservation.v1", "account.pushInvalidation.v1", "catalog.languages.v1", "queue.servers.v1", "auth.accountPicker.v1", "catalog.storeLocal.v1", "gfn.accountLibrary", "gfn.regions", "gfn.subscription", "gfn.cloudmatch", "sessionProxy", "session.terminalCleanup.v1", "catalogArtworkCache.v1", "nativeStreamer.v7", "nativeStreamer.ownedNvstNegotiation", "nativeStreamer.dynamicSurface", "nativeStreamer.acceptanceEvidence", "liveAcceptance.v1", "osCredentialStore", "electronAccountMigration", "redactedDiagnostics", "mediaLibrary", "githubUpdateDiscovery", "discordRpc", "feedback", "bugReports", "automaticBugReports.v2", "social.capabilitySurface", "chat.v1"]}),
                 None,
             ))
         }
+        "chat.state" => Ok((core.chat.state(), None)),
+        "chat.start" => {
+            core.chat.set_name(params["name"].as_str().unwrap_or(""));
+            Ok((core.chat.state(), None))
+        }
+        "chat.send" => core
+            .chat
+            .send(
+                params["peerId"].as_str().unwrap_or(""),
+                params["text"].as_str().unwrap_or(""),
+            )
+            .map(|message| (message, Some(("chat.changed", core.chat.state())))),
+        "chat.request" => core
+            .chat
+            .request(
+                params["peerId"].as_str().unwrap_or(""),
+                params["endpoint"].as_str().unwrap_or(""),
+            )
+            .map(|state| (state.clone(), Some(("chat.changed", state)))),
+        "chat.respond" => core
+            .chat
+            .respond(
+                params["peerId"].as_str().unwrap_or(""),
+                params["accept"] == json!(true),
+            )
+            .map(|state| (state.clone(), Some(("chat.changed", state)))),
+        "chat.markRead" => core
+            .chat
+            .mark_read(params["peerId"].as_str().unwrap_or(""))
+            .map(|state| (state.clone(), Some(("chat.changed", state)))),
         "app.status" => Ok((
             json!({"status":"ready", "version":version::APPLICATION_VERSION}),
             None,

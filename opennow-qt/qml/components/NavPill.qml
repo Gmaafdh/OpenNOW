@@ -75,6 +75,17 @@ GlassPanel {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 30
                             height: 30
+                            Rectangle {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                width: 10
+                                height: 10
+                                radius: 5
+                                visible: modelData.route === "friends" && ShellStore.chatUnread > 0
+                                color: DesktopTokens.mint
+                                border.width: 1
+                                border.color: Theme.shell
+                            }
                             Image {
                                 anchors.centerIn: parent
                                 width: 26

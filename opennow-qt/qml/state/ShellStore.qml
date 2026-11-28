@@ -4248,6 +4248,57 @@ QtObject {
             ? {sessionId: String(activeSession.sessionId), secondsLeft: secondsLeft, receivedAtMs: Date.now()} : null
     }
 
+    // ── OpenNOW chat ────────────────────────────────────────────────────
+    property var chatState: ({})
+    readonly property int chatUnread: chatState && chatState.unreadTotal
+        ? Number(chatState.unreadTotal) : 0
+    property double chatLastIncomingTs: 0
+    property var chatKnownRequests: []
+    signal chatMessageReceived(string peerName, string preview)
+    signal chatFriendRequestReceived(string peerName)
+
+    function chatName() {
+        if (authSession && authSession.user && authSession.user.displayName)
+            return String(authSession.user.displayName)
+        return qsTr("OpenNOW player")
+    }
+    function chatStart() {
+        CoreClient.request("chat.start", {name: chatName()}, 5000)
+    }
+    function chatSend(peerId, text) {
+        CoreClient.request("chat.send", {peerId: peerId, text: text}, 8000)
+    }
+    function chatRequestFriend(peerId, endpoint) {
+        CoreClient.request("chat.request", {peerId: peerId || "", endpoint: endpoint || ""}, 8000)
+    }
+    function chatRespond(peerId, accept) {
+        CoreClient.request("chat.respond", {peerId: peerId, accept: accept === true}, 8000)
+    }
+    function chatMarkRead(peerId) {
+        CoreClient.request("chat.markRead", {peerId: peerId}, 5000)
+    }
+    function acceptChatState(state) {
+        if (!state || typeof state !== "object")
+            return
+        chatState = state
+        const incoming = state.lastIncoming || null
+        const stamp = incoming && incoming.tsMs ? Number(incoming.tsMs) : 0
+        if (incoming && stamp > chatLastIncomingTs) {
+            chatLastIncomingTs = stamp
+            chatMessageReceived(String(incoming.peerName || qsTr("A friend")),
+                String(incoming.text || ""))
+        }
+        const requests = (state.pending || []).filter(entry => entry.dir === "incoming")
+        for (const request of requests) {
+            if (chatKnownRequests.indexOf(request.id) !== -1)
+                continue
+            chatKnownRequests = chatKnownRequests.concat([request.id])
+            chatFriendRequestReceived(String(request.name || qsTr("An OpenNOW player")))
+        }
+    }
+    onReadyChanged: if (ready) chatStart()
+    onAuthSessionChanged: if (ready) chatStart()
+
     function acceptNativeEvent(event) {
         const type = String(event && event.type || "")
         if (type === "text-input-error") {
@@ -5154,6 +5205,8 @@ QtObject {
                 root.acceptUpdaterState(payload)
             else if (name === "bug_report.changed")
                 root.bugReports.acceptEvent(payload)
+            else if (name === "chat.changed")
+                root.acceptChatState(payload)
             else if (name === "updater.highlights.show") {
                 root.releaseHighlights = payload
                 root.releaseHighlightsPending = !root.updaterSessionSafe

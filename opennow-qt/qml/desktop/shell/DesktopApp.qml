@@ -45,7 +45,10 @@ FocusScope {
     function subtitleForRoute(value) {
         if (value === "library" || value === "game-detail") return qsTr("%1 games").arg(ShellStore.catalogTotalCount || ShellStore.catalogGames.length)
         if (value === "store") return qsTr("%1 in catalog").arg(ShellStore.storeTotalCount || ShellStore.storeGames.length)
-        if (value === "friends") return qsTr("Coming soon")
+        if (value === "friends")
+            return ShellStore.chatUnread > 0
+                ? qsTr("%1 unread messages").arg(ShellStore.chatUnread)
+                : qsTr("%1 friends").arg((ShellStore.chatState.friends || []).length)
         if (value.indexOf("settings") === 0 || value === "controllers") return settingsSubtitle
         return ShellStore.catalogTotalCount
             ? qsTr("%1 games").arg(ShellStore.catalogTotalCount)
@@ -271,6 +274,15 @@ FocusScope {
         active: root.shellVisible
         z: 125
         onSettingsRequested: AppController.navigate("settings-account")
+    }
+    DesktopChatToast {
+        objectName: "desktopChatToast"
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: DesktopTokens.px(24)
+        anchors.bottomMargin: DesktopTokens.px(92)
+        active: !root.signInVisible && !root.profileRouteVisible
+        z: 126
     }
 
     Rectangle {
