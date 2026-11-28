@@ -243,7 +243,9 @@ impl ChatService {
     }
 
     fn emit(&self) {
-        let _ = self.events.send(json!({"type":"event", "name":"chat.changed", "payload": self.state()}));
+        let _ = self
+            .events
+            .send(json!({"type":"event", "name":"chat.changed", "payload": self.state()}));
     }
 
     fn persist(&self) {
@@ -421,7 +423,11 @@ impl ChatService {
     }
 
     fn self_id(&self) -> String {
-        self.store.lock().expect("chat store poisoned").self_id.clone()
+        self.store
+            .lock()
+            .expect("chat store poisoned")
+            .self_id
+            .clone()
     }
 
     fn self_name(&self) -> String {
@@ -573,17 +579,15 @@ impl ChatService {
                 }
                 let mut signature = String::new();
                 while !stopped.load(Ordering::Relaxed) {
-                    let changed =
-                        beacon_tick(&store, &path, &directory, udp.as_ref(), port);
+                    let changed = beacon_tick(&store, &path, &directory, udp.as_ref(), port);
                     if changed != signature {
                         signature = changed;
                         let state = {
                             let store = store.lock().expect("chat store poisoned");
                             Self::state_value(&store, port)
                         };
-                        let _ = events.send(
-                            json!({"type":"event", "name":"chat.changed", "payload": state}),
-                        );
+                        let _ = events
+                            .send(json!({"type":"event", "name":"chat.changed", "payload": state}));
                     }
                     thread::sleep(Duration::from_millis(1_500));
                 }
@@ -619,7 +623,11 @@ fn handle_incoming(
             let reply = {
                 let mut store = store.lock().expect("chat store poisoned");
                 if store.friend_index(peer_id).is_some() {
-                    json!({"t":"accept", "id": store.self_id.clone(), "name": store.self_name.clone()})
+                    json!({
+                        "t": "accept",
+                        "id": store.self_id.clone(),
+                        "name": store.self_name.clone(),
+                    })
                 } else {
                     if store.pending_index(peer_id).is_none() {
                         store.pending.push(json!({
@@ -669,7 +677,11 @@ fn handle_incoming(
             let accepted = {
                 let mut store = store.lock().expect("chat store poisoned");
                 let Some(index) = store.friend_index(peer_id) else {
-                    return json!({"t":"decline", "id": store.self_id.clone(), "name": store.self_name.clone()});
+                    return json!({
+                        "t": "decline",
+                        "id": store.self_id.clone(),
+                        "name": store.self_name.clone(),
+                    });
                 };
                 let known = store
                     .threads
@@ -682,14 +694,18 @@ fn handle_incoming(
                 if known {
                     true
                 } else {
-                    store.threads.entry(peer_id.to_owned()).or_default().push(json!({
-                        "id": message_id,
-                        "peerId": peer_id,
-                        "mine": false,
-                        "text": text.clone(),
-                        "tsMs": payload["tsMs"].as_u64().unwrap_or_else(now_ms),
-                        "delivered": true,
-                    }));
+                    store
+                        .threads
+                        .entry(peer_id.to_owned())
+                        .or_default()
+                        .push(json!({
+                            "id": message_id,
+                            "peerId": peer_id,
+                            "mine": false,
+                            "text": text.clone(),
+                            "tsMs": payload["tsMs"].as_u64().unwrap_or_else(now_ms),
+                            "delivered": true,
+                        }));
                     let unread = store.friends[index]["unread"].as_u64().unwrap_or(0) + 1;
                     store.friends[index]["unread"] = json!(unread);
                     store.last_incoming = json!({
@@ -713,7 +729,11 @@ fn handle_incoming(
 
 fn emit_state(store: &Arc<Mutex<Store>>, events: &mpsc::Sender<Value>, port: u16) {
     let store = store.lock().expect("chat store poisoned");
-    let _ = events.send(json!({"type":"event", "name":"chat.changed", "payload": ChatService::state_value(&store, port)}));
+    let _ = events.send(json!({
+        "type": "event",
+        "name": "chat.changed",
+        "payload": ChatService::state_value(&store, port),
+    }));
 }
 
 /// One discovery + flush pass. Returns a signature of what the shell sees so
@@ -801,11 +821,11 @@ fn beacon_tick(
                     .map(|list| {
                         list.iter()
                             .filter(|message| {
-                                message["mine"] == json!(true)
-                                    && message["delivered"] != json!(true)
-                                    && now.saturating_sub(
-                                        message["tsMs"].as_u64().unwrap_or(now),
-                                    ) < PENDING_TTL_MS
+                                let mine = message["mine"] == json!(true);
+                                let undelivered = message["delivered"] != json!(true);
+                                let stamp = message["tsMs"].as_u64().unwrap_or(now);
+                                mine && undelivered
+                                    && now.saturating_sub(stamp) < PENDING_TTL_MS
                             })
                             .cloned()
                             .collect::<Vec<Value>>()
@@ -960,7 +980,14 @@ mod tests {
                 .push(json!({"id":"peer-1","name":"Peer","addedMs":1,"unread":2}));
             store.threads.insert(
                 "peer-1".to_owned(),
-                vec![json!({"id":"msg-1","peerId":"peer-1","mine":false,"text":"hello","tsMs":2,"delivered":true})],
+                vec![json!({
+                    "id": "msg-1",
+                    "peerId": "peer-1",
+                    "mine": false,
+                    "text": "hello",
+                    "tsMs": 2,
+                    "delivered": true,
+                })],
             );
             store.save(&path);
         }
@@ -1008,7 +1035,14 @@ mod tests {
             &path,
             &sender,
             0,
-            &json!({"t":"msg","id":"msg-x","from":"stranger","name":"Stranger","text":"hey","tsMs":1}),
+            &json!({
+                "t": "msg",
+                "id": "msg-x",
+                "from": "stranger",
+                "name": "Stranger",
+                "text": "hey",
+                "tsMs": 1,
+            }),
         );
         assert_eq!(reply["t"], json!("decline"));
     }
