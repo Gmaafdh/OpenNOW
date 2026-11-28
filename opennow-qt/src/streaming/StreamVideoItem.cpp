@@ -309,6 +309,10 @@ void StreamVideoItem::pushSwapGate()
     if (m_renderCallback)
         m_renderCallback->setSwapGated(!m_swapGateSource.isEmpty(), m_swapGateSource);
     emit swapStatsChanged();
+    // Re-arm the vsync-paced loop after the window becomes visible again: no
+    // swap happens while minimized, so nothing else would restart it.
+    if (m_swapGateSource.isEmpty())
+        update();
 }
 
 void StreamVideoItem::updateSwapGate()
@@ -392,7 +396,14 @@ void StreamVideoItem::connectFrameSwaps()
         if (auto renderer = callback.lock()) renderer->frameSwapped();
     }, Qt::DirectConnection);
     m_frameUpdateConnection = connect(window(), &QQuickWindow::frameSwapped, this, [this] {
-        if (m_frameGeneration && isVisible() && m_renderCallback && m_renderCallback->needsFrame())
+        if (!isVisible() || !m_renderCallback) return;
+        // While decoded frames are being presented, keep the window rendering at
+        // the display cadence: every vsync then shows the newest decoded frame.
+        // Rendering only on frame arrival made network and event-loop jitter
+        // visible as judder and coalesced bursty arrivals into one update,
+        // dropping the frames in between.
+        if (m_renderCallback->presentationLoopActive()
+            || (m_frameGeneration && m_renderCallback->needsFrame()))
             update();
     }, Qt::QueuedConnection);
 }

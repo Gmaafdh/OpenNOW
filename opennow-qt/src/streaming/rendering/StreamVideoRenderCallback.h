@@ -24,6 +24,10 @@ public:
     virtual void setFsrUpscaling(bool) {}
     virtual void setUpscalingEnhancement(int, int) {}
     virtual bool needsFrame() const { return false; }
+    // True while decoded frames are being presented through this callback.
+    // The item keeps its window rendering at the display cadence while this
+    // holds, so presentation is paced by vsync instead of by frame arrivals.
+    virtual bool presentationLoopActive() const { return false; }
     virtual void frameSwapped() {}
     virtual QVariantMap frameGenerationStats() const { return {}; }
     virtual QVariantMap swapStats() const { return {}; }

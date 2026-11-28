@@ -384,6 +384,12 @@ public:
         return m_needsFrame.load() && m_runtime && m_runtime->presentationAllowed();
     }
 
+    bool presentationLoopActive() const override
+    {
+        return m_graphicsReady && m_runtime && m_runtime->presentationAllowed()
+            && m_presentationGeneration == m_runtime->presentationGeneration();
+    }
+
     QVariantMap swapStats() const override
     {
         const auto snapshot = m_swapTimings.snapshot();
